@@ -901,10 +901,40 @@ a:focus-visible {
   box-shadow: 0 0 9px rgba(255, 93, 122, 0.6);
 }
 
+.sidebar-menu-container {
+  display: flex;
+  min-height: 150px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgba(143, 169, 207, 0.14);
+  margin: 10px 12px 9px;
+  background: rgba(2, 9, 22, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  scrollbar-color: rgba(56, 229, 255, 0.28) transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-menu-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-menu-container::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(56, 229, 255, 0.24);
+}
+
 .primary-nav {
   flex: 1;
   overflow-y: auto;
   padding: 10px 12px 18px;
+}
+
+.sidebar-menu-container .primary-nav {
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 4px 7px 14px;
 }
 
 .nav-group {
@@ -990,6 +1020,243 @@ a:focus-visible {
 .nav-item--active svg {
   color: var(--npl-cyan);
   filter: drop-shadow(0 0 5px rgba(56, 229, 255, 0.35));
+}
+
+.sidebar-staff-qr {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(56, 229, 255, 0.24);
+  margin: 0 12px 9px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(56, 229, 255, 0.085), transparent 42%),
+    rgba(5, 17, 37, 0.92);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+}
+
+.sidebar-staff-qr > header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--npl-hairline);
+  padding: 8px 10px 8px 12px;
+}
+
+.sidebar-staff-qr > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.sidebar-staff-qr > header span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 0.61rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sidebar-staff-qr > header span i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--npl-green);
+  box-shadow: 0 0 9px rgba(61, 255, 160, 0.66);
+}
+
+.sidebar-staff-qr > header strong {
+  overflow: hidden;
+  color: #ecf7ff;
+  font-size: 0.73rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-staff-qr > header button,
+.sidebar-staff-qr--hidden > button {
+  display: inline-flex;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(143, 169, 207, 0.2);
+  padding: 0 9px;
+  color: #a9bcd5;
+  background: rgba(2, 9, 22, 0.58);
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.sidebar-staff-qr__code {
+  display: grid;
+  justify-self: center;
+  margin: 12px 0 9px;
+  place-items: center;
+  border: 5px solid #fff;
+  background: #fff;
+  box-shadow: 0 9px 25px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-staff-qr__code svg {
+  display: block;
+  width: 164px;
+  height: 164px;
+}
+
+.sidebar-staff-qr__pairing {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  padding: 1px 10px 9px;
+}
+
+.sidebar-staff-qr__pairing span {
+  color: var(--npl-faint);
+  font-size: 0.61rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-staff-qr__pairing strong {
+  color: var(--npl-gold);
+  font-family: var(--npl-font-mono);
+  font-size: 1.05rem;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 15px rgba(244, 197, 76, 0.18);
+}
+
+.sidebar-staff-qr > footer {
+  display: grid;
+  min-height: 40px;
+  grid-template-columns: auto 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--npl-hairline);
+  padding: 4px 8px 4px 11px;
+  background: rgba(0, 5, 15, 0.28);
+}
+
+.sidebar-staff-qr > footer > span {
+  color: var(--npl-cyan);
+  font-family: var(--npl-font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.sidebar-staff-qr > footer small {
+  overflow: hidden;
+  color: var(--npl-faint);
+  font-size: 0.61rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-staff-qr > footer button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  color: var(--npl-muted);
+  background: transparent;
+}
+
+.sidebar-staff-qr__state,
+.sidebar-staff-qr__approved {
+  display: grid;
+  min-height: 225px;
+  place-items: center;
+  align-content: center;
+  gap: 9px;
+  padding: 20px;
+  color: var(--npl-cyan);
+  text-align: center;
+}
+
+.sidebar-staff-qr__state > svg {
+  animation: signal-refresh 850ms linear infinite;
+}
+
+.sidebar-staff-qr__state strong,
+.sidebar-staff-qr__approved strong {
+  color: #edf7ff;
+  font-size: 0.75rem;
+}
+
+.sidebar-staff-qr__state button {
+  min-height: 34px;
+  border: 1px solid rgba(56, 229, 255, 0.3);
+  margin-top: 5px;
+  padding: 0 12px;
+  color: var(--npl-cyan);
+  background: rgba(56, 229, 255, 0.06);
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.sidebar-staff-qr__state--error {
+  color: var(--npl-red);
+}
+
+.sidebar-staff-qr__state--error > svg {
+  animation: none;
+}
+
+.sidebar-staff-qr__approved {
+  color: var(--npl-green);
+}
+
+.sidebar-staff-qr__approved span {
+  color: var(--npl-muted);
+  font-size: 0.65rem;
+}
+
+.sidebar-staff-qr--hidden {
+  min-height: 64px;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+}
+
+.sidebar-staff-qr__symbol {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(56, 229, 255, 0.24);
+  border-radius: 50%;
+  color: var(--npl-cyan);
+  background: rgba(56, 229, 255, 0.055);
+}
+
+.sidebar-staff-qr--hidden > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.sidebar-staff-qr--hidden > div strong {
+  color: var(--npl-text);
+  font-size: 0.73rem;
+}
+
+.sidebar-staff-qr--hidden > div span {
+  color: var(--npl-faint);
+  font-size: 0.63rem;
 }
 
 .operator-card {

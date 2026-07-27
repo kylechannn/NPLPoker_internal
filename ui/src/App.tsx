@@ -12,6 +12,8 @@ import {
   CircleDollarSign,
   Clock3,
   Copy,
+  Eye,
+  EyeOff,
   Gauge,
   LayoutDashboard,
   ListChecks,
@@ -713,6 +715,112 @@ function StaffLoginDialog({
   )
 }
 
+function SidebarStaffQR({
+  visible,
+  challenge,
+  loading,
+  error,
+  secondsRemaining,
+  onHide,
+  onShow,
+  onRefresh,
+}: {
+  visible: boolean
+  challenge: StaffLoginChallenge | null
+  loading: boolean
+  error: string | null
+  secondsRemaining: number
+  onHide: () => void
+  onShow: () => void
+  onRefresh: () => void
+}) {
+  if (!visible) {
+    return (
+      <section className="sidebar-staff-qr sidebar-staff-qr--hidden" aria-label="Staff login QR hidden">
+        <span className="sidebar-staff-qr__symbol"><QrCode size={20} /></span>
+        <div>
+          <strong>Staff login</strong>
+          <span>QR code hidden</span>
+        </div>
+        <button type="button" onClick={onShow} aria-label="Show staff login QR code">
+          <Eye size={17} /> Show
+        </button>
+      </section>
+    )
+  }
+
+  const approved = challenge?.status === "approved" && challenge.staff
+  const active = challenge?.status === "waiting" || challenge?.status === "scanned"
+  const statusLabel = challenge?.status === "scanned"
+    ? "Phone connected"
+    : challenge?.status === "approved"
+      ? "Sign-in approved"
+      : "Ready to scan"
+
+  return (
+    <section className="sidebar-staff-qr" aria-label="Staff phone login QR code">
+      <header>
+        <div>
+          <span><i /> Staff login</span>
+          <strong>{statusLabel}</strong>
+        </div>
+        <button type="button" onClick={onHide} aria-label="Hide staff login QR code">
+          <EyeOff size={16} /> Hide
+        </button>
+      </header>
+
+      {loading ? (
+        <div className="sidebar-staff-qr__state" role="status">
+          <RefreshCw size={25} />
+          <strong>Preparing secure QR…</strong>
+        </div>
+      ) : error ? (
+        <div className="sidebar-staff-qr__state sidebar-staff-qr__state--error">
+          <AlertTriangle size={24} />
+          <strong>QR unavailable</strong>
+          <button type="button" onClick={onRefresh}>Try again</button>
+        </div>
+      ) : approved ? (
+        <div className="sidebar-staff-qr__approved">
+          <CheckCircle2 size={35} />
+          <strong>{challenge.staff?.name}</strong>
+          <span>Phone session approved</span>
+        </div>
+      ) : challenge && active ? (
+        <>
+          <div className="sidebar-staff-qr__code">
+            <QRCodeSVG
+              value={challenge.login_url}
+              size={164}
+              level="M"
+              marginSize={1}
+              bgColor="#ffffff"
+              fgColor="#07142b"
+              title="NPL one-time staff login QR code"
+            />
+          </div>
+          <div className="sidebar-staff-qr__pairing">
+            <span>Pairing code</span>
+            <strong>{challenge.pairing_code}</strong>
+          </div>
+          <footer>
+            <span>{Math.floor(secondsRemaining / 60)}:{String(secondsRemaining % 60).padStart(2, "0")}</span>
+            <small>{challenge.status === "scanned" ? "Confirm on phone" : "Same venue Wi-Fi"}</small>
+            <button type="button" onClick={onRefresh} aria-label="Generate a new staff QR code" title="New QR">
+              <RefreshCw size={15} />
+            </button>
+          </footer>
+        </>
+      ) : (
+        <div className="sidebar-staff-qr__state">
+          <QrCode size={25} />
+          <strong>Refreshing QR…</strong>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function App() {
   const [activeSection, setActiveSection] = useState<NavId>("tables")
   const [selectedTableId, setSelectedTableId] = useState(tables[0].id)
@@ -727,7 +835,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [startupPhase, setStartupPhase] = useState<"visible" | "leaving" | "hidden">("visible")
   const [notificationOpen, setNotificationOpen] = useState(false)
-  const [staffLoginOpen, setStaffLoginOpen] = useState(false)
+  const [staffQRVisible, setStaffQRVisible] = useState(true)
   const [staffLoginLoading, setStaffLoginLoading] = useState(false)
   const [staffLoginError, setStaffLoginError] = useState<string | null>(null)
   const [staffChallenge, setStaffChallenge] = useState<StaffLoginChallenge | null>(null)
@@ -813,16 +921,16 @@ export default function App() {
     }
   }, [cancelStaffChallenge])
 
-  const openStaffLogin = () => {
-    setStaffLoginOpen(true)
-    void createStaffChallenge(staffChallenge)
-  }
-
-  const closeStaffLogin = () => {
+  const hideStaffQR = () => {
     void cancelStaffChallenge(staffChallenge)
-    setStaffLoginOpen(false)
+    setStaffQRVisible(false)
     setStaffLoginError(null)
     setStaffChallenge(null)
+  }
+
+  const showStaffQR = () => {
+    setStaffQRVisible(true)
+    void createStaffChallenge()
   }
 
   const regenerateStaffLogin = () => {
@@ -834,7 +942,11 @@ export default function App() {
   }, [loadHealth])
 
   useEffect(() => {
-    if (!staffLoginOpen || !staffChallenge) return
+    void createStaffChallenge()
+  }, [createStaffChallenge])
+
+  useEffect(() => {
+    if (!staffQRVisible || !staffChallenge) return
     if (staffChallenge.status !== "waiting" && staffChallenge.status !== "scanned") return
 
     let stopped = false
@@ -866,10 +978,10 @@ export default function App() {
       stopped = true
       window.clearInterval(poll)
     }
-  }, [staffLoginOpen, staffChallenge?.id, staffChallenge?.status])
+  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.status])
 
   useEffect(() => {
-    if (!staffLoginOpen || !staffChallenge) return
+    if (!staffQRVisible || !staffChallenge) return
     const updateCountdown = () => {
       const remaining = Math.max(0, Math.ceil((new Date(staffChallenge.expires_at).getTime() - Date.now()) / 1000))
       setStaffSecondsRemaining(remaining)
@@ -877,7 +989,24 @@ export default function App() {
     updateCountdown()
     const timer = window.setInterval(updateCountdown, 1_000)
     return () => window.clearInterval(timer)
-  }, [staffLoginOpen, staffChallenge?.id, staffChallenge?.expires_at])
+  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.expires_at])
+
+  useEffect(() => {
+    if (!staffQRVisible || !staffChallenge || staffChallenge.status !== "approved") return
+    const nextStaff = window.setTimeout(() => {
+      void createStaffChallenge(staffChallenge)
+    }, 4_500)
+    return () => window.clearTimeout(nextStaff)
+  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.status, createStaffChallenge])
+
+  useEffect(() => {
+    if (!staffQRVisible || !staffChallenge || staffSecondsRemaining > 0) return
+    if (staffChallenge.status !== "waiting" && staffChallenge.status !== "scanned") return
+    const rotateExpired = window.setTimeout(() => {
+      void createStaffChallenge(staffChallenge)
+    }, 500)
+    return () => window.clearTimeout(rotateExpired)
+  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.status, staffSecondsRemaining, createStaffChallenge])
 
   useEffect(() => {
     void loadNetworkQuality()
@@ -1026,30 +1155,43 @@ export default function App() {
           onRefresh={() => void loadNetworkQuality(true)}
         />
 
-        <nav className="primary-nav" aria-label="Operational system navigation">
-          {navigation.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <p>{group.label}</p>
-              {group.items.map((item) => {
-                const Icon = item.icon
-                const active = activeSection === item.id
-                return (
-                  <button
-                    className={active ? "nav-item nav-item--active" : "nav-item"}
-                    type="button"
-                    key={item.id}
-                    aria-current={active ? "page" : undefined}
-                    onClick={() => chooseSection(item.id)}
-                  >
-                    <Icon size={18} strokeWidth={1.8} />
-                    <span>{item.label}</span>
-                    {item.badge ? <strong>{item.badge}</strong> : null}
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-        </nav>
+        <div className="sidebar-menu-container">
+          <nav className="primary-nav" aria-label="Operational system navigation">
+            {navigation.map((group) => (
+              <div className="nav-group" key={group.label}>
+                <p>{group.label}</p>
+                {group.items.map((item) => {
+                  const Icon = item.icon
+                  const active = activeSection === item.id
+                  return (
+                    <button
+                      className={active ? "nav-item nav-item--active" : "nav-item"}
+                      type="button"
+                      key={item.id}
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => chooseSection(item.id)}
+                    >
+                      <Icon size={18} strokeWidth={1.8} />
+                      <span>{item.label}</span>
+                      {item.badge ? <strong>{item.badge}</strong> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </nav>
+        </div>
+
+        <SidebarStaffQR
+          visible={staffQRVisible}
+          challenge={staffChallenge}
+          loading={staffLoginLoading}
+          error={staffLoginError}
+          secondsRemaining={staffSecondsRemaining}
+          onHide={hideStaffQR}
+          onShow={showStaffQR}
+          onRefresh={regenerateStaffLogin}
+        />
 
         <div className="operator-card">
           <div className="operator-avatar">{activeStaff.initials}</div>
@@ -1100,16 +1242,6 @@ export default function App() {
           </div>
 
           <div className="topbar-right">
-            <button
-              className="staff-login-button"
-              type="button"
-              aria-label="Open staff phone login QR code"
-              onClick={openStaffLogin}
-            >
-              <QrCode size={19} />
-              <span>Staff login</span>
-              <i aria-hidden="true" />
-            </button>
             <button
               className={manualUpdating ? "manual-update-button manual-update-button--active" : "manual-update-button"}
               type="button"
@@ -1202,17 +1334,6 @@ export default function App() {
             <X size={16} />
           </button>
         </div>
-      ) : null}
-      {staffLoginOpen ? createPortal(
-        <StaffLoginDialog
-          challenge={staffChallenge}
-          loading={staffLoginLoading}
-          error={staffLoginError}
-          secondsRemaining={staffSecondsRemaining}
-          onClose={closeStaffLogin}
-          onRegenerate={regenerateStaffLogin}
-        />,
-        document.body,
       ) : null}
       </div>
       {startupPhase !== "hidden" ? <StartupScreen leaving={startupPhase === "leaving"} /> : null}
