@@ -88,23 +88,27 @@ headers.
 ## Tournament clock
 
 The poker adaptation of EdgeHost's Sichuan module, at
-. The clock is **server-authoritative** — the session
-row stores , ,  and
-, so remaining time is arithmetic over server time and every
+`/api/v1/tournaments`. The clock is **server-authoritative** — the session
+row stores `current_level_index`, `level_started_at`, `paused_at` and
+`pause_accum_ms`, so remaining time is arithmetic over server time and every
 display (desk, big screen, player phone) agrees. EdgeHost kept its clock in
 one browser window, so two timer windows drifted and a reload restarted the
-tournament.
+tournament at level 1.
 
 | Route | Purpose |
 |---|---|
-|  | Create with a blind structure |
-|  | Edit levels (draft only) |
-|  | Authoritative clock — poll and tick locally |
-|  | Lifecycle, with guards |
-|  | Operator overrides |
-|  | Register a player and take the buy-in |
-|  | rebuy / addon / ko / unko / bonus (+ voids) |
-|  | Roster with chips, spend and alive/dead |
+| `POST /api/v1/tournaments` | Create with a blind structure |
+| `PUT /{id}/structure` | Edit levels (draft only) |
+| `GET /{id}/clock` | Authoritative clock — poll, then tick locally |
+| `POST /{id}/start` `pause` `resume` `finish` | Lifecycle, with guards |
+| `POST /{id}/next-level` `previous-level` `adjust-time` | Operator overrides |
+| `POST /{id}/register` | Register a player and take the buy-in |
+| `POST /{id}/actions` | rebuy / addon / ko / unko / bonus (+ voids) |
+| `GET /{id}/players` | Roster with chips, spend and alive/dead |
+
+Poker-specific changes from Sichuan: real `small_blind` / `big_blind` /
+`ante` / `bb_ante` columns instead of one opaque blind amount; rebuy and
+add-on caps enforced; late registration closes at a configured level.
 
 Levels advance lazily on read, so a machine that slept through three levels
 catches up correctly. Every clock transition also publishes to the cloud, so
