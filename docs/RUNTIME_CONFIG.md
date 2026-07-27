@@ -33,3 +33,30 @@ The local endpoints remain configurable with `NPL_INTERNAL_BACKEND` and
 
 Invalid values stop startup with a clear native error instead of silently
 running an unsafe or resource-heavy configuration.
+
+## Staff QR gateway
+
+The Caddy configuration has two deliberately separate listeners:
+
+- `NPL_INTERNAL_LISTEN` defaults to `127.0.0.1:8787` and carries the complete
+  desktop application.
+- `NPL_STAFF_LISTEN` defaults to `0.0.0.0:8790` and carries only
+  `/staff-login`, `/staff-login/approve`, and `/api/staff-login/session`.
+
+Caddy overwrites `X-NPL-Gateway` at each trust boundary. Go then rejects staff
+routes arriving through the desktop boundary and rejects desktop challenge
+control arriving through the staff boundary. Caller-supplied gateway headers
+are never trusted.
+
+NPL OS selects the active default-route IPv4 address for each QR. Set
+`NPL_STAFF_PUBLIC_URL` to a clean HTTP or HTTPS origin when the venue requires
+an explicit address, for example:
+
+```powershell
+$env:NPL_STAFF_PUBLIC_URL = "http://192.168.20.15:8790"
+```
+
+`NPL_STAFF_LISTEN` accepts wildcard, loopback, or private LAN addresses only.
+Public bind addresses are rejected at startup. The Windows Firewall helper
+generated into `dist` permits only the selected Caddy executable, TCP port
+`8790`, and remote clients in `LocalSubnet`.

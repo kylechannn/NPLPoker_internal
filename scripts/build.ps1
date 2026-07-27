@@ -49,6 +49,7 @@ New-Item -ItemType Directory -Force -Path $CaddyOutputDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $OutputDirectory "logs") | Out-Null
 Copy-Item -LiteralPath $CaddySource -Destination (Join-Path $CaddyOutputDirectory "caddy.exe") -Force
 Copy-Item -LiteralPath (Join-Path $RepoRoot "Caddyfile") -Destination (Join-Path $OutputDirectory "Caddyfile") -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "configure-staff-gateway.ps1") -Destination (Join-Path $OutputDirectory "ConfigureStaffGateway.ps1") -Force
 
 $Manifest = Join-Path $RepoRoot "app.manifest"
 $ManifestTool = Get-ChildItem -LiteralPath "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "mt.exe" -Recurse -ErrorAction SilentlyContinue |

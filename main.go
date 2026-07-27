@@ -31,15 +31,17 @@ var version = "dev"
 var uiAssets embed.FS
 
 type healthResponse struct {
-	OK               bool   `json:"ok"`
-	Service          string `json:"service"`
-	Version          string `json:"version"`
-	GoVersion        string `json:"go_version"`
-	ResourceProfile  string `json:"resource_profile"`
-	GoMaxProcs       int    `json:"go_max_procs"`
-	GoMemoryLimitMiB int    `json:"go_memory_limit_mib"`
-	NetworkCacheSecs int    `json:"network_cache_seconds"`
-	Time             string `json:"time"`
+	OK                bool   `json:"ok"`
+	Service           string `json:"service"`
+	Version           string `json:"version"`
+	GoVersion         string `json:"go_version"`
+	ResourceProfile   string `json:"resource_profile"`
+	GoMaxProcs        int    `json:"go_max_procs"`
+	GoMemoryLimitMiB  int    `json:"go_memory_limit_mib"`
+	NetworkCacheSecs  int    `json:"network_cache_seconds"`
+	StaffLoginEnabled bool   `json:"staff_login_enabled"`
+	StaffGatewayURL   string `json:"staff_gateway_url,omitempty"`
+	Time              string `json:"time"`
 }
 
 func main() {
@@ -80,7 +82,7 @@ func run(cfg config) error {
 
 	server := &http.Server{
 		Addr:              cfg.backendListen,
-		Handler:           newHandlerWithResources(assetFS, cfg.resources),
+		Handler:           newHandlerWithStaffGateway(assetFS, cfg.resources, staffPublicBaseURL(cfg)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -170,9 +172,19 @@ func newHandler(assets fs.FS) http.Handler {
 }
 
 func newHandlerWithResources(assets fs.FS, resources resourceSettings) http.Handler {
+	return newHandlerWithStaffGateway(assets, resources, "")
+}
+
+func newHandlerWithStaffGateway(
+	assets fs.FS,
+	resources resourceSettings,
+	staffGatewayURL string,
+) http.Handler {
 	mux := http.NewServeMux()
 	networkMonitor := newNetworkQualityMonitor(resources.networkQualityCacheTime)
 	licenses := newLicenseManager()
+	staffLogin := newStaffLoginManager(staffGatewayURL)
+	staffLogin.register(mux)
 
 	mux.HandleFunc("GET /api/license/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, licenses.status())
@@ -205,15 +217,17 @@ func newHandlerWithResources(assets fs.FS, resources resourceSettings) http.Hand
 
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, healthResponse{
-			OK:               true,
-			Service:          appName,
-			Version:          version,
-			GoVersion:        runtime.Version(),
-			ResourceProfile:  resources.profileName,
-			GoMaxProcs:       resources.goMaxProcs,
-			GoMemoryLimitMiB: resources.goMemoryLimitMiB,
-			NetworkCacheSecs: int(resources.networkQualityCacheTime / time.Second),
-			Time:             time.Now().UTC().Format(time.RFC3339),
+			OK:                true,
+			Service:           appName,
+			Version:           version,
+			GoVersion:         runtime.Version(),
+			ResourceProfile:   resources.profileName,
+			GoMaxProcs:        resources.goMaxProcs,
+			GoMemoryLimitMiB:  resources.goMemoryLimitMiB,
+			NetworkCacheSecs:  int(resources.networkQualityCacheTime / time.Second),
+			StaffLoginEnabled: staffGatewayURL != "",
+			StaffGatewayURL:   staffGatewayURL,
+			Time:              time.Now().UTC().Format(time.RFC3339),
 		})
 	})
 
@@ -296,6 +310,7 @@ func launchCaddy(ctx context.Context, cfg config, logger *log.Logger) (<-chan er
 	cmd.Env = append(os.Environ(),
 		"NPL_INTERNAL_LISTEN="+cfg.publicListen,
 		"NPL_INTERNAL_UPSTREAM="+cfg.backendListen,
+		"NPL_STAFF_LISTEN="+cfg.staffListen,
 		"GOMAXPROCS="+fmt.Sprintf("%d", cfg.resources.caddyMaxProcs),
 		"GOMEMLIMIT="+fmt.Sprintf("%dMiB", cfg.resources.caddyMemoryLimitMiB),
 	)

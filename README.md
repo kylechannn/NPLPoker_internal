@@ -20,9 +20,18 @@ resource profiles and optional overrides.
 The interface opens as a native, resizable Windows application. Its local services use:
 
 - Go backend: `127.0.0.1:8788`
-- Caddy gateway: [http://127.0.0.1:8787](http://127.0.0.1:8787)
+- desktop-only Caddy gateway: [http://127.0.0.1:8787](http://127.0.0.1:8787)
+- route-limited staff QR gateway: `http://<venue-lan-ip>:8790`
 
-Override these with `NPL_INTERNAL_BACKEND` and `NPL_INTERNAL_LISTEN`.
+The staff gateway follows EdgeHost's single-ingress mobile pattern, but exposes
+only `/staff-login` and the mobile session check. The operational SPA, license
+APIs, health APIs, and scoring data cannot be requested through the LAN
+listener.
+
+Each QR request uses a cryptographically random one-time token, a separate
+six-digit pairing code, a three-minute expiry, a five-attempt limit, and an
+eight-hour HttpOnly phone session. Approved staff identity is reflected in the
+desktop operator card.
 
 ## Setup and build
 
@@ -35,6 +44,16 @@ Override these with `NPL_INTERNAL_BACKEND` and `NPL_INTERNAL_LISTEN`.
 `setup.ps1` verifies Go/Node/npm, copies the Caddy executable from the local EdgeHost bundle into `.tools`, and installs dependencies. `build.ps1` compiles React, runs Go tests, builds the Windows executable, validates the Caddy configuration, and creates the portable `dist` bundle.
 
 Double-click `dist\NPLPokerInternal.exe` or run `scripts\start.ps1`; the desktop window opens automatically.
+
+To allow phones on the local subnet through Windows Firewall, run the generated
+helper once from an elevated PowerShell session:
+
+```powershell
+.\dist\ConfigureStaffGateway.ps1 -CaddyPath .\dist\redist\caddy\caddy.exe
+```
+
+The rule is limited to TCP port `8790`, the bundled Caddy executable, and
+`LocalSubnet` remote addresses. It does not expose the desktop gateway.
 
 For headless service troubleshooting:
 

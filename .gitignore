@@ -5,3 +5,17 @@ ui/node_modules/
 *.log
 *.tmp
 
+# Bundled Laravel backend: vendor is restored by scripts/setup.ps1 (composer
+# install) rather than committed, and runtime state never belongs in git.
+app/npl_internal/vendor/
+app/npl_internal/node_modules/
+app/npl_internal/.env
+app/npl_internal/storage/framework/cache/data/*
+app/npl_internal/storage/framework/sessions/*
+app/npl_internal/storage/framework/views/*
+app/npl_internal/storage/logs/*
+app/npl_internal/storage/app/media/
+app/npl_internal/database/*.sqlite
+app/npl_internal/database/*.sqlite-journal
+app/npl_internal/.phpunit.result.cache
+

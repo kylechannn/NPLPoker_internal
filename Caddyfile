@@ -13,5 +13,32 @@ http://{$NPL_INTERNAL_LISTEN:127.0.0.1:8787} {
 		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 	}
 
-	reverse_proxy {$NPL_INTERNAL_UPSTREAM:127.0.0.1:8788}
+	reverse_proxy {$NPL_INTERNAL_UPSTREAM:127.0.0.1:8788} {
+		header_up X-NPL-Gateway "desktop"
+	}
+}
+
+# A separate, route-limited LAN ingress for staff phone pairing. The desktop
+# SPA and all operational APIs remain unreachable from this listener.
+http://{$NPL_STAFF_LISTEN:0.0.0.0:8790} {
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+		Cache-Control "no-store, max-age=0"
+	}
+
+	@staff_access path /staff-login /staff-login/* /api/staff-login/session
+	handle @staff_access {
+		reverse_proxy {$NPL_INTERNAL_UPSTREAM:127.0.0.1:8788} {
+			header_up X-NPL-Gateway "staff"
+		}
+	}
+
+	handle {
+		respond 404
+	}
 }

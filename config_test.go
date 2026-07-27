@@ -68,3 +68,27 @@ func TestConfigRejectsInvalidResourceValues(t *testing.T) {
 		t.Fatalf("expected memory validation error, got %v", err)
 	}
 }
+
+func TestConfigAllowsDedicatedPrivateStaffGateway(t *testing.T) {
+	values := map[string]string{
+		"NPL_STAFF_LISTEN":     "0.0.0.0:8790",
+		"NPL_STAFF_PUBLIC_URL": "http://192.168.10.25:8790",
+	}
+	cfg, err := loadConfig(false, false, func(name string) string { return values[name] }, 4)
+	if err != nil {
+		t.Fatalf("expected private staff gateway config: %v", err)
+	}
+	if cfg.staffListen != "0.0.0.0:8790" || cfg.staffPublicURL != values["NPL_STAFF_PUBLIC_URL"] {
+		t.Fatalf("unexpected staff gateway config: %+v", cfg)
+	}
+}
+
+func TestConfigRejectsPublicStaffListenAddress(t *testing.T) {
+	values := map[string]string{
+		"NPL_STAFF_LISTEN": "8.8.8.8:8790",
+	}
+	_, err := loadConfig(false, false, func(name string) string { return values[name] }, 4)
+	if err == nil || !strings.Contains(err.Error(), "private LAN") {
+		t.Fatalf("expected private LAN validation error, got %v", err)
+	}
+}

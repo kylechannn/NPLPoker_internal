@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
+import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
 import nplLogoUrl from "./assets/npl-logo.png"
 import {
   Activity,
   AlertTriangle,
   Bell,
+  CheckCircle2,
   ChevronDown,
   CircleDollarSign,
   Clock3,
@@ -23,10 +25,12 @@ import {
   Pause,
   Play,
   Plus,
+  QrCode,
   RefreshCw,
   Save,
   Settings,
   ShieldCheck,
+  Smartphone,
   Spade,
   Square,
   Table2,
@@ -59,6 +63,8 @@ type Health = {
   go_max_procs: number
   go_memory_limit_mib: number
   network_cache_seconds: number
+  staff_login_enabled: boolean
+  staff_gateway_url?: string
   time: string
 }
 
@@ -86,6 +92,23 @@ type NetworkQualityState =
   | { status: "loading" }
   | { status: "ready"; quality: NetworkQuality }
   | { status: "error" }
+
+type StaffIdentity = {
+  id: string
+  name: string
+  role: string
+  initials: string
+}
+
+type StaffLoginChallenge = {
+  id: string
+  login_url: string
+  pairing_code: string
+  status: "waiting" | "scanned" | "approved" | "expired" | "cancelled" | "locked"
+  expires_at: string
+  seconds_remaining: number
+  staff?: StaffIdentity
+}
 
 type NavId =
   | "overview"
@@ -541,6 +564,171 @@ function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boole
   )
 }
 
+function StaffLoginDialog({
+  challenge,
+  loading,
+  error,
+  secondsRemaining,
+  onClose,
+  onRegenerate,
+}: {
+  challenge: StaffLoginChallenge | null
+  loading: boolean
+  error: string | null
+  secondsRemaining: number
+  onClose: () => void
+  onRegenerate: () => void
+}) {
+  const statusLabel = challenge?.status === "scanned"
+    ? "Phone connected"
+    : challenge?.status === "approved"
+      ? "Sign-in approved"
+      : challenge?.status === "expired"
+        ? "Request expired"
+        : challenge?.status === "locked"
+          ? "Request locked"
+          : "Waiting for scan"
+
+  let gatewayLabel = "Private venue network"
+  if (challenge?.login_url) {
+    try {
+      gatewayLabel = new URL(challenge.login_url).origin.replace(/^https?:\/\//, "")
+    } catch {
+      gatewayLabel = "Private venue network"
+    }
+  }
+
+  const terminal = challenge?.status === "expired" ||
+    challenge?.status === "cancelled" ||
+    challenge?.status === "locked"
+
+  return (
+    <div className="modal-scrim staff-login-scrim" role="presentation" onMouseDown={onClose}>
+      <section
+        className="staff-login-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="staff-login-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="staff-login-dialog__header">
+          <span className="staff-login-dialog__icon"><QrCode size={24} /></span>
+          <div>
+            <p>Secure staff access</p>
+            <h2 id="staff-login-title">Scan to sign in on a staff phone</h2>
+          </div>
+          <button className="staff-login-dialog__close" type="button" aria-label="Close staff login" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </header>
+
+        {loading ? (
+          <div className="staff-login-dialog__loading" role="status">
+            <RefreshCw size={30} />
+            <strong>Creating a protected login request</strong>
+            <span>Detecting the private venue gateway…</span>
+          </div>
+        ) : error ? (
+          <div className="staff-login-dialog__error">
+            <AlertTriangle size={30} />
+            <h3>Staff QR is not available</h3>
+            <p>{error}</p>
+            <button className="primary-button" type="button" onClick={onRegenerate}>
+              <RefreshCw size={17} /> Try again
+            </button>
+          </div>
+        ) : challenge?.status === "approved" && challenge.staff ? (
+          <div className="staff-login-approved">
+            <span className="staff-login-approved__check"><CheckCircle2 size={48} /></span>
+            <p>Phone session active</p>
+            <h3>{challenge.staff.name}</h3>
+            <span>{challenge.staff.role} · {challenge.staff.id}</span>
+            <div className="staff-login-approved__security">
+              <ShieldCheck size={18} />
+              <span>The one-time QR has been consumed and cannot be replayed.</span>
+            </div>
+            <button className="primary-button" type="button" onClick={onClose}>Done</button>
+          </div>
+        ) : challenge ? (
+          <>
+            <div className="staff-login-dialog__body">
+              <div className={terminal ? "staff-qr-card staff-qr-card--inactive" : "staff-qr-card"}>
+                {!terminal ? (
+                  <QRCodeSVG
+                    value={challenge.login_url}
+                    size={236}
+                    level="M"
+                    marginSize={2}
+                    bgColor="#ffffff"
+                    fgColor="#07142b"
+                    title="NPL one-time staff login QR code"
+                  />
+                ) : (
+                  <div className="staff-qr-card__inactive">
+                    <QrCode size={54} />
+                    <span>Generate a new request</span>
+                  </div>
+                )}
+                <div className={`staff-qr-status staff-qr-status--${challenge.status}`}>
+                  <i />
+                  <span>{statusLabel}</span>
+                </div>
+              </div>
+
+              <div className="staff-login-instructions">
+                <div className="staff-login-instructions__step">
+                  <span>1</span>
+                  <div>
+                    <strong>Scan with the staff phone</strong>
+                    <p>The phone must be connected to the same private venue network.</p>
+                  </div>
+                </div>
+                <div className="staff-login-instructions__step">
+                  <span>2</span>
+                  <div>
+                    <strong>Enter this pairing code</strong>
+                    <p className="staff-pairing-code" aria-label={`Pairing code ${challenge.pairing_code}`}>
+                      {challenge.pairing_code}
+                    </p>
+                  </div>
+                </div>
+                <div className="staff-login-instructions__step">
+                  <span>3</span>
+                  <div>
+                    <strong>Confirm staff identity</strong>
+                    <p>NPL OS will show the approved staff member automatically.</p>
+                  </div>
+                </div>
+
+                <div className="staff-gateway-status">
+                  <Smartphone size={18} />
+                  <div>
+                    <span>Private staff gateway</span>
+                    <strong>{gatewayLabel}</strong>
+                  </div>
+                  <ShieldCheck size={18} />
+                </div>
+              </div>
+            </div>
+
+            <footer className="staff-login-dialog__footer">
+              <div>
+                <span className={secondsRemaining <= 30 ? "staff-login-timer staff-login-timer--urgent" : "staff-login-timer"}>
+                  {terminal ? statusLabel : `${Math.floor(secondsRemaining / 60)}:${String(secondsRemaining % 60).padStart(2, "0")} remaining`}
+                </span>
+                <small>One-time token · 5 attempt limit · 8-hour phone session</small>
+              </div>
+              <button className="secondary-button" type="button" onClick={onRegenerate}>
+                <RefreshCw size={17} /> New QR
+              </button>
+            </footer>
+          </>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
 export default function App() {
   const [activeSection, setActiveSection] = useState<NavId>("tables")
   const [selectedTableId, setSelectedTableId] = useState(tables[0].id)
@@ -555,6 +743,17 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [startupPhase, setStartupPhase] = useState<"visible" | "leaving" | "hidden">("visible")
   const [notificationOpen, setNotificationOpen] = useState(false)
+  const [staffLoginOpen, setStaffLoginOpen] = useState(false)
+  const [staffLoginLoading, setStaffLoginLoading] = useState(false)
+  const [staffLoginError, setStaffLoginError] = useState<string | null>(null)
+  const [staffChallenge, setStaffChallenge] = useState<StaffLoginChallenge | null>(null)
+  const [staffSecondsRemaining, setStaffSecondsRemaining] = useState(0)
+  const [activeStaff, setActiveStaff] = useState<StaffIdentity>({
+    id: "NPL-1001",
+    name: "Kyle Chen",
+    role: "Floor Manager",
+    initials: "KC",
+  })
   const [stackEdits, setStackEdits] = useState<{
     changes: Record<string, number>
     history: Array<{ key: string; previous: number }>
@@ -593,9 +792,108 @@ export default function App() {
     }
   }, [])
 
+  const cancelStaffChallenge = useCallback(async (challenge: StaffLoginChallenge | null) => {
+    if (!challenge || challenge.status === "approved" || challenge.status === "expired" || challenge.status === "cancelled") return
+    try {
+      await fetch(`/api/staff-login/challenges/${encodeURIComponent(challenge.id)}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      })
+    } catch {
+      // Expiry still bounds a request if the local gateway closes mid-cancel.
+    }
+  }, [])
+
+  const createStaffChallenge = useCallback(async (previous?: StaffLoginChallenge | null) => {
+    if (previous) await cancelStaffChallenge(previous)
+    setStaffLoginLoading(true)
+    setStaffLoginError(null)
+    setStaffChallenge(null)
+    try {
+      const response = await fetch("/api/staff-login/challenges", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      })
+      const payload = await response.json() as StaffLoginChallenge & { error?: string }
+      if (!response.ok) throw new Error(payload.error || "The private staff gateway could not create a login request.")
+      setStaffChallenge(payload)
+      setStaffSecondsRemaining(payload.seconds_remaining)
+    } catch (requestError) {
+      setStaffLoginError(
+        requestError instanceof Error
+          ? requestError.message
+          : "The private staff gateway could not create a login request.",
+      )
+    } finally {
+      setStaffLoginLoading(false)
+    }
+  }, [cancelStaffChallenge])
+
+  const openStaffLogin = () => {
+    setStaffLoginOpen(true)
+    void createStaffChallenge(staffChallenge)
+  }
+
+  const closeStaffLogin = () => {
+    void cancelStaffChallenge(staffChallenge)
+    setStaffLoginOpen(false)
+    setStaffLoginError(null)
+    setStaffChallenge(null)
+  }
+
+  const regenerateStaffLogin = () => {
+    void createStaffChallenge(staffChallenge)
+  }
+
   useEffect(() => {
     void loadHealth()
   }, [loadHealth])
+
+  useEffect(() => {
+    if (!staffLoginOpen || !staffChallenge) return
+    if (staffChallenge.status !== "waiting" && staffChallenge.status !== "scanned") return
+
+    let stopped = false
+    const pollStatus = async () => {
+      try {
+        const response = await fetch(`/api/staff-login/challenges/${encodeURIComponent(staffChallenge.id)}`, {
+          headers: { Accept: "application/json", "Cache-Control": "no-store" },
+        })
+        if (!response.ok) return
+        const status = await response.json() as Pick<
+          StaffLoginChallenge,
+          "id" | "status" | "expires_at" | "seconds_remaining" | "staff"
+        >
+        if (stopped) return
+        setStaffChallenge((current) => current?.id === status.id ? { ...current, ...status } : current)
+        setStaffSecondsRemaining(status.seconds_remaining)
+        if (status.status === "approved" && status.staff) {
+          setActiveStaff(status.staff)
+          setNotice(`${status.staff.name} signed in securely from a staff phone.`)
+        }
+      } catch {
+        // Keep the displayed QR active; the next lightweight poll can recover.
+      }
+    }
+
+    void pollStatus()
+    const poll = window.setInterval(pollStatus, 1_500)
+    return () => {
+      stopped = true
+      window.clearInterval(poll)
+    }
+  }, [staffLoginOpen, staffChallenge?.id, staffChallenge?.status])
+
+  useEffect(() => {
+    if (!staffLoginOpen || !staffChallenge) return
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((new Date(staffChallenge.expires_at).getTime() - Date.now()) / 1000))
+      setStaffSecondsRemaining(remaining)
+    }
+    updateCountdown()
+    const timer = window.setInterval(updateCountdown, 1_000)
+    return () => window.clearInterval(timer)
+  }, [staffLoginOpen, staffChallenge?.id, staffChallenge?.expires_at])
 
   useEffect(() => {
     void loadNetworkQuality()
@@ -770,12 +1068,26 @@ export default function App() {
         </nav>
 
         <div className="operator-card">
-          <div className="operator-avatar">KC</div>
+          <div className="operator-avatar">{activeStaff.initials}</div>
           <div>
-            <strong>Kyle Chen</strong>
-            <span>Floor manager</span>
+            <strong>{activeStaff.name}</strong>
+            <span>{activeStaff.role}</span>
           </div>
-          <button className="operator-action" type="button" aria-label="Sign out">
+          <button
+            className="operator-action"
+            type="button"
+            aria-label="Sign out staff phone session"
+            title="Clear paired staff"
+            onClick={() => {
+              setActiveStaff({
+                id: "NPL-LOCAL",
+                name: "Local operator",
+                role: "Staff access ready",
+                initials: "NPL",
+              })
+              setNotice("The paired staff identity was cleared from this console.")
+            }}
+          >
             <LogOut size={16} />
           </button>
         </div>
@@ -804,6 +1116,16 @@ export default function App() {
           </div>
 
           <div className="topbar-right">
+            <button
+              className="staff-login-button"
+              type="button"
+              aria-label="Open staff phone login QR code"
+              onClick={openStaffLogin}
+            >
+              <QrCode size={19} />
+              <span>Staff login</span>
+              <i aria-hidden="true" />
+            </button>
             <button
               className={manualUpdating ? "manual-update-button manual-update-button--active" : "manual-update-button"}
               type="button"
@@ -896,6 +1218,17 @@ export default function App() {
             <X size={16} />
           </button>
         </div>
+      ) : null}
+      {staffLoginOpen ? createPortal(
+        <StaffLoginDialog
+          challenge={staffChallenge}
+          loading={staffLoginLoading}
+          error={staffLoginError}
+          secondsRemaining={staffSecondsRemaining}
+          onClose={closeStaffLogin}
+          onRegenerate={regenerateStaffLogin}
+        />,
+        document.body,
       ) : null}
       </div>
       {startupPhase !== "hidden" ? <StartupScreen leaving={startupPhase === "leaving"} /> : null}

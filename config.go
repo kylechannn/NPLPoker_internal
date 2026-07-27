@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -15,11 +16,13 @@ import (
 const mebibyte = int64(1024 * 1024)
 
 type config struct {
-	backendListen string
-	publicListen  string
-	direct        bool
-	headless      bool
-	resources     resourceSettings
+	backendListen  string
+	publicListen   string
+	staffListen    string
+	staffPublicURL string
+	direct         bool
+	headless       bool
+	resources      resourceSettings
 }
 
 type resourceSettings struct {
@@ -51,11 +54,13 @@ func loadConfig(
 	}
 
 	cfg := config{
-		backendListen: envValue(getenv, "NPL_INTERNAL_BACKEND", "127.0.0.1:8788"),
-		publicListen:  envValue(getenv, "NPL_INTERNAL_LISTEN", "127.0.0.1:8787"),
-		direct:        direct,
-		headless:      headless,
-		resources:     resources,
+		backendListen:  envValue(getenv, "NPL_INTERNAL_BACKEND", "127.0.0.1:8788"),
+		publicListen:   envValue(getenv, "NPL_INTERNAL_LISTEN", "127.0.0.1:8787"),
+		staffListen:    envValue(getenv, "NPL_STAFF_LISTEN", "0.0.0.0:8790"),
+		staffPublicURL: strings.TrimRight(strings.TrimSpace(getenv("NPL_STAFF_PUBLIC_URL")), "/"),
+		direct:         direct,
+		headless:       headless,
+		resources:      resources,
 	}
 	if err := validateLoopbackAddress("NPL_INTERNAL_BACKEND", cfg.backendListen); err != nil {
 		return config{}, err
@@ -63,8 +68,19 @@ func loadConfig(
 	if err := validateLoopbackAddress("NPL_INTERNAL_LISTEN", cfg.publicListen); err != nil {
 		return config{}, err
 	}
+	if err := validateStaffListenAddress("NPL_STAFF_LISTEN", cfg.staffListen); err != nil {
+		return config{}, err
+	}
+	if cfg.staffPublicURL != "" {
+		if err := validateStaffPublicURL(cfg.staffPublicURL); err != nil {
+			return config{}, err
+		}
+	}
 	if !cfg.direct && cfg.backendListen == cfg.publicListen {
 		return config{}, fmt.Errorf("backend and public listen addresses must be different")
+	}
+	if !cfg.direct && cfg.staffListen == cfg.publicListen {
+		return config{}, fmt.Errorf("staff and desktop listen addresses must be different")
 	}
 	return cfg, nil
 }
@@ -197,6 +213,41 @@ func validateLoopbackAddress(name, address string) error {
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
 		return fmt.Errorf("%s must use a loopback address, got %q", name, address)
+	}
+	return nil
+}
+
+func validateStaffListenAddress(name, address string) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("%s must be a host:port address: %w", name, err)
+	}
+	if port == "" {
+		return fmt.Errorf("%s requires a port", name)
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("%s must use an IP address, wildcard, or localhost, got %q", name, address)
+	}
+	if ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() {
+		return nil
+	}
+	return fmt.Errorf("%s must use a private LAN or loopback address, got %q", name, address)
+}
+
+func validateStaffPublicURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("NPL_STAFF_PUBLIC_URL is invalid: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("NPL_STAFF_PUBLIC_URL must use http or https")
+	}
+	if parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("NPL_STAFF_PUBLIC_URL must be a clean origin such as http://192.168.1.20:8790")
 	}
 	return nil
 }
