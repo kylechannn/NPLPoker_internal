@@ -85,8 +85,11 @@ final class TournamentClockService
 
             'remaining_ms' => $remainingMs,
             'level_duration_ms' => $current ? ((int) $current->duration_min) * 60_000 : 0,
-            'level_started_at' => $session->level_started_at,
-            'paused_at' => $session->paused_at,
+            // Always emitted with an offset: these cross a process boundary
+            // to the cloud and to browsers, and a naive string would be read
+            // in whatever timezone the reader happens to use.
+            'level_started_at' => $this->iso($session->level_started_at),
+            'paused_at' => $this->iso($session->paused_at),
             'pause_accum_ms' => (int) $session->pause_accum_ms,
 
             // Clients tick locally between syncs; this lets them correct for
@@ -95,8 +98,8 @@ final class TournamentClockService
             'server_time_ms' => (int) (microtime(true) * 1000),
 
             'registration_open' => $this->registrationOpen($session, $index, $levels),
-            'started_at' => $session->started_at,
-            'finished_at' => $session->finished_at,
+            'started_at' => $this->iso($session->started_at),
+            'finished_at' => $this->iso($session->finished_at),
         ];
     }
 
@@ -365,6 +368,16 @@ final class TournamentClockService
         }
 
         return $session;
+    }
+
+    /** Naive DB strings become unambiguous instants for anyone downstream. */
+    private function iso(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return Carbon::parse($value)->toIso8601String();
     }
 
     private function assertStatus(object $session, array $allowed, string $message): void

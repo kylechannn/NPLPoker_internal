@@ -85,6 +85,31 @@ The CD-Key is **not** configured here: the Go host owns activation and writes
 `license.json`, which this app reads for the `X-CD-Key` / `X-Device-Id`
 headers.
 
+## Tournament clock
+
+The poker adaptation of EdgeHost's Sichuan module, at
+. The clock is **server-authoritative** — the session
+row stores , ,  and
+, so remaining time is arithmetic over server time and every
+display (desk, big screen, player phone) agrees. EdgeHost kept its clock in
+one browser window, so two timer windows drifted and a reload restarted the
+tournament.
+
+| Route | Purpose |
+|---|---|
+|  | Create with a blind structure |
+|  | Edit levels (draft only) |
+|  | Authoritative clock — poll and tick locally |
+|  | Lifecycle, with guards |
+|  | Operator overrides |
+|  | Register a player and take the buy-in |
+|  | rebuy / addon / ko / unko / bonus (+ voids) |
+|  | Roster with chips, spend and alive/dead |
+
+Levels advance lazily on read, so a machine that slept through three levels
+catches up correctly. Every clock transition also publishes to the cloud, so
+players watching on iOS/Android see the new blind immediately.
+
 ## Tests
 
 ```bash

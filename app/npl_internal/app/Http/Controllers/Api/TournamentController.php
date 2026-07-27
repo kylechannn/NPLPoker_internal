@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Tournament\TournamentBroadcaster;
 use App\Services\Tournament\TournamentClockService;
 use App\Services\Tournament\TournamentService;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ final class TournamentController
     public function __construct(
         private readonly TournamentService $tournaments,
         private readonly TournamentClockService $clock,
+        private readonly TournamentBroadcaster $broadcaster,
     ) {}
 
     public function index(): JsonResponse
@@ -80,27 +82,47 @@ final class TournamentController
 
     public function start(int $id): JsonResponse
     {
-        return $this->ok(['clock' => $this->clock->start($id)]);
+        $state = $this->clock->start($id);
+        // Tell the cloud so every watching phone updates at once.
+        $this->broadcaster->publish($id);
+
+        return $this->ok(['clock' => $state]);
     }
 
     public function pause(int $id): JsonResponse
     {
-        return $this->ok(['clock' => $this->clock->pause($id)]);
+        $state = $this->clock->pause($id);
+        // Tell the cloud so every watching phone updates at once.
+        $this->broadcaster->publish($id);
+
+        return $this->ok(['clock' => $state]);
     }
 
     public function resume(int $id): JsonResponse
     {
-        return $this->ok(['clock' => $this->clock->resume($id)]);
+        $state = $this->clock->resume($id);
+        // Tell the cloud so every watching phone updates at once.
+        $this->broadcaster->publish($id);
+
+        return $this->ok(['clock' => $state]);
     }
 
     public function nextLevel(int $id): JsonResponse
     {
-        return $this->ok(['clock' => $this->clock->nextLevel($id)]);
+        $state = $this->clock->nextLevel($id);
+        // Tell the cloud so every watching phone updates at once.
+        $this->broadcaster->publish($id);
+
+        return $this->ok(['clock' => $state]);
     }
 
     public function previousLevel(int $id): JsonResponse
     {
-        return $this->ok(['clock' => $this->clock->previousLevel($id)]);
+        $state = $this->clock->previousLevel($id);
+        // Tell the cloud so every watching phone updates at once.
+        $this->broadcaster->publish($id);
+
+        return $this->ok(['clock' => $state]);
     }
 
     public function adjustTime(Request $request, int $id): JsonResponse
@@ -109,12 +131,19 @@ final class TournamentController
             'seconds' => ['required', 'integer', 'min:-3600', 'max:3600'],
         ]);
 
-        return $this->ok(['clock' => $this->clock->adjustTime($id, (int) $validated['seconds'])]);
+        $state = $this->clock->adjustTime($id, (int) $validated['seconds']);
+        $this->broadcaster->publish($id);
+
+        return $this->ok(['clock' => $state]);
     }
 
     public function finish(int $id): JsonResponse
     {
-        return $this->ok(['clock' => $this->clock->finish($id)]);
+        $state = $this->clock->finish($id);
+        // Tell the cloud so every watching phone updates at once.
+        $this->broadcaster->publish($id);
+
+        return $this->ok(['clock' => $state]);
     }
 
     public function players(int $id): JsonResponse
