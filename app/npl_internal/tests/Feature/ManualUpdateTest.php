@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Cloud\CloudException;
+use App\Services\Sync\DeltaSyncService;
 use App\Services\Sync\ManualUpdateRunner;
 use App\Services\Sync\SyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -45,10 +46,17 @@ class ManualUpdateTest extends TestCase
         parent::tearDown();
     }
 
-    /** @var array{venues: array, sessions: array, seating: array} */
-    private array $cloudState = ['venues' => [], 'sessions' => [], 'seating' => ['tables' => []]];
+    /** @var array<string, mixed> */
+    private array $cloudState = [
+        'venues' => [], 'sessions' => [], 'seating' => ['tables' => []],
+        'players' => [], 'game_entities' => [], 'player_relationships' => [],
+        'avatar_bytes' => 'PNGDATA',
+    ];
 
     private bool $cloudRegistered = false;
+
+    /** @var list<bool> */
+    private array $heartbeats = [];
 
     /**
      * Http::fake() APPENDS stubs and the first match wins, so re-faking mid
@@ -57,7 +65,9 @@ class ManualUpdateTest extends TestCase
      */
     private function fakeCloud(array $venues, array $sessions, array $seating = ['tables' => []]): void
     {
-        $this->cloudState = ['venues' => $venues, 'sessions' => $sessions, 'seating' => $seating];
+        $this->cloudState = array_merge($this->cloudState, [
+            'venues' => $venues, 'sessions' => $sessions, 'seating' => $seating,
+        ]);
 
         if ($this->cloudRegistered) {
             return;
@@ -75,6 +85,37 @@ class ManualUpdateTest extends TestCase
             }
             if (str_contains($url, '/api/v1/game-sessions')) {
                 return Http::response(['ok' => true, 'data' => ['data' => $this->cloudState['sessions']]], 200);
+            }
+
+            // Delta feed: /api/v1/internal/sync/{entity} and /ids
+            foreach (['players', 'game_entities', 'player_relationships'] as $entity) {
+                if (str_contains($url, "/internal/sync/{$entity}/ids")) {
+                    return Http::response(['ok' => true, 'data' => [
+                        'entity' => $entity,
+                        'ids' => array_column($this->cloudState[$entity], 'id'),
+                        'count' => count($this->cloudState[$entity]),
+                    ]], 200);
+                }
+                if (str_contains($url, "/internal/sync/{$entity}")) {
+                    return Http::response(['ok' => true, 'data' => [
+                        'entity' => $entity,
+                        'upserts' => $this->cloudState[$entity],
+                        'next_cursor' => null,
+                        'has_more' => false,
+                        'count' => count($this->cloudState[$entity]),
+                        'watermark' => now()->toIso8601String(),
+                    ]], 200);
+                }
+            }
+
+            if (str_contains($url, '/internal/heartbeat')) {
+                $this->heartbeats[] = true;
+
+                return Http::response(['ok' => true, 'data' => ['acknowledged_at' => now()->toIso8601String()]], 200);
+            }
+
+            if (str_contains($url, 'avatar')) {
+                return Http::response($this->cloudState['avatar_bytes'], 200, ['Content-Type' => 'image/png']);
             }
 
             return Http::response(['ok' => true, 'data' => []], 200);
@@ -179,7 +220,10 @@ class ManualUpdateTest extends TestCase
         $entities = array_column($response->json('data.entities'), 'entity');
 
         // game_sessions must precede seating — dependency order.
-        $this->assertSame(['venues', 'game_sessions', 'seating'], $entities);
+        $this->assertSame(
+            ['venues', 'game_sessions', 'game_entities', 'players', 'player_relationships', 'seating'],
+            $entities,
+        );
         $this->assertTrue($response->json('data.activated'));
     }
 
@@ -191,5 +235,86 @@ class ManualUpdateTest extends TestCase
             ->assertStatus(202)
             ->assertJsonPath('ok', true)
             ->assertJsonPath('data.run.status', 'succeeded');
+    }
+
+    public function test_players_and_game_entities_arrive_as_deltas_and_avatars_are_installed_locally(): void
+    {
+        $this->fakeCloud(venues: [], sessions: []);
+        $this->cloudState['players'] = [
+            ['id' => 11, 'npl_id' => 'ACE2026', 'display_name' => 'Ace Nguyen', 'state_code' => 'NSW',
+             'avatar_url' => 'https://cdn.test/avatar/ace.png', 'status' => 'active', 'updated_at' => now()->toIso8601String()],
+            ['id' => 12, 'npl_id' => 'BEE2026', 'display_name' => 'Bee Wong', 'state_code' => 'NSW',
+             'avatar_url' => null, 'status' => 'active', 'updated_at' => now()->toIso8601String()],
+        ];
+        $this->cloudState['game_entities'] = [
+            ['id' => 5, 'title' => 'Nightly NLH', 'game_category' => 'cash_game', 'venue_id' => 1,
+             'day_of_week' => 2, 'start_time' => '19:00', 'default_table_count' => 3,
+             'buy_in_cents' => 10000, 'updated_at' => now()->toIso8601String()],
+        ];
+
+        $run = app(ManualUpdateRunner::class)->start('phpunit');
+
+        $this->assertContains($run['status'], ['succeeded', 'partial']);
+        $this->assertSame(2, DB::table('mirror_players')->count());
+        $this->assertSame(1, DB::table('mirror_game_entities')->count());
+        $this->assertSame(3, (int) DB::table('mirror_game_entities')->value('default_table_count'));
+
+        // The avatar was fetched and LINKED to the player row — that key is
+        // the local shortcut the UI resolves through /api/media/{key}.
+        $key = DB::table('mirror_players')->where('cloud_id', 11)->value('avatar_media_key');
+        $this->assertNotNull($key);
+        $this->assertSame('ok', DB::table('media_cache')->where('media_key', $key)->value('status'));
+
+        // A player without an avatar must not get a dangling key.
+        $this->assertNull(DB::table('mirror_players')->where('cloud_id', 12)->value('avatar_media_key'));
+
+        // And the local media route serves it.
+        $this->get('/api/media/'.$key)->assertOk();
+    }
+
+    public function test_a_player_removed_from_the_cloud_is_deleted_locally(): void
+    {
+        $this->fakeCloud(venues: [], sessions: []);
+        $this->cloudState['players'] = [
+            ['id' => 11, 'npl_id' => 'ACE2026', 'display_name' => 'Ace', 'status' => 'active', 'updated_at' => now()->toIso8601String()],
+            ['id' => 12, 'npl_id' => 'BEE2026', 'display_name' => 'Bee', 'status' => 'active', 'updated_at' => now()->toIso8601String()],
+        ];
+        app(DeltaSyncService::class)->sync('players');
+        $this->assertSame(2, DB::table('mirror_players')->count());
+
+        // Bee is suspended upstream, so she drops out of the live id list.
+        $this->cloudState['players'] = [
+            ['id' => 11, 'npl_id' => 'ACE2026', 'display_name' => 'Ace', 'status' => 'active', 'updated_at' => now()->toIso8601String()],
+        ];
+
+        $result = app(DeltaSyncService::class)->sync('players');
+
+        $this->assertSame(1, $result['deleted']);
+        $this->assertSame(1, DB::table('mirror_players')->count());
+        $this->assertNull(DB::table('mirror_players')->where('cloud_id', 12)->first());
+    }
+
+    public function test_an_empty_id_list_never_deletes_the_whole_local_player_table(): void
+    {
+        $this->fakeCloud(venues: [], sessions: []);
+        $this->cloudState['players'] = [
+            ['id' => 11, 'npl_id' => 'ACE2026', 'display_name' => 'Ace', 'status' => 'active', 'updated_at' => now()->toIso8601String()],
+        ];
+        app(DeltaSyncService::class)->sync('players');
+
+        // A broken response returns no ids at all.
+        $this->cloudState['players'] = [];
+
+        $this->expectException(CloudException::class);
+        app(DeltaSyncService::class)->sync('players');
+    }
+
+    public function test_the_run_reports_the_installs_state_back_to_the_cloud(): void
+    {
+        $this->fakeCloud(venues: [['id' => 1, 'venue_name' => 'V']], sessions: []);
+
+        app(ManualUpdateRunner::class)->start('phpunit');
+
+        $this->assertNotEmpty($this->heartbeats, 'The install must report its pull/push state after a run.');
     }
 }

@@ -45,6 +45,22 @@ return [
             'unique' => 'session_id',
             'media' => ['image_url', 'hero_image_url'],
         ],
+        'game_entities' => [
+            'label' => 'Games (templates the venue hosts from)',
+            'mode' => 'delta',
+            'table' => 'mirror_game_entities',
+        ],
+        'players' => [
+            'label' => 'Players',
+            'mode' => 'delta',
+            'table' => 'mirror_players',
+            'avatars' => true,
+        ],
+        'player_relationships' => [
+            'label' => 'Friends & block lists',
+            'mode' => 'delta',
+            'table' => 'mirror_player_relationships',
+        ],
         'seating' => [
             'label' => 'Tables & seats',
             // Fanned out per session by the sync service — see SyncService.

@@ -190,7 +190,14 @@ final class MediaCacheService
         return $pruned;
     }
 
-    /** @return array<string, string> media_key => source URL */
+    /**
+     * Every image the mirror still references. This drives BOTH caching and
+     * the orphan sweep, so anything missing here gets deleted — player
+     * avatars must be included or a sweep would wipe the faces the desk just
+     * installed.
+     *
+     * @return array<string, string> media_key => source URL
+     */
     private function collectSources(): array
     {
         $sources = [];
@@ -212,6 +219,21 @@ final class MediaCacheService
                 }
             }
         }
+
+        // Player avatars are installed by AvatarInstaller, not by the entity
+        // media walk above, but they live in the same cache.
+        DB::table('mirror_players')
+            ->whereNotNull('avatar_url')
+            ->select('avatar_url')
+            ->orderBy('cloud_id')
+            ->chunk(500, function ($players) use (&$sources): void {
+                foreach ($players as $player) {
+                    $url = trim((string) $player->avatar_url);
+                    if ($url !== '') {
+                        $sources[$this->keyFor($url)] = $url;
+                    }
+                }
+            });
 
         return $sources;
     }

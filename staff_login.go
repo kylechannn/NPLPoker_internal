@@ -557,29 +557,39 @@ func requireGateway(expected string, next http.Handler) http.Handler {
 }
 
 func preferredLANIPv4() string {
-	if connection, err := net.Dial("udp4", "8.8.8.8:80"); err == nil {
-		defer connection.Close()
-		if address, ok := connection.LocalAddr().(*net.UDPAddr); ok {
-			if usableLANIPv4(address.IP) {
-				return address.IP.String()
-			}
-		}
-	}
-
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return ""
 	}
+	bestScore := -1
+	bestIP := ""
 	for _, networkInterface := range interfaces {
-		if networkInterface.Flags&net.FlagUp == 0 || networkInterface.Flags&net.FlagLoopback != 0 {
+		if networkInterface.Flags&net.FlagUp == 0 ||
+			networkInterface.Flags&net.FlagLoopback != 0 ||
+			isVirtualStaffInterface(networkInterface.Name) {
 			continue
 		}
 		addresses, _ := networkInterface.Addrs()
 		for _, address := range addresses {
 			ip, _, err := net.ParseCIDR(address.String())
-			if err == nil && usableLANIPv4(ip) {
-				return ip.String()
+			if err != nil || !usableLANIPv4(ip) {
+				continue
 			}
+			score := staffInterfaceScore(networkInterface.Name, ip)
+			if score > bestScore {
+				bestScore = score
+				bestIP = ip.String()
+			}
+		}
+	}
+	if bestIP != "" {
+		return bestIP
+	}
+
+	if connection, err := net.Dial("udp4", "8.8.8.8:80"); err == nil {
+		defer connection.Close()
+		if address, ok := connection.LocalAddr().(*net.UDPAddr); ok && usableLANIPv4(address.IP) {
+			return address.IP.String()
 		}
 	}
 	return ""
@@ -588,6 +598,40 @@ func preferredLANIPv4() string {
 func usableLANIPv4(ip net.IP) bool {
 	ip = ip.To4()
 	return ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() && !ip.IsLinkLocalUnicast()
+}
+
+func staffInterfaceScore(name string, ip net.IP) int {
+	ip = ip.To4()
+	if ip == nil {
+		return -1
+	}
+	score := 20
+	if ip.IsPrivate() {
+		score = 40
+	} else if ip[0] == 100 && ip[1] >= 64 && ip[1] <= 127 {
+		score = 30
+	}
+	lowerName := strings.ToLower(name)
+	for _, preferred := range []string{"wi-fi", "wifi", "wireless", "ethernet"} {
+		if strings.Contains(lowerName, preferred) {
+			score += 100
+			break
+		}
+	}
+	return score
+}
+
+func isVirtualStaffInterface(name string) bool {
+	lowerName := strings.ToLower(name)
+	for _, marker := range []string{
+		"vpn", "vethernet", "virtualbox", "vmware", "npcap", "hamachi",
+		"zerotier", "tailscale", "bridge", "bluetooth", "loopback",
+	} {
+		if strings.Contains(lowerName, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func staffPublicBaseURL(cfg config) string {

@@ -24,6 +24,27 @@ The Go host binds this to loopback; nothing is LAN-reachable.
 
 CLI equivalent: `php artisan sync:pull`.
 
+## What a manual update pulls
+
+| Entity | Mode | Why the venue needs it |
+|---|---|---|
+| `venues` | snapshot | Venue details |
+| `game_sessions` | snapshot | Today's sessions |
+| `game_entities` | **delta** | The templates the venue hosts games from |
+| `players` | **delta** | Member list + avatars installed locally |
+| `player_relationships` | **delta** | Friend/block lists — staff must not seat two players who blocked each other |
+| `seating` | snapshot | Tables and seats per session |
+
+**Snapshot** entities are small, so they are replaced wholesale (staging +
+verified swap). **Delta** entities are the big, slow-changing ones: only rows
+changed since the local watermark are fetched, paged with a keyset cursor,
+and upserted in place. Deletions reconcile against a cheap id-only endpoint.
+An unchanged entity costs a single `304`.
+
+After every run the install reports its own state back (`last_pull_at`,
+`last_push_at`, row counts) so support can see the machine from the admin
+License tab.
+
 ## How a manual update works
 
 1. Acquire one TTL'd DB lock (`sync_locks`) — a crashed run self-heals.
@@ -31,8 +52,11 @@ CLI equivalent: `php artisan sync:pull`.
 3. Per entity: conditional `GET` with the stored ETag. A `304` skips it.
 4. Rows land in `<table>_staging`, the count is verified, then a **short**
    transaction swaps staging into the live table.
-5. Cache every referenced image, content-addressed and atomically renamed.
-6. Sweep media no row references any more.
+5. Install player avatars and link each one to its player row — that local
+   key is what the UI resolves through `/api/media/{key}`, never the cloud.
+6. Cache every other referenced image, content-addressed and atomically renamed.
+7. Sweep media no row references any more.
+8. Heartbeat the install's state back to the cloud.
 
 An entity that fails degrades the run to `partial` and records its own error
 in `sync_entity_states`; the others still apply.

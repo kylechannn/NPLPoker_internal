@@ -4,6 +4,8 @@
 }
 
 http://{$NPL_INTERNAL_LISTEN:127.0.0.1:8787} {
+	bind {$NPL_INTERNAL_BIND:127.0.0.1}
+
 	header {
 		-Server
 		X-Content-Type-Options "nosniff"
@@ -20,7 +22,9 @@ http://{$NPL_INTERNAL_LISTEN:127.0.0.1:8787} {
 
 # A separate, route-limited LAN ingress for staff phone pairing. The desktop
 # SPA and all operational APIs remain unreachable from this listener.
-http://{$NPL_STAFF_LISTEN:0.0.0.0:8790} {
+http://:{$NPL_STAFF_PORT:8790} {
+	bind {$NPL_STAFF_BIND:0.0.0.0}
+
 	header {
 		-Server
 		X-Content-Type-Options "nosniff"

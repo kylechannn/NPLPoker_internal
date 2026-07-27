@@ -304,13 +304,31 @@ func launchCaddy(ctx context.Context, cfg config, logger *log.Logger) (<-chan er
 	if err != nil {
 		return nil, fmt.Errorf("open Caddy runtime log: %w", err)
 	}
+	staffBind, staffPort, err := net.SplitHostPort(cfg.staffListen)
+	if err != nil {
+		_ = runtimeLog.Close()
+		return nil, fmt.Errorf("parse staff gateway listener: %w", err)
+	}
+	if staffBind == "" {
+		staffBind = "0.0.0.0"
+	}
+	desktopBind, _, err := net.SplitHostPort(cfg.publicListen)
+	if err != nil {
+		_ = runtimeLog.Close()
+		return nil, fmt.Errorf("parse desktop gateway listener: %w", err)
+	}
+	if strings.EqualFold(desktopBind, "localhost") {
+		desktopBind = "127.0.0.1"
+	}
 
 	cmd := exec.CommandContext(ctx, executable, "run", "--config", caddyfile, "--adapter", "caddyfile")
 	cmd.Dir = filepath.Dir(caddyfile)
 	cmd.Env = append(os.Environ(),
 		"NPL_INTERNAL_LISTEN="+cfg.publicListen,
+		"NPL_INTERNAL_BIND="+desktopBind,
 		"NPL_INTERNAL_UPSTREAM="+cfg.backendListen,
-		"NPL_STAFF_LISTEN="+cfg.staffListen,
+		"NPL_STAFF_BIND="+staffBind,
+		"NPL_STAFF_PORT="+staffPort,
 		"GOMAXPROCS="+fmt.Sprintf("%d", cfg.resources.caddyMaxProcs),
 		"GOMEMLIMIT="+fmt.Sprintf("%dMiB", cfg.resources.caddyMemoryLimitMiB),
 	)

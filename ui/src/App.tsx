@@ -456,23 +456,7 @@ function StartupScreen({ leaving }: { leaving: boolean }) {
       <div className="startup-screen__glow" aria-hidden="true" />
       <div className="startup-screen__content">
         <NplTransitLoader />
-        <div className="startup-screen__identity">
-          <p>National Poker League</p>
-          <h1>Operational System</h1>
-          <span className="startup-screen__description">Preparing your secure local operations workspace</span>
-        </div>
-
-        <div className="startup-screen__checks">
-          <span><ShieldCheck size={17} /> Local operations engine</span>
-          <span><Network size={17} /> Secure venue gateway</span>
-          <span><Wifi size={17} /> OS workspace</span>
-        </div>
       </div>
-      <footer>
-        <span>Private local system</span>
-        <i />
-        <span>No browser required</span>
-      </footer>
     </section>
   )
 }

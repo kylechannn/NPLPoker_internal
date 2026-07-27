@@ -82,8 +82,27 @@ Ours does conditional requests, atomic renames, and prunes unreferenced files.
 EdgeHost's outbox retried forever with no attempt ceiling. Ours caps attempts
 and moves exhausted entries to `dead` where they are visible.
 
+## Efficiency: why a manual update is fast
+
+The venue cannot wait on a full dump of every player, so the big tables use a
+delta feed rather than a replacement:
+
+- **Only changed rows.** The install sends its watermark (`?since=`); the
+  cloud returns just rows updated after it. Steady state is zero rows.
+- **Keyset pagination** on `(updated_at, id)` rather than OFFSET, so paging
+  stays correct while rows change underneath, and each page is an index seek.
+- **Resumable.** The cloud only hands back a new watermark once the feed
+  drains, so an interrupted run resumes instead of skipping rows.
+- **Cheap deletes.** Removals reconcile against an id-only endpoint — a few
+  bytes per row instead of a full record.
+- **304 on no change.** A weak ETag over (row count, max updated_at) means an
+  untouched entity costs one round trip.
+- **Bounded memory.** Rows are upserted per page in chunks of 200; avatars
+  are walked in chunks of 200. Nothing accumulates the whole table in RAM
+  (EdgeHost merged every page into one array before writing anything).
+
 ## Still to do (next step)
 
 The Go host does not yet call these endpoints — wiring the host and the two
-UIs to the backend is the next piece of work. The manifest, run and snapshot
-endpoints are the contract they will use.
+UIs is the next piece of work. `manifest`, `run` and `snapshot` are the
+contract they will use.

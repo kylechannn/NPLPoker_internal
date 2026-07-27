@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -136,5 +137,16 @@ func TestWrongPairingCodeDoesNotApproveChallenge(t *testing.T) {
 
 	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "does not match") {
 		t.Fatalf("expected pairing rejection, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestVenueNetworkAdapterOutranksVPN(t *testing.T) {
+	wifiScore := staffInterfaceScore("Wi-Fi", net.ParseIP("192.168.1.58"))
+	vpnScore := staffInterfaceScore("RelyVPN", net.ParseIP("10.42.100.2"))
+	if wifiScore <= vpnScore {
+		t.Fatalf("expected venue Wi-Fi score %d to outrank VPN score %d", wifiScore, vpnScore)
+	}
+	if !isVirtualStaffInterface("RelyVPN") {
+		t.Fatal("expected VPN adapter to be excluded from staff QR addressing")
 	}
 }

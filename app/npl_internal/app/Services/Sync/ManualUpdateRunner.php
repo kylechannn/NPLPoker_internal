@@ -6,6 +6,7 @@ namespace App\Services\Sync;
 
 use App\Services\Cloud\CloudException;
 use App\Services\Cloud\LicenseKeyProvider;
+use App\Services\Media\AvatarInstaller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -30,6 +31,9 @@ final class ManualUpdateRunner
 
     public function __construct(
         private readonly SyncService $sync,
+        private readonly DeltaSyncService $delta,
+        private readonly AvatarInstaller $avatars,
+        private readonly HeartbeatService $heartbeat,
         private readonly LicenseKeyProvider $license,
     ) {}
 
@@ -89,9 +93,17 @@ final class ManualUpdateRunner
                 ]);
 
                 try {
-                    $result = $this->sync->syncEntity($entity, $force);
-                    $summary[$entity] = $result;
-                    $rowsWritten += (int) $result['rows'];
+                    // Big, slow-changing tables come down as deltas; the rest
+                    // are small enough to replace wholesale.
+                    if ($this->delta->supports($entity)) {
+                        $result = $this->delta->sync($entity, $force);
+                        $summary[$entity] = $result;
+                        $rowsWritten += (int) $result['upserted'];
+                    } else {
+                        $result = $this->sync->syncEntity($entity, $force);
+                        $summary[$entity] = $result;
+                        $rowsWritten += (int) $result['rows'];
+                    }
                 } catch (Throwable $e) {
                     // One bad entity degrades the run to "partial" instead of
                     // losing every other entity's work.
@@ -116,8 +128,13 @@ final class ManualUpdateRunner
             }
 
             $this->renewLock($owner);
-            $this->update($uuid, ['stage' => 'media', 'progress' => 85]);
+            $this->update($uuid, ['stage' => 'avatars', 'progress' => 84]);
+            $avatars = $this->avatars->installAll($force);
+
+            $this->renewLock($owner);
+            $this->update($uuid, ['stage' => 'media', 'progress' => 92]);
             $media = $this->sync->syncMedia($force);
+            $media['avatars'] = $avatars;
 
             $this->update($uuid, [
                 'status' => $warnings === [] ? 'succeeded' : 'partial',
@@ -133,9 +150,15 @@ final class ManualUpdateRunner
                 ]),
                 'finished_at' => now(),
             ]);
+
+            // Tell the cloud where this machine now stands.
+            $this->update($uuid, ['stage' => 'reporting']);
+            $this->heartbeat->report($warnings === [] ? 'succeeded' : 'partial');
+            $this->update($uuid, ['stage' => 'complete']);
         } catch (Throwable $e) {
             $code = $e instanceof CloudException ? $e->errorCode : 'SYNC_FAILED';
             $this->fail($uuid, $code, $e->getMessage(), $summary);
+            $this->heartbeat->report('failed');
         } finally {
             $this->releaseLock($owner);
         }
