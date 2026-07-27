@@ -1,0 +1,7 @@
+.tools/
+dist/
+logs/
+ui/node_modules/
+*.log
+*.tmp
+

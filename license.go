@@ -1,0 +1,289 @@
+package main
+
+import (
+	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+)
+
+// CD-Key gate for this install.
+//
+// The key is ~60 bits of server-side entropy with no offline-derivable
+// structure, so activation is online: we post the key plus a device id to
+// the NPL cloud and store the lease that comes back. Unlike the EdgeHost
+// original this replaces, the lease has a hard expiry we actually enforce —
+// once it lapses the app locks until a successful re-check, so a revoked
+// key stops working instead of running forever.
+const (
+	licenseFileName  = "license.json"
+	licenseCheckEach = 6 * time.Hour
+)
+
+type licenseLease struct {
+	UUID       string `json:"uuid"`
+	Label      string `json:"label"`
+	Product    string `json:"product"`
+	VenueID    *int   `json:"venue_id"`
+	VenueName  string `json:"venue_name"`
+	Status     string `json:"status"`
+	ExpiresAt  string `json:"expires_at"`
+	LeaseUntil string `json:"lease_until"`
+	DeviceID   string `json:"device_id"`
+	DeviceLbl  string `json:"device_label"`
+}
+
+// stored is what we persist beside the executable's data directory.
+type stored struct {
+	Key       string        `json:"key"`
+	DeviceID  string        `json:"device_id"`
+	Lease     *licenseLease `json:"lease"`
+	CheckedAt string        `json:"checked_at"`
+}
+
+type licenseStatus struct {
+	Activated  bool          `json:"activated"`
+	Valid      bool          `json:"valid"`
+	MaskedKey  string        `json:"masked_key"`
+	DeviceID   string        `json:"device_id"`
+	Lease      *licenseLease `json:"lease"`
+	LeaseValid bool          `json:"lease_valid"`
+	Message    string        `json:"message"`
+	CloudBase  string        `json:"cloud_base"`
+}
+
+type licenseManager struct {
+	mu        sync.Mutex
+	path      string
+	cloudBase string
+	client    *http.Client
+	state     stored
+}
+
+func newLicenseManager() *licenseManager {
+	manager := &licenseManager{
+		path:      licenseFilePath(),
+		cloudBase: strings.TrimRight(envOrDefault("NPL_CLOUD_BASE", "https://api.nplpokerclub.com.au"), "/"),
+		client:    &http.Client{Timeout: 8 * time.Second},
+	}
+	manager.load()
+	return manager
+}
+
+func licenseFilePath() string {
+	if configured := strings.TrimSpace(os.Getenv("NPL_INTERNAL_DATA_DIR")); configured != "" {
+		return filepath.Join(configured, licenseFileName)
+	}
+
+	base, err := os.UserConfigDir()
+	if err != nil || base == "" {
+		if home, homeErr := os.UserHomeDir(); homeErr == nil {
+			base = home
+		} else {
+			base = "."
+		}
+	}
+	return filepath.Join(base, "NPLPokerInternal", licenseFileName)
+}
+
+func (m *licenseManager) load() {
+	data, err := os.ReadFile(m.path)
+	if err != nil {
+		return
+	}
+	var state stored
+	if err := json.Unmarshal(data, &state); err == nil {
+		m.state = state
+	}
+}
+
+func (m *licenseManager) save() error {
+	if err := os.MkdirAll(filepath.Dir(m.path), 0o700); err != nil {
+		return fmt.Errorf("create data directory: %w", err)
+	}
+	payload, err := json.MarshalIndent(m.state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(m.path, payload, 0o600)
+}
+
+// deviceID is stable for this machine+user so reinstalls reuse the slot.
+func (m *licenseManager) deviceID() string {
+	if m.state.DeviceID != "" {
+		return m.state.DeviceID
+	}
+
+	host, _ := os.Hostname()
+	configDir, _ := os.UserConfigDir()
+	sum := sha1.Sum([]byte(host + "|" + configDir + "|" + runtime.GOOS))
+	m.state.DeviceID = "NPLI-" + strings.ToUpper(hex.EncodeToString(sum[:])[:12])
+	return m.state.DeviceID
+}
+
+func (m *licenseManager) leaseValid() bool {
+	if m.state.Lease == nil || m.state.Lease.LeaseUntil == "" {
+		return false
+	}
+	until, err := time.Parse(time.RFC3339, m.state.Lease.LeaseUntil)
+	if err != nil {
+		return false
+	}
+	return time.Now().Before(until)
+}
+
+func (m *licenseManager) status() licenseStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.statusLocked()
+}
+
+func (m *licenseManager) statusLocked() licenseStatus {
+	activated := m.state.Key != "" && m.state.Lease != nil
+	valid := activated && m.leaseValid()
+
+	message := ""
+	switch {
+	case !activated:
+		message = "Enter the CD-Key supplied by NPL to activate this install."
+	case !valid:
+		message = "This licence lease has expired. Reconnect to refresh it."
+	}
+
+	return licenseStatus{
+		Activated:  activated,
+		Valid:      valid,
+		MaskedKey:  maskKey(m.state.Key),
+		DeviceID:   m.deviceID(),
+		Lease:      m.state.Lease,
+		LeaseValid: valid,
+		Message:    message,
+		CloudBase:  m.cloudBase,
+	}
+}
+
+func (m *licenseManager) activate(key string) (licenseStatus, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key = strings.ToUpper(strings.TrimSpace(key))
+	if key == "" {
+		return m.statusLocked(), errors.New("enter your CD-Key")
+	}
+
+	lease, err := m.post("/api/v1/licenses/activate", key)
+	if err != nil {
+		return m.statusLocked(), err
+	}
+
+	m.state.Key = key
+	m.state.Lease = lease
+	m.state.CheckedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := m.save(); err != nil {
+		return m.statusLocked(), err
+	}
+	return m.statusLocked(), nil
+}
+
+func (m *licenseManager) check() (licenseStatus, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state.Key == "" {
+		return m.statusLocked(), errors.New("this install is not activated")
+	}
+
+	lease, err := m.post("/api/v1/licenses/check", m.state.Key)
+	if err != nil {
+		// Keep running on the existing lease if it has not lapsed — a flaky
+		// venue connection must not stop the desk mid-session.
+		return m.statusLocked(), err
+	}
+
+	m.state.Lease = lease
+	m.state.CheckedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := m.save(); err != nil {
+		return m.statusLocked(), err
+	}
+	return m.statusLocked(), nil
+}
+
+func (m *licenseManager) post(path, key string) (*licenseLease, error) {
+	hostname, _ := os.Hostname()
+	body, err := json.Marshal(map[string]string{
+		"key":          key,
+		"device_id":    m.deviceID(),
+		"device_label": hostname,
+		"app_version":  version,
+		"os":           runtime.GOOS + " " + runtime.GOARCH,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	request, err := http.NewRequest(http.MethodPost, m.cloudBase+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+
+	response, err := m.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("could not reach the NPL licence server: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			License licenseLease `json:"license"`
+		} `json:"data"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("unexpected response from the licence server (%d)", response.StatusCode)
+	}
+
+	if !envelope.OK {
+		if envelope.Error.Message != "" {
+			return nil, errors.New(envelope.Error.Message)
+		}
+		return nil, fmt.Errorf("licence request refused (%d)", response.StatusCode)
+	}
+
+	lease := envelope.Data.License
+	return &lease, nil
+}
+
+func maskKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	parts := strings.Split(key, "-")
+	if len(parts) < 2 {
+		return key[:min(4, len(key))] + "••••"
+	}
+	for i := 1; i < len(parts)-1; i++ {
+		parts[i] = strings.Repeat("•", len(parts[i]))
+	}
+	return strings.Join(parts, "-")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
