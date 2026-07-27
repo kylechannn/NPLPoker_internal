@@ -32,12 +32,29 @@ final class SyncPullCommand extends Command
         ]);
 
         foreach ((array) ($run['summary']['entities'] ?? []) as $entity => $result) {
+            // Snapshot entities report `rows`; delta entities report
+            // `upserted` + `deleted`.
+            $written = (int) ($result['rows'] ?? $result['upserted'] ?? 0);
+            $deleted = (int) ($result['deleted'] ?? 0);
+
             $this->line(sprintf(
-                ' %-16s %-14s %6d rows%s',
+                ' %-22s %-14s %6d rows%s%s%s',
                 $entity,
                 $result['status'] ?? '?',
-                (int) ($result['rows'] ?? 0),
+                $written,
+                $deleted > 0 ? sprintf(', %d deleted', $deleted) : '',
+                ($result['not_modified'] ?? false) ? '  (unchanged)' : '',
                 isset($result['message']) && $result['message'] ? '  — '.$result['message'] : '',
+            ));
+        }
+
+        if ($avatars = ($run['summary']['media']['avatars'] ?? null)) {
+            $this->line(sprintf(
+                ' %-22s %d installed, %d unchanged, %d without an avatar',
+                'avatars',
+                (int) $avatars['installed'],
+                (int) $avatars['unchanged'],
+                (int) $avatars['missing'],
             ));
         }
 
