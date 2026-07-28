@@ -5,6 +5,7 @@ import NplTransitLoader from "./NplTransitLoader"
 import HostWorkspace from "./desk/HostWorkspace"
 import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
 import { deskApi, type UpcomingSession, type Venue } from "./desk/deskApi"
+import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { describeRun, syncApi } from "./sync/syncApi"
 import nplLogoUrl from "./assets/npl-logo.png"
 import {
@@ -338,15 +339,11 @@ function formatSignalCheck(value: string) {
 
 function ConnectionSignal({
   state,
-  expanded,
   refreshing,
-  onToggle,
   onRefresh,
 }: {
   state: NetworkQualityState
-  expanded: boolean
   refreshing: boolean
-  onToggle: () => void
   onRefresh: () => void
 }) {
   const quality = state.status === "ready" ? state.quality : null
@@ -370,82 +367,62 @@ function ConnectionSignal({
             ? "good"
             : "excellent"
 
+  // Compact on purpose: a glance says enough, nobody opens the details.
+  // Tapping it re-runs the probe — the old dropdown's only useful control.
   return (
-    <section className={`connection-signal connection-signal--${tone}`}>
-      <button
-        className="connection-signal__summary"
-        type="button"
-        aria-expanded={expanded}
-        aria-controls="connection-quality-details"
-        aria-label={`${grade} internet connection, ${bars} of 5 signal bars${online ? `, level ${level} of 10` : ""}`}
-        onClick={onToggle}
-      >
-        <span className="signal-bars" aria-hidden="true">
-          {Array.from({ length: 5 }, (_, index) => (
-            <i className={index < bars ? "signal-bar signal-bar--active" : "signal-bar"} key={index} />
-          ))}
-        </span>
-        <span className="connection-signal__copy">
-          <small>Internet signal</small>
-          <strong>{grade}</strong>
-        </span>
-        <ChevronDown className={expanded ? "connection-signal__chevron connection-signal__chevron--open" : "connection-signal__chevron"} size={19} />
-      </button>
+    <button
+      className={`connection-signal connection-signal--compact connection-signal--${tone}`}
+      type="button"
+      disabled={refreshing}
+      aria-label={`${grade} internet connection, ${bars} of 5 signal bars${online ? `, level ${level} of 10` : ""}. Tap to re-check.`}
+      title="Tap to re-check the internet signal"
+      onClick={onRefresh}
+    >
+      <span className="signal-bars" aria-hidden="true">
+        {Array.from({ length: 5 }, (_, index) => (
+          <i className={index < bars ? "signal-bar signal-bar--active" : "signal-bar"} key={index} />
+        ))}
+      </span>
+      <span className="connection-signal__copy">
+        <small>Internet</small>
+        <strong>{grade}</strong>
+      </span>
+    </button>
+  )
+}
 
-      {expanded ? (
-        <div className="connection-details" id="connection-quality-details">
-          <header>
-            <div>
-              <small>Connection quality</small>
-              <strong>{online ? `Level ${level} / 10` : grade}</strong>
-            </div>
-            <button
-              className={refreshing ? "connection-refresh connection-refresh--active" : "connection-refresh"}
-              type="button"
-              aria-label="Check internet signal now"
-              disabled={refreshing}
-              onClick={onRefresh}
-            >
-              <RefreshCw size={18} />
-            </button>
-          </header>
+function BackendLinkLight({
+  status,
+  enabled,
+  onToggle,
+}: {
+  status: BackendLinkStatus
+  enabled: boolean
+  onToggle: () => void
+}) {
+  const effective = enabled ? status : "off"
+  const label = !enabled
+    ? "Disconnected"
+    : status === "connected"
+      ? "Connected"
+      : status === "connecting"
+        ? "Connecting…"
+        : "Offline"
 
-          {quality && online ? (
-            <>
-              <p className="connection-details__summary">{quality.summary}</p>
-              <dl className="connection-metrics">
-                <div>
-                  <dt>Latency</dt>
-                  <dd>{quality.latency_ms} <small>ms</small></dd>
-                </div>
-                <div>
-                  <dt>Reliability</dt>
-                  <dd>{quality.reliability_percent}<small>%</small></dd>
-                </div>
-                <div>
-                  <dt>Jitter</dt>
-                  <dd>{quality.jitter_ms} <small>ms</small></dd>
-                </div>
-              </dl>
-              <p className="connection-details__method">
-                {quality.probe_success}/{quality.probe_total} routes responded · checked {formatSignalCheck(quality.checked_at)}
-              </p>
-            </>
-          ) : (
-            <p className="connection-details__summary">
-              {state.status === "loading"
-                ? "Measuring internet routes…"
-                : "No internet route was detected. Local operations remain available."}
-            </p>
-          )}
-
-          <footer>
-            <ShieldCheck size={16} />
-            <span>Lightweight check · local operations stay independent</span>
-          </footer>
-        </div>
-      ) : null}
-    </section>
+  return (
+    <button
+      className={`backend-link backend-link--${effective}`}
+      type="button"
+      aria-label={`Backend live link: ${label}. Tap to ${enabled ? "disconnect" : "connect"}.`}
+      title={enabled ? "Live link to the NPL cloud — tap to disconnect" : "Tap to connect the live link"}
+      onClick={onToggle}
+    >
+      <span className="backend-link__light" aria-hidden="true" />
+      <span className="backend-link__copy">
+        <small>Backend link</small>
+        <strong>{label}</strong>
+      </span>
+    </button>
   )
 }
 
@@ -835,7 +812,6 @@ export default function App() {
   const [selectedTableId, setSelectedTableId] = useState(tables[0].id)
   const [health, setHealth] = useState<HealthState>({ status: "loading" })
   const [networkQuality, setNetworkQuality] = useState<NetworkQualityState>({ status: "loading" })
-  const [connectionPanelOpen, setConnectionPanelOpen] = useState(false)
   const [networkRefreshing, setNetworkRefreshing] = useState(false)
   const [manualUpdating, setManualUpdating] = useState(false)
   const [avatarSyncing, setAvatarSyncing] = useState(false)
@@ -851,6 +827,10 @@ export default function App() {
   })
   const [venueMenuOpen, setVenueMenuOpen] = useState(false)
   const activeVenue = venues.find((venue) => venue.id === venueId) ?? null
+
+  // Live two-way link to the NPL cloud: auto-connects once the venue is
+  // known, signals pull fresh session data within seconds.
+  const backendLink = useBackendLink(venueId)
 
   useEffect(() => {
     void deskApi.venues()
@@ -1080,7 +1060,6 @@ export default function App() {
     const handleGlobalShortcut = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setMobileNavOpen(false)
-        setConnectionPanelOpen(false)
       }
     }
 
@@ -1213,11 +1192,11 @@ export default function App() {
 
         <ConnectionSignal
           state={networkQuality}
-          expanded={connectionPanelOpen}
           refreshing={networkRefreshing}
-          onToggle={() => setConnectionPanelOpen((current) => !current)}
           onRefresh={() => void loadNetworkQuality(true)}
         />
+
+        <BackendLinkLight status={backendLink.status} enabled={backendLink.enabled} onToggle={backendLink.toggle} />
 
         <div className="sidebar-menu-container">
           <nav className="primary-nav" aria-label="Operational system navigation">
@@ -1961,20 +1940,29 @@ function OverviewWorkspace({ venue, onNavigate, onNotice }: {
     }
 
     let cancelled = false
-    setUpcomingLoading(true)
-    void deskApi.upcomingSessions(venue.id)
-      .then((result) => {
-        if (!cancelled) setUpcoming(result.sessions)
-      })
-      .catch(() => {
-        if (!cancelled) setUpcoming([])
-      })
-      .finally(() => {
-        if (!cancelled) setUpcomingLoading(false)
-      })
+    const load = (initial: boolean) => {
+      if (initial) setUpcomingLoading(true)
+      void deskApi.upcomingSessions(venue.id)
+        .then((result) => {
+          if (!cancelled) setUpcoming(result.sessions)
+        })
+        .catch(() => {
+          if (!cancelled && initial) setUpcoming([])
+        })
+        .finally(() => {
+          if (!cancelled && initial) setUpcomingLoading(false)
+        })
+    }
+
+    load(true)
+
+    // The live backend link fires this after every pulled change.
+    const onSessionsUpdated = () => load(false)
+    window.addEventListener("npl:sessions-updated", onSessionsUpdated)
 
     return () => {
       cancelled = true
+      window.removeEventListener("npl:sessions-updated", onSessionsUpdated)
     }
   }, [venue])
 

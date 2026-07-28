@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
 use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Sync\ManualUpdateRunner;
@@ -22,6 +23,7 @@ final class SyncController
         private readonly ManualUpdateRunner $runner,
         private readonly SyncService $sync,
         private readonly LicenseKeyProvider $license,
+        private readonly CloudClient $cloud,
     ) {}
 
     /**
@@ -57,6 +59,47 @@ final class SyncController
                 'entities' => $entities,
             ],
         ]);
+    }
+
+    /**
+     * Targeted refresh of the fast-moving entities only: game sessions and
+     * their seat maps. Called when the realtime channel signals a change
+     * (and by the UI's fallback poll) — small enough to run inline.
+     */
+    public function pullSessions(): JsonResponse
+    {
+        try {
+            $sessions = $this->sync->syncEntity('game_sessions');
+            $seating = $this->sync->syncEntity('seating');
+        } catch (CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => ['code' => $e->errorCode, 'message' => $e->getMessage()],
+            ], 502);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'data' => ['game_sessions' => $sessions, 'seating' => $seating],
+        ]);
+    }
+
+    /**
+     * Realtime connection details, proxied from the cloud so the UI can
+     * open its WebSocket without the install shipping a baked-in key.
+     */
+    public function realtime(): JsonResponse
+    {
+        try {
+            $details = $this->cloud->getJson('/api/v1/internal/realtime');
+        } catch (CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => ['code' => $e->errorCode, 'message' => $e->getMessage()],
+            ], 502);
+        }
+
+        return response()->json(['ok' => true, 'data' => $details['data'] ?? $details]);
     }
 
     /**

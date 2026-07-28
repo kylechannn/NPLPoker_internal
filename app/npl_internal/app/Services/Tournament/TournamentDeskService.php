@@ -234,6 +234,22 @@ final class TournamentDeskService
 
         $this->broadcaster->publish($sessionId);
 
+        // A paid buy-in is the venue confirming (or creating) the cloud
+        // registration — online bookings are only bookings until this
+        // happens, and walk-ins must appear online too.
+        if ($action === 'buy_in' && $session->game_session_id !== null) {
+            $this->outbox->enqueue('session_checkin', 'create', [
+                'reference' => (string) Str::uuid(),
+                'game_session_id' => (int) $session->game_session_id,
+                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+                'player_npl_id' => $nplId,
+                'table_number' => isset($options['table_number']) ? (int) $options['table_number'] : null,
+                'seat_number' => isset($options['seat_number']) ? (int) $options['seat_number'] : null,
+                'entered_at' => now()->toIso8601String(),
+            ]);
+            $this->drainSoon();
+        }
+
         return $result;
     }
 
@@ -257,6 +273,23 @@ final class TournamentDeskService
                 ? ['price_cents' => 0, 'meta' => ['voucher_code' => $voucherCode]]
                 : [],
         );
+    }
+
+    /**
+     * Push the outbox after the response is sent. Instant when online,
+     * silently deferred to the 15-second scheduled sweep when not — the
+     * desk response is never held up either way.
+     */
+    private function drainSoon(): void
+    {
+        $outbox = $this->outbox;
+        App::terminating(function () use ($outbox): void {
+            try {
+                $outbox->drain();
+            } catch (Throwable) {
+                // Already queued locally; the scheduled drain retries.
+            }
+        });
     }
 
     /**
@@ -337,18 +370,9 @@ final class TournamentDeskService
             'entered_at' => now()->toIso8601String(),
         ]);
 
-        // Drain after the response so the entry reaches the cloud before the
-        // player walks from the desk to the wheel — the wheel refuses to spin
-        // until the cloud knows about the entry. Offline it just stays queued
-        // for the scheduled sweep; the desk response is never held up.
-        $outbox = $this->outbox;
-        App::terminating(function () use ($outbox): void {
-            try {
-                $outbox->drain();
-            } catch (Throwable) {
-                // Already queued locally; the scheduled drain retries.
-            }
-        });
+        // Drain immediately: the wheel refuses to spin until the cloud knows
+        // about the entry, and the player may walk straight over.
+        $this->drainSoon();
 
         return [
             'jackpot' => [
@@ -497,6 +521,21 @@ final class TournamentDeskService
                 'seat_number' => $seatNumber,
                 'updated_at' => now(),
             ]);
+
+        // Mirror the move to the cloud seat map immediately — desk wins
+        // there, and phones/website follow within seconds.
+        $session = $this->clock->session($sessionId);
+        if ($session->game_session_id !== null && $tableNumber !== null) {
+            $this->outbox->enqueue('session_seat_change', 'update', [
+                'game_session_id' => (int) $session->game_session_id,
+                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+                'player_npl_id' => $nplId,
+                'table_number' => $tableNumber,
+                'seat_number' => $seatNumber,
+                'moved_at' => now()->toIso8601String(),
+            ]);
+            $this->drainSoon();
+        }
 
         return $this->seating($sessionId);
     }

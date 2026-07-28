@@ -658,6 +658,167 @@ a:focus-visible {
   --signal-border: rgba(61, 255, 160, 0.25);
 }
 
+/* Compact form: bars + a word, half the height, no dropdown. */
+.connection-signal--compact {
+  display: grid;
+  width: calc(100% - 28px);
+  min-height: 34px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--signal-border);
+  padding: 5px 9px;
+  color: var(--npl-text);
+  background:
+    linear-gradient(110deg, var(--signal-soft), transparent 75%),
+    rgba(5, 17, 36, 0.7);
+  clip-path: var(--npl-clip-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.connection-signal--compact .signal-bars {
+  width: 32px;
+  height: 18px;
+  gap: 2px;
+}
+
+.connection-signal--compact .connection-signal__copy {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.connection-signal--compact .connection-signal__copy small {
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.connection-signal--compact .connection-signal__copy strong {
+  overflow: hidden;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The live link to the NPL cloud, directly under the internet signal. */
+.backend-link {
+  --link-color: #ff6c72;
+  --link-soft: rgba(255, 108, 114, 0.09);
+  --link-border: rgba(255, 108, 114, 0.28);
+  display: grid;
+  width: calc(100% - 28px);
+  min-height: 34px;
+  margin: 6px 14px 0;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--link-border);
+  padding: 5px 9px;
+  color: var(--npl-text);
+  background:
+    linear-gradient(110deg, var(--link-soft), transparent 75%),
+    rgba(5, 17, 36, 0.7);
+  clip-path: var(--npl-clip-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.backend-link--connecting {
+  --link-color: var(--npl-gold);
+  --link-soft: rgba(255, 197, 61, 0.08);
+  --link-border: rgba(255, 197, 61, 0.26);
+}
+
+.backend-link--connected {
+  --link-color: #5fe5c0;
+  --link-soft: rgba(95, 229, 192, 0.08);
+  --link-border: rgba(95, 229, 192, 0.25);
+}
+
+.backend-link__light {
+  position: relative;
+  display: flex;
+  width: 32px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+.backend-link__light::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--link-color);
+  box-shadow: 0 0 8px var(--link-color);
+}
+
+/* Connecting: an orbiting ring around the amber light. */
+.backend-link--connecting .backend-link__light::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid transparent;
+  border-top-color: var(--link-color);
+  border-radius: 50%;
+  animation: backend-link-spin 0.9s linear infinite;
+}
+
+.backend-link--connected .backend-link__light::before {
+  animation: backend-link-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes backend-link-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes backend-link-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 6px var(--link-color);
+  }
+
+  50% {
+    box-shadow: 0 0 12px var(--link-color);
+  }
+}
+
+.backend-link__copy {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.backend-link__copy small {
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.backend-link__copy strong {
+  overflow: hidden;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .connection-signal__summary {
   display: grid;
   width: 100%;

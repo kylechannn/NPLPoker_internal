@@ -23,6 +23,8 @@ Route::get('/health', function () {
 Route::prefix('v1/sync')->controller(SyncController::class)->group(function (): void {
     Route::get('manifest', 'manifest');
     Route::post('run', 'run');
+    Route::post('pull-sessions', 'pullSessions');
+    Route::get('realtime', 'realtime');
     Route::get('runs/latest', 'latest');
     Route::get('runs/{uuid}', 'status');
     Route::get('snapshot', 'snapshot');
