@@ -19,10 +19,31 @@ use Illuminate\Validation\ValidationException;
  */
 final class TournamentService
 {
-    public function __construct(private readonly TournamentClockService $clock) {}
+    public function __construct(
+        private readonly TournamentClockService $clock,
+        private readonly TournamentTemplateService $templates,
+    ) {}
 
+    /**
+     * Precedence: anything the caller passes wins, then the named template,
+     * then the saved default template, then the built-in structure. That is
+     * what makes "start next week's game in one tap" work while still
+     * allowing a one-off tweak.
+     */
     public function create(array $data): array
     {
+        $template = null;
+
+        if (! empty($data['template_id'])) {
+            $template = $this->templates->find((int) $data['template_id']);
+        } elseif (! array_key_exists('levels', $data)) {
+            $template = $this->templates->default();
+        }
+
+        if ($template !== null) {
+            $data = $this->templates->toCreatePayload($template, $data);
+        }
+
         $levels = $data['levels'] ?? TournamentClockService::DEFAULT_STRUCTURE;
 
         if ($levels === []) {

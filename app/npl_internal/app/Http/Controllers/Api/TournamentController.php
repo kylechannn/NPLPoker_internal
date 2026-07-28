@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Services\Tournament\TournamentBroadcaster;
 use App\Services\Tournament\TournamentClockService;
 use App\Services\Tournament\TournamentService;
+use App\Services\Tournament\TournamentTemplateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -22,6 +23,7 @@ final class TournamentController
         private readonly TournamentService $tournaments,
         private readonly TournamentClockService $clock,
         private readonly TournamentBroadcaster $broadcaster,
+        private readonly TournamentTemplateService $templates,
     ) {}
 
     public function index(): JsonResponse
@@ -33,6 +35,7 @@ final class TournamentController
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:160'],
+            'template_id' => ['sometimes', 'nullable', 'integer'],
             'venue_name' => ['sometimes', 'nullable', 'string', 'max:160'],
             'game_session_id' => ['sometimes', 'nullable', 'integer'],
             'game_entity_id' => ['sometimes', 'nullable', 'integer'],
@@ -185,6 +188,39 @@ final class TournamentController
         $player = $this->tournaments->act($id, $validated['player_npl_id'], $validated['action'], $validated);
 
         return $this->ok(['player' => $player, 'summary' => $this->tournaments->summary($id)]);
+    }
+
+    // ---- templates: saved presets for a fast start next time ----
+
+    public function templates(): JsonResponse
+    {
+        return $this->ok([
+            'templates' => $this->templates->all(),
+            'default' => $this->templates->default(),
+        ]);
+    }
+
+    public function saveTemplate(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_default' => ['sometimes', 'boolean'],
+            // Either capture an existing tournament's setup...
+            'from_tournament_id' => ['sometimes', 'nullable', 'integer'],
+            // ...or supply the structure directly.
+            'levels' => ['sometimes', 'array', 'min:1'],
+            'settings' => ['sometimes', 'array'],
+        ]);
+
+        return $this->ok(['template' => $this->templates->save($validated)], 201);
+    }
+
+    public function deleteTemplate(int $templateId): JsonResponse
+    {
+        $this->templates->delete($templateId);
+
+        return $this->ok(['deleted' => true]);
     }
 
     private function ok(array $data, int $status = 200): JsonResponse

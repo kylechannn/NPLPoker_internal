@@ -34,6 +34,12 @@ Route::get('/media/{key}', [MediaController::class, 'show'])->where('key', '[A-Z
  * Tournament clock — the poker adaptation of EdgeHost's Sichuan module.
  * The clock is server-authoritative so every display agrees.
  */
+Route::prefix('v1/tournament-templates')->controller(\App\Http\Controllers\Api\TournamentController::class)->group(function (): void {
+    Route::get('/', 'templates');
+    Route::post('/', 'saveTemplate');
+    Route::delete('{templateId}', 'deleteTemplate')->whereNumber('templateId');
+});
+
 Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\TournamentController::class)->group(function (): void {
     Route::get('/', 'index');
     Route::post('/', 'store');
