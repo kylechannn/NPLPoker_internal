@@ -100,6 +100,14 @@ final class OutboxService
                 ]);
 
                 ($retryable && ! $exhausted) ? $failed++ : $dead++;
+
+                // One unreachable means offline for all of them. Stop the
+                // batch instead of paying a connect timeout per entry — an
+                // inline drain runs on the desk's only PHP worker, and a
+                // stack of timeouts would freeze the operator's screen.
+                if ($e instanceof CloudException && $e->errorCode === CloudException::UNREACHABLE) {
+                    break;
+                }
             }
         }
 

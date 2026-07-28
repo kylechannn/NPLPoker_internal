@@ -38,10 +38,38 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body.data as T
 }
 
-/** Pull sessions + seat maps now; tell every open workspace when done. */
-export async function pullSessionsNow(): Promise<void> {
-  await fetchJson("/api/v1/sync/pull-sessions", { method: "POST" })
-  window.dispatchEvent(new CustomEvent("npl:sessions-updated"))
+/**
+ * Pull sessions + seat maps now; tell every open workspace when done.
+ *
+ * Single-flight with a trailing rerun: the pull fans out one HTTP call per
+ * scheduled session on the desk's only PHP worker, so a burst of signals
+ * (five phones registering in the same minute) must coalesce into at most
+ * one running pull plus one queued rerun — never a pile-up that starves
+ * the operator's own requests.
+ */
+let pullInFlight: Promise<void> | null = null
+let pullQueued = false
+
+export function pullSessionsNow(): Promise<void> {
+  if (pullInFlight) {
+    pullQueued = true
+    return pullInFlight
+  }
+
+  pullInFlight = (async () => {
+    try {
+      await fetchJson("/api/v1/sync/pull-sessions", { method: "POST" })
+      window.dispatchEvent(new CustomEvent("npl:sessions-updated"))
+    } finally {
+      pullInFlight = null
+      if (pullQueued) {
+        pullQueued = false
+        void pullSessionsNow().catch(() => {})
+      }
+    }
+  })()
+
+  return pullInFlight
 }
 
 export function useBackendLink(venueId: number | null) {
@@ -187,7 +215,9 @@ export function useBackendLink(venueId: number | null) {
     if (venueId === null) return
 
     const timer = window.setInterval(() => {
-      if (statusRef.current !== "connected") {
+      // navigator.onLine false means no network route at all — a pull would
+      // only stall the local PHP worker on connect timeouts.
+      if (statusRef.current !== "connected" && navigator.onLine !== false) {
         void pullSessionsNow().catch(() => {})
       }
     }, FALLBACK_PULL_MS)
