@@ -480,6 +480,10 @@ final class TournamentDeskService
 
         $this->broadcaster->publish($sessionId);
 
+        // A busted player must leave the public seat map too, or phones and
+        // the website keep showing them seated until the session ends.
+        $this->pushSeatToCloud($this->clock->session($sessionId), $nplId, null, null);
+
         return $this->seating($sessionId);
     }
 
@@ -556,21 +560,33 @@ final class TournamentDeskService
             ]);
 
         // Mirror the move to the cloud seat map immediately — desk wins
-        // there, and phones/website follow within seconds.
-        $session = $this->clock->session($sessionId);
-        if ($session->game_session_id !== null && $tableNumber !== null) {
-            $this->outbox->enqueue('session_seat_change', 'update', [
-                'game_session_id' => (int) $session->game_session_id,
-                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
-                'player_npl_id' => $nplId,
-                'table_number' => $tableNumber,
-                'seat_number' => $seatNumber,
-                'moved_at' => now()->toIso8601String(),
-            ]);
-            $this->drainSoon();
-        }
+        // there, and phones/website follow within seconds. A null table is
+        // a stand-up and must sync too, or the public map keeps showing a
+        // player who left the seat.
+        $this->pushSeatToCloud($this->clock->session($sessionId), $nplId, $tableNumber, $seatNumber);
 
         return $this->seating($sessionId);
+    }
+
+    /** Queue a cloud seat update (or unseat, when table is null) and push now. */
+    private function pushSeatToCloud(object $session, string $nplId, ?int $tableNumber, ?int $seatNumber): void
+    {
+        if ($session->game_session_id === null) {
+            return;
+        }
+
+        $this->outbox->enqueue('session_seat_change', 'update', [
+            'game_session_id' => (int) $session->game_session_id,
+            'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+            'player_npl_id' => $nplId,
+            'table_number' => $tableNumber,
+            'seat_number' => $seatNumber,
+            'moved_at' => now()->toIso8601String(),
+            // Repeating an identical move (A→B, A→C, back to A→B) must be a
+            // fresh outbox entry, not a content-hash hit on the sent one.
+            'nonce' => (string) Str::uuid(),
+        ]);
+        $this->drainSoon();
     }
 
     /**

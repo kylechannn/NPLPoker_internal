@@ -27,6 +27,7 @@ type RealtimeDetails = {
 }
 
 const FALLBACK_PULL_MS = 60_000
+const RECONCILE_PULL_MS = 300_000
 const STALE_SOCKET_MS = 150_000
 const RECONNECT_BASE_MS = 2_000
 const RECONNECT_MAX_MS = 30_000
@@ -161,6 +162,14 @@ export function useBackendLink(venueId: number | null) {
             event: "pusher:subscribe",
             data: { channel: `${details.channel_prefix}${venueId}` },
           }))
+          return
+        }
+
+        // Green only once the venue channel is actually subscribed — a
+        // connected socket with a failed subscription hears nothing, and
+        // showing it green would disable the fallback poll exactly when
+        // it is needed.
+        if (message?.event === "pusher_internal:subscription_succeeded") {
           attemptRef.current = 0
           setStatus("connected")
           // Catch up on anything that happened while the link was down.
@@ -210,7 +219,8 @@ export function useBackendLink(venueId: number | null) {
   }, [enabled, venueId, teardown])
 
   // Fallback: while the socket is anything but green, keep the mirror at
-  // most a minute stale.
+  // most a minute stale. While green, a slow reconciliation pull heals
+  // anything a dropped frame ever missed — trust the signal, verify anyway.
   useEffect(() => {
     if (venueId === null) return
 
@@ -222,7 +232,16 @@ export function useBackendLink(venueId: number | null) {
       }
     }, FALLBACK_PULL_MS)
 
-    return () => window.clearInterval(timer)
+    const reconcile = window.setInterval(() => {
+      if (statusRef.current === "connected") {
+        void pullSessionsNow().catch(() => {})
+      }
+    }, RECONCILE_PULL_MS)
+
+    return () => {
+      window.clearInterval(timer)
+      window.clearInterval(reconcile)
+    }
   }, [venueId])
 
   const toggle = useCallback(() => {

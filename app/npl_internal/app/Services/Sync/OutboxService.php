@@ -6,6 +6,7 @@ namespace App\Services\Sync;
 
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -45,15 +46,25 @@ final class OutboxService
         return $key;
     }
 
-    /** @return array{sent: int, failed: int, dead: int, remaining: int} */
+    /**
+     * Strict FIFO: entries leave in the order the desk created them, and a
+     * parked entry blocks everything younger. A seat move must never reach
+     * the cloud before the buy-in it depends on — head-of-line blocking is
+     * the price of causality, and a poisoned head goes visibly `dead` after
+     * max_attempts rather than silently letting the queue reorder.
+     *
+     * @return array{sent: int, failed: int, dead: int, remaining: int}
+     */
     public function drain(?int $limit = null): array
     {
         $limit ??= (int) config('nplcloud.outbox.chunk', 20);
         $maxAttempts = (int) config('nplcloud.outbox.max_attempts', 12);
 
         $entries = DB::table('sync_outbox')
-            ->where('status', 'pending')
-            ->where(fn ($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
+            ->where(fn ($query) => $query
+                ->where('status', 'pending')
+                // A crashed drain leaves `sending` behind; reclaim after 5m.
+                ->orWhere(fn ($stale) => $stale->where('status', 'sending')->where('updated_at', '<', now()->subMinutes(5))))
             ->orderBy('id')
             ->limit($limit)
             ->get();
@@ -63,10 +74,29 @@ final class OutboxService
         $dead = 0;
 
         foreach ($entries as $entry) {
+            // FIFO: a backed-off head parks the whole queue until it is due.
+            if ($entry->available_at !== null && CarbonImmutable::parse($entry->available_at)->isFuture()) {
+                break;
+            }
+
+            // Atomic claim so the scheduled sweep and an inline drain never
+            // send the same entry concurrently.
+            $claimed = DB::table('sync_outbox')
+                ->where('id', $entry->id)
+                ->where(fn ($query) => $query
+                    ->where('status', 'pending')
+                    ->orWhere(fn ($stale) => $stale->where('status', 'sending')->where('updated_at', '<', now()->subMinutes(5))))
+                ->update(['status' => 'sending', 'updated_at' => now()]);
+
+            if ($claimed === 0) {
+                // Another drain holds the head; younger entries must wait.
+                break;
+            }
+
             $attempts = (int) $entry->attempts + 1;
 
             try {
-                $this->cloud->postJson(
+                $response = $this->cloud->postJson(
                     '/api/v1/internal/outbox',
                     [
                         'entity_type' => $entry->entity_type,
@@ -75,6 +105,41 @@ final class OutboxService
                     ],
                     $entry->idempotency_key,
                 );
+
+                $verdict = $this->verdictFor($response);
+
+                if ($verdict === 'retry') {
+                    // Delivered, but the cloud could not apply it yet (player
+                    // not synced, ordering). 2xx is NOT success here — marking
+                    // it sent would silently lose a paid buy-in.
+                    $exhausted = $attempts >= $maxAttempts;
+                    $delay = min(3600, 5 * (2 ** min($attempts, 7)));
+
+                    DB::table('sync_outbox')->where('id', $entry->id)->update([
+                        'status' => $exhausted ? 'dead' : 'pending',
+                        'attempts' => $attempts,
+                        'available_at' => now()->addSeconds($delay),
+                        'last_error' => Str::limit('Cloud did not apply: '.json_encode($response['data']['result']['detail'] ?? []), 500),
+                        'updated_at' => now(),
+                    ]);
+
+                    $exhausted ? $dead++ : $failed++;
+                    break;
+                }
+
+                if ($verdict === 'rejected') {
+                    // Permanently unapplicable (unknown entity/session).
+                    // Dead is visible; sent would be a silent lie.
+                    DB::table('sync_outbox')->where('id', $entry->id)->update([
+                        'status' => 'dead',
+                        'attempts' => $attempts,
+                        'last_error' => Str::limit('Cloud rejected: '.json_encode($response['data']['result']['detail'] ?? []), 500),
+                        'updated_at' => now(),
+                    ]);
+                    $dead++;
+
+                    continue;
+                }
 
                 DB::table('sync_outbox')->where('id', $entry->id)->update([
                     'status' => 'sent',
@@ -101,13 +166,10 @@ final class OutboxService
 
                 ($retryable && ! $exhausted) ? $failed++ : $dead++;
 
-                // One unreachable means offline for all of them. Stop the
-                // batch instead of paying a connect timeout per entry — an
-                // inline drain runs on the desk's only PHP worker, and a
-                // stack of timeouts would freeze the operator's screen.
-                if ($e instanceof CloudException && $e->errorCode === CloudException::UNREACHABLE) {
-                    break;
-                }
+                // Any failure stops the batch: ordering must hold, and an
+                // offline desk pays one connect timeout, not one per entry —
+                // an inline drain runs on the desk's only PHP worker.
+                break;
             }
         }
 
@@ -117,6 +179,27 @@ final class OutboxService
             'dead' => $dead,
             'remaining' => DB::table('sync_outbox')->where('status', 'pending')->count(),
         ];
+    }
+
+    /**
+     * How the cloud's 2xx answer should be treated. Older clouds without
+     * the result envelope default to 'sent' — they applied blindly.
+     */
+    private function verdictFor(array $response): string
+    {
+        $result = $response['data']['result'] ?? null;
+
+        if (! is_array($result)) {
+            return 'sent';
+        }
+
+        if (($response['data']['duplicate'] ?? false) === true
+            || ($result['applied'] ?? true) === true
+            || ($result['detail']['duplicate'] ?? false) === true) {
+            return 'sent';
+        }
+
+        return ($result['detail']['retryable'] ?? false) === true ? 'retry' : 'rejected';
     }
 
     private function canonical(array $payload): string

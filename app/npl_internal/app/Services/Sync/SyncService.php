@@ -71,8 +71,11 @@ final class SyncService
 
             // Refuse to replace live data with an empty snapshot: that is far
             // more likely a truncated response than a genuinely emptied table.
+            // Seating is the exception — its rows are rebuilt per pull and a
+            // quiet day (no sessions today/tomorrow) is legitimately empty;
+            // refusing would wedge the entity on yesterday's seat map forever.
             $liveCount = DB::table($table)->count();
-            if ($rows === [] && $liveCount > 0 && ! $force) {
+            if ($rows === [] && $liveCount > 0 && ! $force && $entity !== 'seating') {
                 throw new CloudException(
                     CloudException::BAD_RESPONSE,
                     sprintf('%s returned 0 rows while %d are held locally — refusing to wipe. Re-run with force to override.', $entity, $liveCount),
@@ -192,8 +195,13 @@ final class SyncService
      */
     private function fetchSeatingRows(): array
     {
+        // Seat maps only matter around game time. Bounding the fan-out to
+        // today/tomorrow keeps it to a handful of HTTP calls instead of one
+        // per scheduled session network-wide — this runs inline on the
+        // desk's only PHP worker, on every realtime signal.
         $sessionIds = DB::table('mirror_game_sessions')
             ->where('status', 'scheduled')
+            ->whereBetween('session_date', [now()->toDateString(), now()->addDay()->toDateString()])
             ->orderBy('session_date')
             ->pluck('session_id');
 
@@ -201,7 +209,19 @@ final class SyncService
         $now = now();
 
         foreach ($sessionIds as $sessionId) {
-            $result = $this->cloud->getJson("/api/v1/game-sessions/{$sessionId}/seating");
+            try {
+                $result = $this->cloud->getJson("/api/v1/game-sessions/{$sessionId}/seating");
+            } catch (CloudException $e) {
+                // A session that vanished between the sessions pull and this
+                // fan-out (completed, cancelled) must not abort the whole
+                // seating sync; connectivity loss must.
+                if ($e->isRetryable()) {
+                    throw $e;
+                }
+
+                continue;
+            }
+
             $seating = $result['data'];
 
             foreach ((array) ($seating['tables'] ?? []) as $table) {
