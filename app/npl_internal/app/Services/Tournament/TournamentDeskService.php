@@ -83,8 +83,41 @@ final class TournamentDeskService
                 'state_code' => $player->state_code ?? null,
             ],
             'entry' => $registered ? $this->presentEntry($entry, $sessionId, $session) : null,
+            'booking' => $this->onlineBooking($session, $nplId),
             'options' => $this->optionsFor($sessionId, $session, $state, $nplId, $registered, $entry),
             'gates' => $gates,
+        ];
+    }
+
+    /**
+     * The player's online booking for this session, from the live-synced
+     * cloud mirror. An online registration is only a booking — the desk
+     * confirms it at buy-in — but the operator must see it on scan: the
+     * player expects the seat they picked.
+     *
+     * @return array{table_number: int, seat_number: int|null, status: string|null, waitlist_position: int|null}|null
+     */
+    private function onlineBooking(object $session, string $nplId): ?array
+    {
+        if ($session->game_session_id === null) {
+            return null;
+        }
+
+        $booking = DB::table('mirror_session_tables')
+            ->where('session_id', $session->game_session_id)
+            ->where('player_npl_id', $nplId)
+            ->whereIn('registration_status', ['registered', 'waitlisted'])
+            ->first();
+
+        if ($booking === null) {
+            return null;
+        }
+
+        return [
+            'table_number' => (int) $booking->table_number,
+            'seat_number' => $booking->seat_number !== null ? (int) $booking->seat_number : null,
+            'status' => $booking->registration_status,
+            'waitlist_position' => $booking->waitlist_position !== null ? (int) $booking->waitlist_position : null,
         ];
     }
 

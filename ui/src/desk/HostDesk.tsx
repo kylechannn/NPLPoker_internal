@@ -282,6 +282,16 @@ export default function HostDesk({ sessionId, onExit }: Props) {
                 <p className="host-desk__new">Not in this tournament yet.</p>
               )}
 
+              {scan.booking && !scan.entry ? (
+                <p className="host-booking-banner">
+                  {scan.booking.status === "waitlisted"
+                    ? `Booked online — wait list #${scan.booking.waitlist_position ?? "?"} on table ${scan.booking.table_number}. Buy-in confirms their entry.`
+                    : scan.booking.seat_number !== null
+                      ? `Booked online — table ${scan.booking.table_number}, seat ${scan.booking.seat_number}. Buy-in confirms their entry.`
+                      : `Booked online — table ${scan.booking.table_number}. Buy-in confirms their entry.`}
+                </p>
+              ) : null}
+
               {voucher && !scan.entry && scan.options.some((option) => option.action === "buy_in" && option.allowed) ? (
                 <button
                   className="host-voucher-banner"

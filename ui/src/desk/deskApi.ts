@@ -70,9 +70,17 @@ export type Seating = {
   clock: Record<string, unknown>
 }
 
+export type OnlineBooking = {
+  table_number: number
+  seat_number: number | null
+  status: string | null
+  waitlist_position: number | null
+}
+
 export type ScanResult = {
   player: { npl_id: string, display_name: string, avatar_url: string | null, state_code: string | null }
   entry: SeatedPlayer | null
+  booking: OnlineBooking | null
   options: DeskOption[]
   gates: Gates
 }
