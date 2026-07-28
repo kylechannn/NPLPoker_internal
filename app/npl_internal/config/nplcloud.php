@@ -23,6 +23,15 @@ return [
     'verify_ssl' => filter_var(env('NPL_CLOUD_VERIFY_SSL', true), FILTER_VALIDATE_BOOLEAN),
 
     /**
+     * CA bundle for TLS verification. The portable php.exe we ship has no
+     * system certificate store, so `verify => true` dies with cURL error 60
+     * on every venue machine. We bundle the Mozilla roots and point curl at
+     * them; NPL_CLOUD_CA_BUNDLE overrides the path if a venue ever needs a
+     * corporate proxy's certificate chain instead.
+     */
+    'ca_bundle' => env('NPL_CLOUD_CA_BUNDLE'),
+
+    /**
      * Every syncable entity. `endpoint` is pulled with the CD-Key headers;
      * `table` is the local mirror; `unique` is the natural key used to
      * detect drift; `media` lists columns holding image URLs to cache.

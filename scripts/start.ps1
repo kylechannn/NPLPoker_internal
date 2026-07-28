@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Executable = Join-Path $RepoRoot "dist\NPLPokerInternal.exe"
+$Executable = Join-Path $RepoRoot "NPLPokerOS.exe"
 
 if ($Build -or -not (Test-Path -LiteralPath $Executable)) {
     & (Join-Path $PSScriptRoot "build.ps1")

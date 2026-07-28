@@ -115,7 +115,7 @@ final class CloudClient
 
         try {
             $response = Http::withHeaders($headers)
-                ->withOptions(['verify' => config('nplcloud.verify_ssl', true)])
+                ->withOptions(['verify' => $this->verify()])
                 ->timeout((int) config('nplcloud.timeouts.media', 60))
                 ->connectTimeout((int) config('nplcloud.timeouts.connect', 10))
                 ->get($this->absolute($url));
@@ -173,9 +173,26 @@ final class CloudClient
             'X-CD-Key' => $this->license->key(),
             'X-Device-Id' => $this->license->deviceId(),
         ]))
-            ->withOptions(['verify' => config('nplcloud.verify_ssl', true)])
+            ->withOptions(['verify' => $this->verify()])
             ->timeout((int) config('nplcloud.timeouts.request', 30))
             ->connectTimeout((int) config('nplcloud.timeouts.connect', 10));
+    }
+
+    /**
+     * Guzzle's `verify` option: false when verification is disabled, a path
+     * to our bundled Mozilla roots when they exist (the portable php.exe has
+     * no system CA store — without this every venue machine fails with cURL
+     * error 60), or true to fall back to whatever curl can find.
+     */
+    private function verify(): bool|string
+    {
+        if (! config('nplcloud.verify_ssl', true)) {
+            return false;
+        }
+
+        $bundle = (string) (config('nplcloud.ca_bundle') ?: base_path('resources/certs/cacert.pem'));
+
+        return is_file($bundle) ? $bundle : true;
     }
 
     private function assertOk(Response $response, string $path): void

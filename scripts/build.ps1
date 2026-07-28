@@ -36,7 +36,9 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-    go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version" -o (Join-Path $OutputDirectory "NPLPokerInternal.exe") .
+    # rsrc_windows_amd64.syso (committed; regenerate with `go-winres make --in winres/winres.json --arch amd64`)
+    # embeds the NPL icon, the application manifest and version info into the exe.
+    go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version" -o (Join-Path $RepoRoot "NPLPokerOS.exe") .
     if ($LASTEXITCODE -ne 0) {
         throw "Go build failed."
     }
@@ -51,20 +53,6 @@ Copy-Item -LiteralPath $CaddySource -Destination (Join-Path $CaddyOutputDirector
 Copy-Item -LiteralPath (Join-Path $RepoRoot "Caddyfile") -Destination (Join-Path $OutputDirectory "Caddyfile") -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "configure-staff-gateway.ps1") -Destination (Join-Path $OutputDirectory "ConfigureStaffGateway.ps1") -Force
 
-$Manifest = Join-Path $RepoRoot "app.manifest"
-$ManifestTool = Get-ChildItem -LiteralPath "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "mt.exe" -Recurse -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -like "*\x64\mt.exe" } |
-    Sort-Object FullName -Descending |
-    Select-Object -First 1
-if ($null -ne $ManifestTool) {
-    & $ManifestTool.FullName -nologo -manifest $Manifest "-outputresource:$(Join-Path $OutputDirectory 'NPLPokerInternal.exe');1"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Windows application manifest embedding failed."
-    }
-} else {
-    Write-Warning "Windows SDK mt.exe was not found; the executable was built without an embedded manifest."
-}
-
 Push-Location $OutputDirectory
 try {
     & (Join-Path $CaddyOutputDirectory "caddy.exe") validate --config (Join-Path $OutputDirectory "Caddyfile") --adapter caddyfile
@@ -75,4 +63,4 @@ try {
     Pop-Location
 }
 
-Write-Host "Build complete: $(Join-Path $OutputDirectory 'NPLPokerInternal.exe')"
+Write-Host "Build complete: $(Join-Path $RepoRoot 'NPLPokerOS.exe')"

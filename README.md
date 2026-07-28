@@ -41,9 +41,9 @@ desktop operator card.
 .\scripts\start.ps1
 ```
 
-`setup.ps1` verifies Go/Node/npm, copies the Caddy executable from the local EdgeHost bundle into `.tools`, and installs dependencies. `build.ps1` compiles React, runs Go tests, builds the Windows executable, validates the Caddy configuration, and creates the portable `dist` bundle.
+`setup.ps1` verifies Go/Node/npm, copies the Caddy executable from the local EdgeHost bundle into `.tools`, and installs dependencies. `build.ps1` compiles React, runs Go tests, builds `NPLPokerOS.exe` at the repo root (the committed `rsrc_windows_amd64.syso` embeds the NPL icon, application manifest and version info — regenerate it with `go-winres make --in winres/winres.json --arch amd64` after changing `winres/`), and validates the Caddy configuration.
 
-Double-click `dist\NPLPokerInternal.exe` or run `scripts\start.ps1`; the desktop window opens automatically.
+Double-click `NPLPokerOS.exe` or run `scripts\start.ps1`; the desktop window opens automatically.
 
 To allow phones on the local subnet through Windows Firewall, run the generated
 helper once from an elevated PowerShell session:
@@ -58,13 +58,13 @@ The rule is limited to TCP port `8790`, the bundled Caddy executable, and
 For headless service troubleshooting:
 
 ```powershell
-.\dist\NPLPokerInternal.exe --headless
+.\NPLPokerOS.exe --headless
 ```
 
 For direct Go-only troubleshooting without Caddy:
 
 ```powershell
-.\dist\NPLPokerInternal.exe --headless --direct
+.\NPLPokerOS.exe --headless --direct
 ```
 
 ## Project layout
