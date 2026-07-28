@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
 import HostWorkspace from "./desk/HostWorkspace"
+import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
 import { deskApi, type Venue } from "./desk/deskApi"
 import { describeRun, syncApi } from "./sync/syncApi"
 import nplLogoUrl from "./assets/npl-logo.png"
@@ -159,14 +160,12 @@ const navigation: Array<{
       { id: "cashgame", label: "Cash Game", icon: CircleDollarSign, badge: 5 },
       { id: "registrations", label: "Registrations", icon: ListChecks, badge: 6 },
       { id: "players", label: "Players", icon: Users },
+      { id: "jackpot", label: "Jackpot Wheel", icon: LoaderPinwheel },
     ],
   },
   {
     label: "Club",
-    items: [
-      { id: "membership", label: "Club Membership ID", icon: IdCard },
-      { id: "jackpot", label: "Jackpot Wheel", icon: LoaderPinwheel },
-    ],
+    items: [{ id: "membership", label: "Club Membership ID", icon: IdCard }],
   },
 ]
 
@@ -292,7 +291,7 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
   },
 }
 
-type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame">
+type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame" | "jackpot">
 
 const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> = {
   registrations: [
@@ -310,18 +309,12 @@ const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> 
     ["Cards issued", "312", "Physical club IDs"],
     ["Pending prints", "9", "Queued for next batch"],
   ],
-  jackpot: [
-    ["Jackpot pool", "$4,820", "Backed by desk entries"],
-    ["Spins tonight", "3", "Across two sessions"],
-    ["Last winner", "R. Taylor", "$150 · 9:42 PM"],
-  ],
 }
 
 const modulePreviewIcons: Record<PreviewNavId, LucideIcon> = {
   registrations: ListChecks,
   players: Users,
   membership: IdCard,
-  jackpot: LoaderPinwheel,
 }
 
 function money(value: number) {
@@ -1385,6 +1378,8 @@ export default function App() {
           <main className="workspace">
             {activeSection === "tournament" ? (
               <HostWorkspace venue={activeVenue} />
+            ) : activeSection === "jackpot" ? (
+              <JackpotWheelWorkspace />
             ) : activeSection === "overview" ? (
               <OverviewWorkspace onNotice={setNotice} />
             ) : activeSection === "cashgame" ? (
