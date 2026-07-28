@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
+import HostWorkspace from "./desk/HostWorkspace"
+import { deskApi, type Venue } from "./desk/deskApi"
 import nplLogoUrl from "./assets/npl-logo.png"
 import {
   Activity,
@@ -114,6 +116,7 @@ type StaffLoginChallenge = {
 
 type NavId =
   | "overview"
+  | "host"
   | "tables"
   | "registrations"
   | "players"
@@ -151,6 +154,7 @@ const navigation: Array<{
     label: "Operations",
     items: [
       { id: "overview", label: "Overview", icon: LayoutDashboard },
+      { id: "host", label: "Host", icon: Spade },
       { id: "tables", label: "Live Tables", icon: Table2, badge: 5 },
       { id: "registrations", label: "Registrations", icon: ListChecks, badge: 6 },
       { id: "players", label: "Players", icon: Users },
@@ -252,6 +256,11 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     title: "Operations overview",
     description: "One view of tonight's floor, registrations, and operational health.",
   },
+  host: {
+    eyebrow: "Venue command",
+    title: "Host a game",
+    description: "Set the structure, prices and cut-offs, then run the desk.",
+  },
   tables: {
     eyebrow: "Operational system",
     title: "Live tables",
@@ -284,7 +293,7 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
   },
 }
 
-const modulePreviewCards: Record<Exclude<NavId, "tables">, Array<[string, string, string]>> = {
+const modulePreviewCards: Record<Exclude<NavId, "tables" | "host">, Array<[string, string, string]>> = {
   overview: [
     ["Tables in play", "5", "4 live · 1 seating"],
     ["Players on floor", "43", "Up 8 since 6 PM"],
@@ -822,7 +831,13 @@ function SidebarStaffQR({
 }
 
 export default function App() {
-  const [activeSection, setActiveSection] = useState<NavId>("tables")
+  // A venue can pin a desktop shortcut straight to the station this laptop
+  // is used for — the door scanner opens on Host, the floor opens on tables.
+  const [activeSection, setActiveSection] = useState<NavId>(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab")
+    const known = navigation.flatMap((group) => group.items).some((item) => item.id === requested)
+    return known ? (requested as NavId) : "tables"
+  })
   const [selectedTableId, setSelectedTableId] = useState(tables[0].id)
   const [health, setHealth] = useState<HealthState>({ status: "loading" })
   const [networkQuality, setNetworkQuality] = useState<NetworkQualityState>({ status: "loading" })
@@ -831,6 +846,34 @@ export default function App() {
   const [manualUpdating, setManualUpdating] = useState(false)
   const [avatarSyncing, setAvatarSyncing] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  // The venue scopes the whole console. It is remembered across restarts
+  // because a laptop lives at one club — re-picking it every morning would
+  // just be a chance to pick the wrong one.
+  const [venues, setVenues] = useState<Venue[]>([])
+  const [venueId, setVenueId] = useState<number | null>(() => {
+    const stored = window.localStorage.getItem("npl.activeVenueId")
+    return stored ? Number(stored) : null
+  })
+  const [venueMenuOpen, setVenueMenuOpen] = useState(false)
+  const activeVenue = venues.find((venue) => venue.id === venueId) ?? null
+
+  useEffect(() => {
+    void deskApi.venues()
+      .then((result) => {
+        setVenues(result.venues)
+        // A single-venue install should not have to choose.
+        if (result.venues.length === 1) {
+          setVenueId((current) => current ?? result.venues[0].id)
+        }
+      })
+      .catch(() => setVenues([]))
+  }, [])
+
+  useEffect(() => {
+    if (venueId === null) window.localStorage.removeItem("npl.activeVenueId")
+    else window.localStorage.setItem("npl.activeVenueId", String(venueId))
+  }, [venueId])
   const [paused, setPaused] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [startupPhase, setStartupPhase] = useState<"visible" | "leaving" | "hidden">("visible")
@@ -1231,14 +1274,46 @@ export default function App() {
             >
               <Menu size={20} />
             </button>
-            <button className="venue-selector" type="button">
-              <span className="venue-icon"><Spade size={15} /></span>
-              <span>
-                <small>Active venue</small>
-                The Star Sydney
-              </span>
-              <ChevronDown size={16} />
-            </button>
+            <div className="venue-selector-wrap">
+              <button
+                className="venue-selector"
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={venueMenuOpen}
+                onClick={() => setVenueMenuOpen((open) => !open)}
+              >
+                <span className="venue-icon"><Spade size={15} /></span>
+                <span>
+                  <small>Active venue</small>
+                  {activeVenue?.name ?? (venues.length ? "Choose a venue" : "No venues synced")}
+                </span>
+                <ChevronDown size={16} />
+              </button>
+
+              {venueMenuOpen ? (
+                <ul className="venue-menu" role="listbox" aria-label="Venues">
+                  {venues.length === 0 ? (
+                    <li className="venue-menu__empty">Run a manual update to pull venues.</li>
+                  ) : venues.map((venue) => (
+                    <li key={venue.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={venue.id === venueId}
+                        className={venue.id === venueId ? "is-active" : undefined}
+                        onClick={() => {
+                          setVenueId(venue.id)
+                          setVenueMenuOpen(false)
+                        }}
+                      >
+                        <strong>{venue.name}</strong>
+                        <small>{[venue.suburb, venue.state_code].filter(Boolean).join(", ")}</small>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </div>
 
           <div className="topbar-right">
@@ -1282,7 +1357,9 @@ export default function App() {
 
         <div className={notificationOpen ? "app-content app-content--notification-open" : "app-content"}>
           <main className="workspace">
-            {activeSection === "tables" ? (
+            {activeSection === "host" ? (
+              <HostWorkspace venue={activeVenue} />
+            ) : activeSection === "tables" ? (
               <LiveTablesWorkspace
                 selectedTable={selectedTable}
                 selectedTableId={selectedTableId}
@@ -1785,7 +1862,7 @@ function ModulePreview({
   onRefresh,
   onNotice,
 }: {
-  id: Exclude<NavId, "tables">
+  id: Exclude<NavId, "tables" | "host">
   health: HealthState
   onRefresh: () => void
   onNotice: (message: string) => void

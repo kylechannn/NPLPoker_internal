@@ -80,9 +80,19 @@ func run(cfg config) error {
 		return fmt.Errorf("load embedded UI: %w", err)
 	}
 
+	// The operational API lives in the bundled Laravel app. A failure to
+	// start it is logged rather than fatal: the console, the licence gate and
+	// the diagnostics all still work, which is what an operator needs in
+	// order to see and fix the problem.
+	backend, backendErr := startBackendApp(ctx)
+	if backendErr != nil {
+		logger.Printf("[npl-internal] operational backend unavailable: %v", backendErr)
+	}
+	defer backend.stop()
+
 	server := &http.Server{
 		Addr:              cfg.backendListen,
-		Handler:           newHandlerWithStaffGateway(assetFS, cfg.resources, staffPublicBaseURL(cfg)),
+		Handler:           newHandlerWithBackend(assetFS, cfg.resources, staffPublicBaseURL(cfg), backend),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -180,6 +190,15 @@ func newHandlerWithStaffGateway(
 	resources resourceSettings,
 	staffGatewayURL string,
 ) http.Handler {
+	return newHandlerWithBackend(assets, resources, staffGatewayURL, nil)
+}
+
+func newHandlerWithBackend(
+	assets fs.FS,
+	resources resourceSettings,
+	staffGatewayURL string,
+	backend *backendApp,
+) http.Handler {
 	mux := http.NewServeMux()
 	networkMonitor := newNetworkQualityMonitor(resources.networkQualityCacheTime)
 	licenses := newLicenseManager()
@@ -235,6 +254,12 @@ func newHandlerWithStaffGateway(
 		forceRefresh := r.URL.Query().Get("refresh") == "1"
 		writeJSON(w, http.StatusOK, networkMonitor.snapshot(r.Context(), forceRefresh))
 	})
+
+	// Registered after the Go-owned endpoints so the licence routes can never
+	// be shadowed by the bundled app.
+	if backend != nil {
+		backend.register(mux)
+	}
 
 	mux.Handle("/", spaHandler(assets))
 
