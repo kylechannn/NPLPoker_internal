@@ -1,10 +1,12 @@
 /**
  * Manual update: pulling the cloud's data down to this laptop.
  *
- * The run is synchronous on the backend — it returns once everything is
- * mirrored — so the UI awaits it rather than polling. The result carries per
- * entity counts, which is what the operator actually wants to see: "did the
- * venues and tonight's sessions actually arrive?"
+ * The POST hands back a queued run and the pull happens in a detached php
+ * process — the bundled dev server is single-threaded on Windows, so an
+ * inline pull would freeze every desk endpoint for its whole duration. The
+ * UI polls the run until it finishes; the result carries per-entity counts,
+ * which is what the operator actually wants to see: "did the venues and
+ * tonight's sessions actually arrive?"
  */
 
 type EntityResult = {
@@ -73,6 +75,19 @@ export const syncApi = {
     }),
 
   latest: () => request<{ run: SyncRun | null }>('/api/v1/sync/runs/latest'),
+
+  status: (uuid: string) => request<{ run: SyncRun }>(`/api/v1/sync/runs/${uuid}`),
+
+  /** Resolves when the run leaves queued/running, reporting progress along the way. */
+  awaitRun: async (run: SyncRun, onProgress?: (run: SyncRun) => void): Promise<SyncRun> => {
+    let current = run
+    while (current.status === 'queued' || current.status === 'running') {
+      onProgress?.(current)
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+      current = (await syncApi.status(current.uuid)).run
+    }
+    return current
+  },
 
   manifest: () =>
     request<{ cloud_base: string, entities: SyncEntityState[] }>('/api/v1/sync/manifest'),

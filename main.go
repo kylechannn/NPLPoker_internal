@@ -95,7 +95,13 @@ func run(cfg config) error {
 		Handler:           newHandlerWithBackend(assetFS, cfg.resources, staffPublicBaseURL(cfg), backend),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		// No write deadline: manual update legitimately runs for minutes, and
+		// a WriteTimeout does not abort the handler — it just poisons the
+		// connection so the eventual response comes back as a 502 EOF at the
+		// gateway (and every request queued behind it dies with it). This
+		// server only listens on loopback behind Caddy, so slow-client
+		// protection is not its job.
+		WriteTimeout:      0,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -365,6 +371,7 @@ func launchCaddy(ctx context.Context, cfg config, logger *log.Logger) (<-chan er
 		_ = runtimeLog.Close()
 		return nil, fmt.Errorf("start Caddy: %w", err)
 	}
+	adoptBackgroundProcess(cmd)
 	logger.Printf("started Caddy %s (pid %d)", executable, cmd.Process.Pid)
 
 	done := make(chan error, 1)

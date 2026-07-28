@@ -1153,7 +1153,10 @@ export default function App() {
     setManualUpdating(true)
 
     try {
-      const { run } = await syncApi.run("console")
+      const { run: started } = await syncApi.run("console")
+      const run = await syncApi.awaitRun(started, (progress) => {
+        setNotice(`Updating… ${progress.progress}% (${progress.stage ?? "starting"})`)
+      })
       setNotice(describeRun(run))
 
       // Venues and sessions may have changed underneath the header picker,

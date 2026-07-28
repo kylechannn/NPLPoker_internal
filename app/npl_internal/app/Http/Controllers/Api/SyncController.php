@@ -71,7 +71,7 @@ final class SyncController
         ]);
 
         try {
-            $result = $this->runner->start($validated['trigger_source'] ?? null);
+            $result = $this->runner->startInBackground($validated['trigger_source'] ?? null);
         } catch (CloudException $e) {
             return response()->json([
                 'ok' => false,

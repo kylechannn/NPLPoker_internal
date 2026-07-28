@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowRight, Loader2, Wand2 } from "lucide-react"
-import LadderEditor, { CUT_OFF_META, type CutOffKind } from "./LadderEditor"
 import { deskApi, money, type GeneratedLevel, type Venue } from "./deskApi"
+import "./preparation.css"
+
+export type CutOffKind = "registration" | "rebuy" | "addon" | "jackpot"
+
+export const CUT_OFF_META: Record<CutOffKind, { label: string, short: string }> = {
+  registration: { label: "Registration", short: "REG" },
+  rebuy: { label: "Rebuys", short: "RE" },
+  addon: { label: "Add-ons", short: "ADD" },
+  jackpot: { label: "Jackpot", short: "JP" },
+}
 
 type Props = {
   venue: Venue | null
@@ -38,16 +46,24 @@ const PATTERN = {
   ante_as_big_blind: true,
 }
 
+const STEPS: { id: "prepare" | "host" | "play", label: string }[] = [
+  { id: "prepare", label: "Preparation" },
+  { id: "host", label: "Host" },
+  { id: "play", label: "Playing" },
+]
+
 /**
  * The screen the operator fills in before the doors open.
+ *
+ * The layout is EdgeHost's Sichuan Preparation page, deliberately: stepper,
+ * progress bar, title row with chips, summary strip, stacked cards, and the
+ * blind table in the same five-column shape. What poker adds on top of
+ * Sichuan is the cut-off system — it lives behind the extra "Cut-off" button
+ * on the Blind Structure card, since Sichuan has no such concept.
  *
  * Everything that costs money and every cut-off is decided here, because
  * changing the price of a rebuy once players are in the room is not a
  * conversation anyone wants to have.
- *
- * The pattern generator is a starting point, not a constraint: it fills the
- * ladder in one action, and from then on every level is edited directly. Real
- * structures nearly always break the pattern somewhere.
  */
 export default function HostPreset({ venue, onOpened }: Props) {
   const [form, setForm] = useState(DEFAULTS)
@@ -59,15 +75,19 @@ export default function HostPreset({ venue, onOpened }: Props) {
     addon: "",
     jackpot: "",
   })
+  const [cutOffsOpen, setCutOffsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [opening, setOpening] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [currentStepIndex, setCurrentStepIndex] = useState(0)
 
   // Once a level has been touched by hand the pattern stops driving the
   // ladder — silently overwriting someone's tuned structure would be the
   // worst thing this screen could do.
   const [handEdited, setHandEdited] = useState(false)
   const loadedOnce = useRef(false)
+
+  const progressPercent = ((currentStepIndex + 1) / STEPS.length) * 100
 
   const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
@@ -127,6 +147,69 @@ export default function HostPreset({ venue, onOpened }: Props) {
     return `${label} · ${minutesBefore(position)} min in`
   }
 
+  /**
+   * Level numbers are derived, never typed: blinds count up, and a break
+   * carries the number of the level before it, so "registration closes at
+   * level 6" keeps meaning the same thing however the ladder is edited.
+   */
+  function renumber(rows: GeneratedLevel[]): GeneratedLevel[] {
+    let levelNo = 0
+
+    return rows.map((row, index) => {
+      if (row.type === "blind") levelNo += 1
+
+      return { ...row, level_no: levelNo || 1, sort_order: index + 1 }
+    })
+  }
+
+  function patch(index: number, changes: Partial<GeneratedLevel>) {
+    setLevels(renumber(levels.map((row, i) => (i === index ? { ...row, ...changes } : row))))
+    setHandEdited(true)
+  }
+
+  function changeType(index: number, type: "blind" | "break") {
+    const previous = levels[index - 1]
+
+    if (type === "break") {
+      patch(index, { type, small_blind: 0, big_blind: 0, ante: 0, bb_ante: 0, note: "Break" })
+      return
+    }
+
+    patch(index, {
+      type,
+      small_blind: previous && previous.type === "blind" ? Math.max(1, previous.small_blind * 2) : 100,
+      big_blind: previous && previous.type === "blind" ? Math.max(2, previous.big_blind * 2) : 200,
+      ante: 0,
+      bb_ante: previous?.bb_ante ? previous.bb_ante * 2 : 0,
+      note: null,
+    })
+  }
+
+  function addLevel() {
+    const lastBlind = levels.filter((row) => row.type === "blind").slice(-1)[0]
+    const row: GeneratedLevel = {
+      level_no: 0,
+      type: "blind",
+      // A new level opens where the previous one left off, doubled — a
+      // sensible guess that is immediately editable.
+      small_blind: lastBlind ? Math.max(1, lastBlind.small_blind * 2) : 100,
+      big_blind: lastBlind ? Math.max(2, lastBlind.big_blind * 2) : 200,
+      ante: 0,
+      bb_ante: lastBlind?.bb_ante ? lastBlind.bb_ante * 2 : 0,
+      duration_min: lastBlind?.duration_min ?? pattern.duration_min,
+      sort_order: 0,
+      note: null,
+    }
+
+    setLevels(renumber([...levels, row]))
+    setHandEdited(true)
+  }
+
+  function removeLevel(index: number) {
+    setLevels(renumber(levels.filter((_, i) => i !== index)))
+    setHandEdited(true)
+  }
+
   async function open() {
     setError(null)
 
@@ -136,6 +219,7 @@ export default function HostPreset({ venue, onOpened }: Props) {
     }
 
     if (cutOffs.registration === "") {
+      setCutOffsOpen(true)
       setError("Set the level registration closes at — everything else hangs off it.")
       return
     }
@@ -165,257 +249,534 @@ export default function HostPreset({ venue, onOpened }: Props) {
     }
   }
 
+  const handleStepClick = (id: "prepare" | "host" | "play") => {
+    if (id === "prepare") {
+      setCurrentStepIndex(0)
+      return
+    }
+    if (id === "host") {
+      setCurrentStepIndex(1)
+      void open()
+      return
+    }
+    setCurrentStepIndex(2)
+  }
+
+  const totalLevels = useMemo(() => levels.filter((row) => row.type === "blind").length, [levels])
+  const hasBreak = useMemo(() => levels.some((row) => row.type === "break"), [levels])
+  const totalMinutes = useMemo(() => levels.reduce((sum, row) => sum + row.duration_min, 0), [levels])
+
+  const maxBlind = useMemo(() => {
+    const blinds = levels.filter((row) => row.type === "blind").map((row) => row.big_blind)
+    if (!blinds.length) return 0
+    return Math.max(...blinds)
+  }, [levels])
+
+  // Where each cut-off lands, so the operator can see the line in the ladder
+  // it actually refers to rather than holding a row number in their head.
+  const marks = useMemo(() => {
+    const map = new Map<number, CutOffKind[]>()
+    for (const [kind, position] of Object.entries(numericCutOffs)) {
+      if (!position) continue
+      const list = map.get(position) ?? []
+      list.push(kind as CutOffKind)
+      map.set(position, list)
+    }
+    return map
+  }, [numericCutOffs])
+
   const maxPosition = Math.max(1, levels.length)
 
   return (
-    <div className="preset">
-      <header className="preset__bar">
-        <div className="preset__title">
-          <h2>Set up tonight&rsquo;s game</h2>
-          <p>{venue ? `Hosting at ${venue.name}` : "Choose a venue in the header to continue"}</p>
-        </div>
+    <div className="prep">
+      <div className="prep__container">
+        <div className="prep__top">
+          <div className="prep-steps">
+            {STEPS.map((step, index) => {
+              const active = index === currentStepIndex
+              const completed = index < currentStepIndex
 
-        <div className="preset__totals">
-          <span><small>Buy-in</small>{money(form.buy_in_price_cents)}</span>
-          <span><small>Rebuy</small>{money(form.rebuy_price_cents)}</span>
-          <span><small>Add-on</small>{money(form.addon_price_cents)}</span>
-          {form.jackpot_enabled ? <span><small>Jackpot</small>{money(form.jackpot_price_cents)}</span> : null}
-        </div>
-
-        <button className="preset__open" type="button" disabled={opening || !venue} onClick={() => void open()}>
-          {opening ? <Loader2 size={16} className="host-spin" /> : <ArrowRight size={16} />}
-          {opening ? "Opening…" : "Open session"}
-        </button>
-      </header>
-
-      {error ? <p className="preset__error" role="alert">{error}</p> : null}
-
-      <div className="preset__layout">
-        <div className="preset__side">
-          <section className="panel">
-            <h3>The game</h3>
-
-            <label className="field">
-              <span>Tournament name</span>
-              <input value={form.name} placeholder="Thursday Deepstack"
-                onChange={(e) => update("name", e.target.value)} />
-            </label>
-
-            <div className="field-row">
-              <label className="field">
-                <span>Buy-in</span>
-                <div className="field__money">
-                  <em>$</em>
-                  <input type="number" min={0} value={form.buy_in_price_cents / 100}
-                    onChange={(e) => update("buy_in_price_cents", Math.round(Number(e.target.value) * 100))} />
-                </div>
-              </label>
-              <label className="field">
-                <span>Starting stack</span>
-                <input type="number" min={1} value={form.starting_stack}
-                  onChange={(e) => update("starting_stack", Number(e.target.value))} />
-              </label>
-            </div>
-
-            <div className="field-row">
-              <label className="field">
-                <span>Seats per table</span>
-                <input type="number" min={2} max={10} value={form.seats_per_table}
-                  onChange={(e) => update("seats_per_table", Number(e.target.value))} />
-              </label>
-            </div>
-          </section>
-
-          <section className="panel">
-            <h3>Rebuys &amp; add-ons</h3>
-
-            <div className="field-row">
-              <label className="field">
-                <span>Rebuy</span>
-                <div className="field__money">
-                  <em>$</em>
-                  <input type="number" min={0} value={form.rebuy_price_cents / 100}
-                    onChange={(e) => update("rebuy_price_cents", Math.round(Number(e.target.value) * 100))} />
-                </div>
-              </label>
-              <label className="field">
-                <span>Chips</span>
-                <input type="number" min={0} value={form.rebuy_chips}
-                  onChange={(e) => update("rebuy_chips", Number(e.target.value))} />
-              </label>
-              <label className="field">
-                <span>Max</span>
-                <input type="number" min={0} value={form.max_rebuys_per_player}
-                  onChange={(e) => update("max_rebuys_per_player", Number(e.target.value))} />
-                <small>0 = unlimited</small>
-              </label>
-            </div>
-
-            <div className="field-row">
-              <label className="field">
-                <span>Add-on</span>
-                <div className="field__money">
-                  <em>$</em>
-                  <input type="number" min={0} value={form.addon_price_cents / 100}
-                    onChange={(e) => update("addon_price_cents", Math.round(Number(e.target.value) * 100))} />
-                </div>
-              </label>
-              <label className="field">
-                <span>Chips</span>
-                <input type="number" min={0} value={form.addon_chips}
-                  onChange={(e) => update("addon_chips", Number(e.target.value))} />
-              </label>
-              <label className="field">
-                <span>Max</span>
-                <input type="number" min={0} max={5} value={form.max_addons_per_player}
-                  onChange={(e) => update("max_addons_per_player", Number(e.target.value))} />
-              </label>
-            </div>
-          </section>
-
-          <section className="panel">
-            <h3>Jackpot</h3>
-
-            <label className="switch">
-              <input type="checkbox" checked={form.jackpot_enabled}
-                onChange={(e) => update("jackpot_enabled", e.target.checked)} />
-              <span className="switch__track" aria-hidden="true"><i /></span>
-              <span className="switch__label">Run the jackpot at this game</span>
-            </label>
-
-            {form.jackpot_enabled ? (
-              <label className="field">
-                <span>Entry</span>
-                <div className="field__money">
-                  <em>$</em>
-                  <input type="number" min={0} value={form.jackpot_price_cents / 100}
-                    onChange={(e) => update("jackpot_price_cents", Math.round(Number(e.target.value) * 100))} />
-                </div>
-                <small>Entries push to the cloud pool players see online.</small>
-              </label>
-            ) : null}
-          </section>
-
-          <section className="panel">
-            <h3>Cut-off lines</h3>
-            <p className="panel__hint">
-              Positions in the ladder, so they follow every pause. Registration is
-              required; the rest fall back to it when left blank.
-            </p>
-
-            {(Object.keys(CUT_OFF_META) as CutOffKind[])
-              .filter((kind) => kind !== "jackpot" || form.jackpot_enabled)
-              .map((kind) => (
-                <label key={kind} className={`cutoff cutoff--${kind}`}>
-                  <span className="cutoff__name">
-                    {CUT_OFF_META[kind].label}
-                    {kind === "registration" ? <b aria-label="required">*</b> : null}
-                  </span>
-                  <input
-                    type="number" min={1} max={maxPosition}
-                    value={cutOffs[kind]}
-                    placeholder={kind === "addon" ? "None" : "Same"}
-                    onChange={(e) => setCutOffs((current) => ({
-                      ...current,
-                      [kind]: e.target.value === "" ? "" : Number(e.target.value),
-                    }))}
-                  />
-                  <small>{describeCutOff(kind)}</small>
-                </label>
-              ))}
-          </section>
-        </div>
-
-        <section className="panel panel--structure">
-          <div className="panel__head">
-            <h3>Blind structure</h3>
-            {handEdited ? <span className="panel__tag">Edited by hand</span> : null}
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  className="prep-steps__item"
+                  onClick={() => handleStepClick(step.id)}
+                >
+                  <div
+                    className={[
+                      "prep-steps__dot",
+                      completed ? "prep-steps__dot--done" : active ? "prep-steps__dot--active" : "",
+                    ].filter(Boolean).join(" ")}
+                  >
+                    {index + 1}
+                  </div>
+                  <div className="prep-steps__label">{step.label}</div>
+                </button>
+              )
+            })}
           </div>
 
-          <details className="pattern" open={!handEdited}>
-            <summary>
-              <Wand2 size={14} />
-              Fill from a pattern
-              <em>{pattern.levels} levels · {pattern.duration_min}m · {pattern.mode === "multiply" ? `×${pattern.step}` : `+${pattern.step}`}</em>
-            </summary>
+          <div className="prep-progress">
+            <div className="prep-progress__track">
+              <div className="prep-progress__fill" style={{ width: `${progressPercent}%` }} />
+            </div>
+            <div className="prep-progress__meta">
+              <span>Preparation</span>
+              <span>Step {currentStepIndex + 1} of {STEPS.length}</span>
+            </div>
+          </div>
 
-            <div className="pattern__body">
-              <div className="field-row">
-                <label className="field">
-                  <span>Levels</span>
-                  <input type="number" min={1} max={60} value={pattern.levels}
-                    onChange={(e) => updatePattern("levels", Number(e.target.value))} />
-                </label>
-                <label className="field">
-                  <span>Minutes</span>
-                  <input type="number" min={1} max={180} value={pattern.duration_min}
-                    onChange={(e) => updatePattern("duration_min", Number(e.target.value))} />
-                </label>
-                <label className="field">
-                  <span>Opening SB</span>
-                  <input type="number" min={1} value={pattern.small_blind}
-                    onChange={(e) => updatePattern("small_blind", Number(e.target.value))} />
-                </label>
-              </div>
-
-              <div className="field-row">
-                <div className="field">
-                  <span>Increase</span>
-                  <div className="segmented" role="group" aria-label="Blind increase mode">
-                    <button type="button" className={pattern.mode === "multiply" ? "is-on" : ""}
-                      onClick={() => updatePattern("mode", "multiply")}>Multiply</button>
-                    <button type="button" className={pattern.mode === "add" ? "is-on" : ""}
-                      onClick={() => updatePattern("mode", "add")}>Add</button>
-                  </div>
-                </div>
-                <label className="field">
-                  <span>{pattern.mode === "multiply" ? "Factor" : "Step"}</span>
-                  <input type="number" min={0.1} step={pattern.mode === "multiply" ? 0.1 : 50}
-                    value={pattern.step}
-                    onChange={(e) => updatePattern("step", Number(e.target.value))} />
-                </label>
-                <label className="field">
-                  <span>Antes from</span>
-                  <input type="number" min={1} value={pattern.ante_from_level}
-                    placeholder="None"
-                    onChange={(e) => updatePattern("ante_from_level", e.target.value === "" ? "" : Number(e.target.value))} />
-                </label>
-              </div>
-
-              <div className="field-row">
-                <label className="field">
-                  <span>Break every</span>
-                  <input type="number" min={0} max={20} value={pattern.break_every}
-                    onChange={(e) => updatePattern("break_every", Number(e.target.value))} />
-                  <small>0 = none</small>
-                </label>
-                <label className="field">
-                  <span>Break length</span>
-                  <input type="number" min={1} max={120} value={pattern.break_duration_min}
-                    onChange={(e) => updatePattern("break_duration_min", Number(e.target.value))} />
-                </label>
-                <div className="field field--action">
-                  <button type="button" className="pattern__apply" disabled={generating}
-                    onClick={() => void generate()}>
-                    {generating ? <Loader2 size={14} className="host-spin" /> : <Wand2 size={14} />}
-                    {handEdited ? "Replace ladder" : "Generate"}
-                  </button>
-                  {handEdited ? <small>Discards your edits</small> : null}
-                </div>
+          <div className="prep-title">
+            <div className="prep-title__left">
+              <div className="prep-title__row">
+                <div className="prep-title__text">Tournament Preparation</div>
+                {venue ? (
+                  <span className="prep-chip">
+                    Venue
+                    <span className="prep-chip__value">{venue.name}</span>
+                  </span>
+                ) : null}
+                <span className="prep-chip prep-chip--status">
+                  Status
+                  <span className="prep-chip__strong">Idle</span>
+                </span>
               </div>
             </div>
-          </details>
 
-          <LadderEditor
-            levels={levels}
-            cutOffs={numericCutOffs}
-            onChange={(next) => {
-              setLevels(next)
-              setHandEdited(true)
-            }}
+            <div className="prep-title__actions">
+              <button
+                type="button"
+                className="prep-btn prep-btn--dark"
+                onClick={() => void open()}
+                disabled={opening || !venue}
+              >
+                {opening ? "Saving…" : "Save & Open Host"}
+              </button>
+            </div>
+          </div>
+          {venue ? null : <div className="prep-title__hint">Choose a venue in the header to continue.</div>}
+        </div>
+
+        <div className="prep-summary">
+          <Chip label="Buy-in" value={money(form.buy_in_price_cents)} />
+          <Chip label="Stack" value={form.starting_stack.toLocaleString()} />
+          <Chip label="Seats" value={String(form.seats_per_table)} />
+          <Chip label="Rebuy" value={money(form.rebuy_price_cents)} />
+          <Chip label="Add-on" value={money(form.addon_price_cents)} />
+          {form.jackpot_enabled ? <Chip label="Jackpot" value={money(form.jackpot_price_cents)} /> : null}
+          <Chip label="Levels" value={`${totalLevels}${hasBreak ? " + Break" : ""}`} />
+          <Chip label="Max blind" value={maxBlind ? maxBlind.toLocaleString() : "—"} />
+          <Chip label="Length" value={`${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`} />
+          <Chip
+            label="Reg closes"
+            value={numericCutOffs.registration ? `Row ${numericCutOffs.registration}` : "—"}
           />
-        </section>
+        </div>
+
+        {error ? <div className="prep-error" role="alert">{error}</div> : null}
+
+        <div className="prep-grid">
+          <div className="prep-main">
+            <section className="prep-card">
+              <div className="prep-card__head">
+                <div className="prep-card__title">Tournament Settings</div>
+              </div>
+              <div className="prep-card__body">
+                <div className="prep-field">
+                  <label>Tournament name</label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    placeholder="Thursday Deepstack"
+                    onChange={(e) => update("name", e.target.value)}
+                  />
+                </div>
+
+                <div className="prep-field-grid">
+                  <div className="prep-field">
+                    <label>Buy-in ($)</label>
+                    <input
+                      type="number" min={0} value={form.buy_in_price_cents / 100}
+                      onChange={(e) => update("buy_in_price_cents", Math.round(Number(e.target.value) * 100))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Starting stack</label>
+                    <input
+                      type="number" min={1} value={form.starting_stack}
+                      onChange={(e) => update("starting_stack", Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Seats per table</label>
+                    <input
+                      type="number" min={2} max={10} value={form.seats_per_table}
+                      onChange={(e) => update("seats_per_table", Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="prep-card">
+              <div className="prep-card__head">
+                <div className="prep-card__title">Rebuys &amp; Add-ons</div>
+              </div>
+              <div className="prep-card__body">
+                <div className="prep-subhead">Rebuy</div>
+                <div className="prep-field-grid">
+                  <div className="prep-field">
+                    <label>Price ($)</label>
+                    <input
+                      type="number" min={0} value={form.rebuy_price_cents / 100}
+                      onChange={(e) => update("rebuy_price_cents", Math.round(Number(e.target.value) * 100))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Chips</label>
+                    <input
+                      type="number" min={0} value={form.rebuy_chips}
+                      onChange={(e) => update("rebuy_chips", Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Max per player</label>
+                    <input
+                      type="number" min={0} value={form.max_rebuys_per_player}
+                      onChange={(e) => update("max_rebuys_per_player", Number(e.target.value))}
+                    />
+                    <small>0 = unlimited</small>
+                  </div>
+                </div>
+
+                <div className="prep-divider" />
+
+                <div className="prep-subhead">Add-on</div>
+                <div className="prep-field-grid">
+                  <div className="prep-field">
+                    <label>Price ($)</label>
+                    <input
+                      type="number" min={0} value={form.addon_price_cents / 100}
+                      onChange={(e) => update("addon_price_cents", Math.round(Number(e.target.value) * 100))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Chips</label>
+                    <input
+                      type="number" min={0} value={form.addon_chips}
+                      onChange={(e) => update("addon_chips", Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Max per player</label>
+                    <input
+                      type="number" min={0} max={5} value={form.max_addons_per_player}
+                      onChange={(e) => update("max_addons_per_player", Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="prep-card">
+              <div className="prep-card__head">
+                <div className="prep-card__title">Jackpot</div>
+              </div>
+              <div className="prep-card__body">
+                <label className="prep-check">
+                  <input
+                    type="checkbox"
+                    checked={form.jackpot_enabled}
+                    onChange={(e) => update("jackpot_enabled", e.target.checked)}
+                  />
+                  Run the jackpot at this game
+                </label>
+
+                {form.jackpot_enabled ? (
+                  <div className="prep-field-grid">
+                    <div className="prep-field">
+                      <label>Entry ($)</label>
+                      <input
+                        type="number" min={0} value={form.jackpot_price_cents / 100}
+                        onChange={(e) => update("jackpot_price_cents", Math.round(Number(e.target.value) * 100))}
+                      />
+                      <small>Entries push to the cloud pool players see online.</small>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="prep-card">
+              <div className="prep-card__head">
+                <div className="prep-card__title">Blind Structure</div>
+                <div className="prep-card__tools">
+                  {handEdited ? <span className="prep-tag">Edited by hand</span> : null}
+                  <button
+                    type="button"
+                    className={cutOffsOpen ? "prep-btn prep-btn--green" : "prep-btn prep-btn--green-outline"}
+                    onClick={() => setCutOffsOpen((current) => !current)}
+                  >
+                    Cut-off
+                  </button>
+                  <button type="button" className="prep-btn prep-btn--soft" onClick={addLevel}>
+                    + Add Level
+                  </button>
+                </div>
+              </div>
+
+              {cutOffsOpen ? (
+                <div className="prep-cutoffs">
+                  <div className="prep-cutoffs__head">
+                    <div className="prep-cutoffs__title">Cut-off lines</div>
+                    <div className="prep-cutoffs__hint">
+                      Positions in the ladder, so they follow every pause. Registration is
+                      required; the rest fall back to it when left blank.
+                    </div>
+                  </div>
+                  <div className="prep-cutoffs__grid">
+                    {(Object.keys(CUT_OFF_META) as CutOffKind[])
+                      .filter((kind) => kind !== "jackpot" || form.jackpot_enabled)
+                      .map((kind) => (
+                        <div key={kind} className="prep-field prep-field--cutoff">
+                          <label>
+                            {CUT_OFF_META[kind].label}
+                            {kind === "registration" ? <b aria-label="required"> *</b> : null}
+                          </label>
+                          <input
+                            type="number" min={1} max={maxPosition}
+                            value={cutOffs[kind]}
+                            placeholder={kind === "addon" ? "None" : "Same"}
+                            onChange={(e) => setCutOffs((current) => ({
+                              ...current,
+                              [kind]: e.target.value === "" ? "" : Number(e.target.value),
+                            }))}
+                          />
+                          <small>{describeCutOff(kind)}</small>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="prep-table__wrap">
+                <table className="prep-table">
+                  <thead>
+                    <tr>
+                      <th className="prep-table__th--level">Level</th>
+                      <th className="prep-table__th--type">Type</th>
+                      <th>Small</th>
+                      <th>Big</th>
+                      <th>BB Ante</th>
+                      <th>Duration</th>
+                      <th className="prep-table__th--end" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {levels.map((row, index) => {
+                      const flags = marks.get(index + 1) ?? []
+
+                      return (
+                        <tr key={`${index}-${row.sort_order}`} className={flags.length ? "prep-table__row--marked" : ""}>
+                          <td>
+                            <div className="prep-table__level">
+                              <span>{index + 1}</span>
+                              <em>{row.type === "blind" ? `L${row.level_no}` : "br"}</em>
+                            </div>
+                          </td>
+                          <td>
+                            <select
+                              value={row.type}
+                              onChange={(e) => changeType(index, e.target.value === "break" ? "break" : "blind")}
+                            >
+                              <option value="blind">Blind</option>
+                              <option value="break">Break</option>
+                            </select>
+                          </td>
+                          {row.type === "break" ? (
+                            <td colSpan={3}>
+                              <input
+                                className="prep-table__note"
+                                value={row.note ?? ""}
+                                placeholder="Break"
+                                aria-label={`Break label for row ${index + 1}`}
+                                onChange={(e) => patch(index, { note: e.target.value })}
+                              />
+                            </td>
+                          ) : (
+                            <>
+                              <td>
+                                <input
+                                  type="number" min={0} value={row.small_blind}
+                                  aria-label={`Small blind, level ${row.level_no}`}
+                                  onChange={(e) => patch(index, { small_blind: Number(e.target.value) })}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="number" min={0} value={row.big_blind}
+                                  aria-label={`Big blind, level ${row.level_no}`}
+                                  onChange={(e) => patch(index, { big_blind: Number(e.target.value) })}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="number" min={0} value={row.bb_ante}
+                                  aria-label={`Big blind ante, level ${row.level_no}`}
+                                  onChange={(e) => patch(index, { bb_ante: Number(e.target.value) })}
+                                />
+                              </td>
+                            </>
+                          )}
+                          <td>
+                            <input
+                              type="number" min={1} max={600} value={row.duration_min}
+                              aria-label={`Minutes, row ${index + 1}`}
+                              onChange={(e) => patch(index, { duration_min: Number(e.target.value) })}
+                            />
+                          </td>
+                          <td className="prep-table__end">
+                            {flags.map((flag) => (
+                              <span
+                                key={flag}
+                                className={`prep-flag prep-flag--${flag}`}
+                                title={`${CUT_OFF_META[flag].label} closes here`}
+                              >
+                                {CUT_OFF_META[flag].short}
+                              </span>
+                            ))}
+                            <button type="button" className="prep-btn prep-btn--row" onClick={() => removeLevel(index)}>
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+
+                    {levels.length === 0 ? (
+                      <tr>
+                        <td className="prep-table__empty" colSpan={7}>
+                          No levels. Add at least one blind level.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <div className="prep-side">
+            <section className="prep-card">
+              <div className="prep-card__head">
+                <div className="prep-card__title">Fill from a pattern</div>
+              </div>
+              <div className="prep-card__body">
+                <div className="prep-field-grid">
+                  <div className="prep-field">
+                    <label>Levels</label>
+                    <input
+                      type="number" min={1} max={60} value={pattern.levels}
+                      onChange={(e) => updatePattern("levels", Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Minutes</label>
+                    <input
+                      type="number" min={1} max={180} value={pattern.duration_min}
+                      onChange={(e) => updatePattern("duration_min", Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Opening SB</label>
+                    <input
+                      type="number" min={1} value={pattern.small_blind}
+                      onChange={(e) => updatePattern("small_blind", Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                <div className="prep-field-grid">
+                  <div className="prep-field">
+                    <label>Increase</label>
+                    <div className="prep-segmented" role="group" aria-label="Blind increase mode">
+                      <button
+                        type="button"
+                        className={pattern.mode === "multiply" ? "is-on" : ""}
+                        onClick={() => updatePattern("mode", "multiply")}
+                      >
+                        Multiply
+                      </button>
+                      <button
+                        type="button"
+                        className={pattern.mode === "add" ? "is-on" : ""}
+                        onClick={() => updatePattern("mode", "add")}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                  <div className="prep-field">
+                    <label>{pattern.mode === "multiply" ? "Factor" : "Step"}</label>
+                    <input
+                      type="number" min={0.1} step={pattern.mode === "multiply" ? 0.1 : 50}
+                      value={pattern.step}
+                      onChange={(e) => updatePattern("step", Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Antes from</label>
+                    <input
+                      type="number" min={1} value={pattern.ante_from_level}
+                      placeholder="None"
+                      onChange={(e) => updatePattern("ante_from_level", e.target.value === "" ? "" : Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                <div className="prep-field-grid">
+                  <div className="prep-field">
+                    <label>Break every</label>
+                    <input
+                      type="number" min={0} max={20} value={pattern.break_every}
+                      onChange={(e) => updatePattern("break_every", Number(e.target.value))}
+                    />
+                    <small>0 = none</small>
+                  </div>
+                  <div className="prep-field">
+                    <label>Break length</label>
+                    <input
+                      type="number" min={1} max={120} value={pattern.break_duration_min}
+                      onChange={(e) => updatePattern("break_duration_min", Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="prep-field prep-field--action">
+                    <button
+                      type="button"
+                      className="prep-btn prep-btn--green"
+                      disabled={generating}
+                      onClick={() => void generate()}
+                    >
+                      {generating ? "Generating…" : handEdited ? "Replace ladder" : "Generate"}
+                    </button>
+                    {handEdited ? <small>Discards your edits</small> : null}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </div>
+  )
+}
+
+function Chip({ label, value }: { label: string, value: string }) {
+  return (
+    <span className="prep-chip">
+      {label}
+      <span className="prep-chip__value">{value}</span>
+    </span>
   )
 }

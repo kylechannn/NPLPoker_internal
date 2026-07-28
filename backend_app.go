@@ -65,6 +65,7 @@ func startBackendApp(ctx context.Context) (*backendApp, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("could not start the bundled backend: %w", err)
 	}
+	adoptBackgroundProcess(cmd)
 
 	target, err := url.Parse("http://" + address)
 	if err != nil {

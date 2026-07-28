@@ -37,8 +37,36 @@ final class ManualUpdateRunner
         private readonly LicenseKeyProvider $license,
     ) {}
 
-    /** Create the run row (status queued) and hand back its id. */
+    /** Create the run row and execute it inline (CLI and tests). */
     public function start(?string $triggerSource = null): array
+    {
+        return $this->run($this->createRun($triggerSource));
+    }
+
+    /**
+     * Create the run row and execute it in a DETACHED php process, returning
+     * the queued run for the caller to poll.
+     *
+     * The desktop host serves the app through `php artisan serve`, whose
+     * built-in server is single-threaded on Windows (PHP_CLI_SERVER_WORKERS
+     * needs fork). Running the whole pull inside the HTTP request therefore
+     * froze every other endpoint for the duration — the desk's requests
+     * queued behind it and died as 502s at the gateway.
+     */
+    public function startInBackground(?string $triggerSource = null): array
+    {
+        $uuid = $this->createRun($triggerSource);
+
+        // Under phpunit a real child process would run against the live .env,
+        // not the test database; inline is also simply what the tests assert.
+        if (app()->runningUnitTests() || ! $this->spawn($uuid)) {
+            return $this->run($uuid);
+        }
+
+        return $this->status($uuid);
+    }
+
+    private function createRun(?string $triggerSource): string
     {
         if (! $this->license->isActivated()) {
             throw new CloudException(CloudException::UNAUTHORISED, 'This install is not activated. Enter the CD-Key first.');
@@ -57,7 +85,42 @@ final class ManualUpdateRunner
             'updated_at' => now(),
         ]);
 
-        return $this->run($uuid);
+        return $uuid;
+    }
+
+    /** Launch `artisan sync:run {uuid}` detached from this request. */
+    private function spawn(string $uuid): bool
+    {
+        $artisan = base_path('artisan');
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            // `start /B` detaches; popen+pclose returns as soon as cmd has
+            // spawned it. proc_open is unusable here — its destructor waits
+            // for the child, which would re-block the request.
+            $command = sprintf(
+                'start /B "" %s %s sync:run %s',
+                escapeshellarg(PHP_BINARY),
+                escapeshellarg($artisan),
+                escapeshellarg($uuid),
+            );
+            $handle = @popen($command, 'r');
+            if ($handle === false) {
+                return false;
+            }
+            pclose($handle);
+
+            return true;
+        }
+
+        $command = sprintf(
+            '%s %s sync:run %s > /dev/null 2>&1 &',
+            escapeshellarg(PHP_BINARY),
+            escapeshellarg($artisan),
+            escapeshellarg($uuid),
+        );
+        @exec($command, $output, $status);
+
+        return $status === 0;
     }
 
     /** Execute the run. Safe to call from the CLI or a queued job. */

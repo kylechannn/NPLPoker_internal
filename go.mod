@@ -2,9 +2,9 @@ module github.com/nplpoker/nplpoker-internal
 
 go 1.22
 
-require github.com/jchv/go-webview2 v0.0.0-20250406165304-0bcfea011047
-
 require (
-	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
-	golang.org/x/sys v0.0.0-20210218145245-beda7e5e158e // indirect
+	github.com/jchv/go-webview2 v0.0.0-20250406165304-0bcfea011047
+	golang.org/x/sys v0.0.0-20210218145245-beda7e5e158e
 )
+
+require github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
