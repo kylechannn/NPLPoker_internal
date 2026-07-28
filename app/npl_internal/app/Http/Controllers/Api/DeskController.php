@@ -97,6 +97,44 @@ final class DeskController
         ]);
     }
 
+    /**
+     * Upcoming cloud-scheduled sessions for the picked venue — the express
+     * way into a night: the overview lists them and one tap opens the right
+     * workspace (cash game or tournament).
+     */
+    public function upcomingSessions(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $venueId = $validated['venue_id'] ?? null;
+
+        $sessions = DB::table('mirror_game_sessions')
+            ->when($venueId !== null, fn ($query) => $query->where('venue_id', $venueId))
+            ->where('status', 'scheduled')
+            ->whereDate('session_date', '>=', now()->toDateString())
+            ->orderBy('session_date')
+            ->orderBy('start_time')
+            ->limit(20)
+            ->get()
+            ->map(fn (object $row): array => [
+                'session_id' => (int) $row->session_id,
+                'title' => $row->title,
+                'category' => $row->category,
+                'source_type' => $row->source_type,
+                'venue_id' => $row->venue_id !== null ? (int) $row->venue_id : null,
+                'venue_name' => $row->venue_name,
+                'session_date' => $row->session_date,
+                'start_time' => $row->start_time,
+                'registrations_count' => (int) $row->registrations_count,
+                'max_players' => $row->max_players !== null ? (int) $row->max_players : null,
+            ])
+            ->all();
+
+        return $this->ok(['venue_id' => $venueId, 'sessions' => $sessions]);
+    }
+
     /** Preview a blind ladder before committing to it. */
     public function previewStructure(Request $request): JsonResponse
     {

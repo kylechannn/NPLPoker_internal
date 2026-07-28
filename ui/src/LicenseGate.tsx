@@ -156,10 +156,6 @@ export default function LicenseGate({ children }: { children: ReactNode }) {
               <dd>{status.masked_key}</dd>
             </div>
           ) : null}
-          <div>
-            <dt>Licence server</dt>
-            <dd>{status?.cloud_base ?? "—"}</dd>
-          </div>
         </dl>
 
         <p className="npl-license-gate__foot">

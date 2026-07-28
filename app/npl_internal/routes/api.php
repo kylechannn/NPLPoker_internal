@@ -84,6 +84,7 @@ Route::prefix('v1/vouchers')->controller(\App\Http\Controllers\Api\WheelControll
 Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::class)->group(function (): void {
     Route::get('venues', 'venues');
     Route::get('dashboard', 'dashboard');
+    Route::get('upcoming-sessions', 'upcomingSessions');
     Route::post('structure-preview', 'previewStructure');
 
     Route::post('{id}/scan', 'scan')->whereNumber('id');

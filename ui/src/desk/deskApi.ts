@@ -121,6 +121,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body?.data as T
 }
 
+export type UpcomingSession = {
+  session_id: number
+  title: string | null
+  category: string | null
+  source_type: string | null
+  venue_id: number | null
+  venue_name: string | null
+  session_date: string | null
+  start_time: string | null
+  registrations_count: number
+  max_players: number | null
+}
+
 export type DeskVoucher = {
   id: number
   code: string
@@ -147,6 +160,12 @@ export const deskApi = {
       method: 'POST',
       body: JSON.stringify({ reference, npl_id: nplId, voucher_id: voucherId, venue_id: venueId }),
     }),
+
+  /** Cloud-scheduled sessions still ahead for the venue — express entry list. */
+  upcomingSessions: (venueId: number | null) =>
+    request<{ venue_id: number | null, sessions: UpcomingSession[] }>(
+      `/api/v1/desk/upcoming-sessions${venueId ? `?venue_id=${venueId}` : ''}`,
+    ),
 
   dashboard: (venueId: number | null) =>
     request<{ venue_id: number | null, sessions: Array<Record<string, unknown>>, players_mirrored: number }>(

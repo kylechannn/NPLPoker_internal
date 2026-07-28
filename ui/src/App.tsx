@@ -4,15 +4,17 @@ import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
 import HostWorkspace from "./desk/HostWorkspace"
 import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
-import { deskApi, type Venue } from "./desk/deskApi"
+import { deskApi, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { describeRun, syncApi } from "./sync/syncApi"
 import nplLogoUrl from "./assets/npl-logo.png"
 import {
   Activity,
   AlertTriangle,
   Bell,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   Copy,
@@ -157,8 +159,8 @@ const navigation: Array<{
     items: [
       { id: "overview", label: "Overview", icon: LayoutDashboard },
       { id: "tournament", label: "Tournament", icon: Trophy },
-      { id: "cashgame", label: "Cash Game", icon: CircleDollarSign, badge: 5 },
-      { id: "registrations", label: "Registrations", icon: ListChecks, badge: 6 },
+      { id: "cashgame", label: "Cash Game", icon: CircleDollarSign },
+      { id: "registrations", label: "Registrations", icon: ListChecks },
       { id: "players", label: "Players", icon: Users },
       { id: "jackpot", label: "Jackpot Wheel", icon: LoaderPinwheel },
     ],
@@ -1381,7 +1383,7 @@ export default function App() {
             ) : activeSection === "jackpot" ? (
               <JackpotWheelWorkspace />
             ) : activeSection === "overview" ? (
-              <OverviewWorkspace onNotice={setNotice} />
+              <OverviewWorkspace venue={activeVenue} onNavigate={chooseSection} onNotice={setNotice} />
             ) : activeSection === "cashgame" ? (
               <CashGameWorkspace
                 selectedTable={selectedTable}
@@ -1938,11 +1940,43 @@ function formatLeaseDate(value: string | null | undefined) {
   }).format(parsed)
 }
 
-function OverviewWorkspace({ onNotice }: { onNotice: (message: string) => void }) {
+function OverviewWorkspace({ venue, onNavigate, onNotice }: {
+  venue: Venue | null
+  onNavigate: (id: NavId) => void
+  onNotice: (message: string) => void
+}) {
   const title = moduleTitles.overview
   const [license, setLicense] = useState<LicenseStatus | null>(null)
   const [licenseError, setLicenseError] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [upcoming, setUpcoming] = useState<UpcomingSession[]>([])
+  const [upcomingLoading, setUpcomingLoading] = useState(false)
+
+  // The express way in: once a venue is picked, its scheduled sessions are
+  // one tap from the right workspace.
+  useEffect(() => {
+    if (venue === null) {
+      setUpcoming([])
+      return
+    }
+
+    let cancelled = false
+    setUpcomingLoading(true)
+    void deskApi.upcomingSessions(venue.id)
+      .then((result) => {
+        if (!cancelled) setUpcoming(result.sessions)
+      })
+      .catch(() => {
+        if (!cancelled) setUpcoming([])
+      })
+      .finally(() => {
+        if (!cancelled) setUpcomingLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [venue])
 
   const loadLicense = useCallback(async () => {
     try {
@@ -2005,11 +2039,55 @@ function OverviewWorkspace({ onNotice }: { onNotice: (message: string) => void }
         </div>
       </div>
 
-      <section className="metric-grid" aria-label="Tonight at a glance">
-        <MetricCard icon={Table2} label="Tables in play" value="5" note="4 live · 1 seating" tone="cyan" />
-        <MetricCard icon={Users} label="Players on floor" value="43" note="Up 8 since 6 PM" tone="blue" />
-        <MetricCard icon={ListChecks} label="Open actions" value="6" note="Registrations waiting" tone="gold" />
-        <MetricCard icon={LoaderPinwheel} label="Jackpot pool" value="$4,820" note="Backed by desk entries" tone="green" />
+      <section className="panel express-sessions" aria-label="Upcoming sessions">
+        <header className="panel-header compact-panel-header">
+          <div>
+            <p>{venue ? venue.name : "Pick a venue"}</p>
+            <h2>Upcoming sessions</h2>
+          </div>
+          <CalendarDays size={18} />
+        </header>
+
+        {venue === null ? (
+          <p className="express-sessions__empty">Pick a venue from the header to see its scheduled sessions.</p>
+        ) : upcomingLoading ? (
+          <p className="express-sessions__empty">Loading sessions…</p>
+        ) : upcoming.length === 0 ? (
+          <p className="express-sessions__empty">
+            No scheduled sessions in the sync window. Run a manual update if tonight's game is missing.
+          </p>
+        ) : (
+          <ul className="express-sessions__list">
+            {upcoming.map((session) => {
+              const isCash = session.category === "cash_game"
+              return (
+                <li key={session.session_id}>
+                  <button
+                    type="button"
+                    className="express-sessions__row"
+                    onClick={() => onNavigate(isCash ? "cashgame" : "tournament")}
+                  >
+                    <span className="express-sessions__date">
+                      <strong>{formatSessionDate(session.session_date)}</strong>
+                      <small>{session.start_time ? session.start_time.slice(0, 5) : "—"}</small>
+                    </span>
+                    <span className="express-sessions__title">
+                      <strong>{session.title ?? session.venue_name ?? `Session #${session.session_id}`}</strong>
+                      <small>
+                        {session.registrations_count} registered
+                        {session.max_players ? ` · ${session.max_players} max` : ""}
+                      </small>
+                    </span>
+                    <span className={isCash ? "express-sessions__tag express-sessions__tag--cash" : "express-sessions__tag"}>
+                      {isCash ? "Cash Game" : session.source_type === "championship" ? "Championship" : "Tournament"}
+                    </span>
+                    <ChevronRight size={16} aria-hidden="true" />
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </section>
 
       <section className="panel license-panel" aria-label="CD-Key licence">
@@ -2064,10 +2142,6 @@ function OverviewWorkspace({ onNotice }: { onNotice: (message: string) => void }
                 <dd>{formatLeaseDate(lease?.expires_at)}</dd>
               </div>
               <div>
-                <dt>Licence server</dt>
-                <dd>{license?.cloud_base?.replace(/^https?:\/\//, "") ?? "—"}</dd>
-              </div>
-              <div>
                 <dt>Lease status</dt>
                 <dd>{lease?.status ? lease.status.replace(/^./, (letter) => letter.toUpperCase()) : "—"}</dd>
               </div>
@@ -2084,20 +2158,14 @@ function OverviewWorkspace({ onNotice }: { onNotice: (message: string) => void }
         </footer>
       </section>
 
-      <section className="module-preview-grid" aria-label="Floor summary">
-        {[
-          ["Registrations", "54 checked in", "6 waiting · longest 11 min"],
-          ["Cash game floor", "5 tables", "43 players seated"],
-          ["Club programme", "1,284 members", "9 club cards queued to print"],
-        ].map(([label, value, note], index) => (
-          <article className="module-preview-card" key={label}>
-            <span>0{index + 1}</span>
-            <p>{label}</p>
-            <strong>{value}</strong>
-            <small>{note}</small>
-          </article>
-        ))}
-      </section>
     </>
   )
+}
+
+function formatSessionDate(value: string | null): string {
+  if (!value) return "—"
+  const parsed = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  return parsed.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })
 }
