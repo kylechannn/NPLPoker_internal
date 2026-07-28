@@ -107,7 +107,8 @@ a:focus-visible {
 }
 
 .desktop-frame {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .desktop-window-controls {
@@ -517,7 +518,7 @@ a:focus-visible {
   position: relative;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
   isolation: isolate;
 }
 
@@ -1938,6 +1939,10 @@ a:focus-visible {
   min-width: 0;
   min-height: 0;
   grid-template-columns: minmax(0, 1fr);
+  /* Constrain the single row so the workspace is forced to the available
+     height — an implicit auto row would grow to its content and the clipped
+     remainder could never be scrolled to. */
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -3269,26 +3274,214 @@ a:focus-visible {
   line-height: 1.65;
 }
 
-.system-health-row {
+/* Overview — CD-Key licence panel */
+
+.license-panel {
+  margin-bottom: 16px;
+}
+
+.license-panel__body {
+  display: grid;
+  align-items: stretch;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 22px;
+  padding: 20px;
+}
+
+.license-keycard {
+  position: relative;
+  display: grid;
+  align-content: space-between;
+  gap: 14px;
+  min-height: 218px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 197, 61, 0.42);
+  padding: 18px 20px;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 197, 61, 0.14), transparent 42%),
+    linear-gradient(145deg, rgba(24, 33, 18, 0.35), rgba(5, 12, 26, 0.9)),
+    var(--npl-panel-raised);
+  box-shadow: var(--npl-shadow-gold);
+  clip-path: var(--npl-clip-sm);
+}
+
+.license-keycard--invalid {
+  border-color: rgba(255, 93, 122, 0.45);
+  box-shadow: 0 0 26px rgba(255, 93, 122, 0.14);
+}
+
+.license-keycard__suit {
+  position: absolute;
+  color: rgba(255, 197, 61, 0.2);
+  font-size: 1.05rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.license-keycard__suit--top {
+  top: 12px;
+  right: 15px;
+}
+
+.license-keycard__suit--bottom {
+  bottom: 12px;
+  left: 15px;
+  transform: rotate(180deg);
+}
+
+.license-keycard__head {
   display: flex;
-  min-width: 220px;
-  min-height: 38px;
   align-items: center;
-  justify-content: space-between;
-  border: 1px solid var(--npl-border);
-  margin-top: 22px;
-  padding: 0 12px;
+  gap: 10px;
+}
+
+.license-keycard__icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 197, 61, 0.4);
+  color: var(--npl-gold);
+  background: rgba(255, 197, 61, 0.08);
+  clip-path: var(--npl-clip-sm);
+}
+
+.license-keycard__head small {
   color: var(--npl-muted);
-  background: rgba(2, 8, 20, 0.38);
   font-family: var(--npl-font-mono);
-  font-size: 0.58rem;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.system-health-row span {
+.license-keycard__key {
+  color: #fff;
+  font-family: var(--npl-font-mono);
+  font-size: 1.18rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  overflow-wrap: anywhere;
+}
+
+.license-keycard__state {
   display: inline-flex;
+  width: fit-content;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  border: 1px solid rgba(61, 255, 160, 0.36);
+  padding: 5px 11px;
+  color: var(--npl-green);
+  background: rgba(61, 255, 160, 0.07);
+  font-family: var(--npl-font-mono);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.license-keycard__state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentcolor;
+  box-shadow: 0 0 9px currentcolor;
+}
+
+.license-keycard__state--warn {
+  border-color: rgba(255, 197, 61, 0.4);
+  color: var(--npl-gold);
+  background: rgba(255, 197, 61, 0.07);
+}
+
+.license-keycard > footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--npl-hairline);
+  padding-top: 11px;
+  color: var(--npl-muted);
+  font-size: 0.68rem;
+}
+
+.license-keycard > footer span:last-child {
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 0.56rem;
+}
+
+.license-facts {
+  display: grid;
+  align-content: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.license-facts > div {
+  border: 1px solid rgba(143, 169, 207, 0.14);
+  padding: 11px 14px;
+  background: rgba(2, 9, 22, 0.38);
+}
+
+.license-facts dt {
+  margin-bottom: 4px;
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.license-facts dd {
+  margin: 0;
+  color: var(--npl-text);
+  font-size: 0.76rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.license-panel__error {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 20px;
+  color: var(--npl-gold);
+}
+
+.license-panel__error p {
+  margin: 0;
+  color: var(--npl-muted);
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.license-panel__foot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-top: 1px solid var(--npl-hairline);
+  padding: 12px 20px;
+  color: var(--npl-faint);
+  font-size: 0.68rem;
+}
+
+.license-panel__foot svg {
+  flex: 0 0 auto;
+  color: var(--npl-cyan);
+}
+
+@media (max-width: 1100px) {
+  .license-panel__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .license-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .system-health-row strong {

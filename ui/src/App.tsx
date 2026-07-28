@@ -18,22 +18,23 @@ import {
   Eye,
   EyeOff,
   Gauge,
+  IdCard,
+  KeyRound,
   LayoutDashboard,
   ListChecks,
+  LoaderPinwheel,
   LogOut,
   Medal,
   Menu,
   Minus,
-  MonitorCog,
   MoreHorizontal,
-  Network,
   Pause,
   Play,
   Plus,
   QrCode,
   RefreshCw,
   Save,
-  Settings,
+  ShieldAlert,
   ShieldCheck,
   Smartphone,
   Spade,
@@ -43,10 +44,10 @@ import {
   Undo2,
   UserPlus,
   Users,
-  Wifi,
   X,
   type LucideIcon,
 } from "lucide-react"
+import type { LicenseStatus } from "./LicenseGate"
 
 declare global {
   interface Window {
@@ -117,13 +118,12 @@ type StaffLoginChallenge = {
 
 type NavId =
   | "overview"
-  | "host"
-  | "tables"
+  | "tournament"
+  | "cashgame"
   | "registrations"
   | "players"
-  | "results"
-  | "leaderboard"
-  | "system"
+  | "membership"
+  | "jackpot"
 
 type Player = {
   seat: number
@@ -155,24 +155,27 @@ const navigation: Array<{
     label: "Operations",
     items: [
       { id: "overview", label: "Overview", icon: LayoutDashboard },
-      { id: "host", label: "Host", icon: Spade },
-      { id: "tables", label: "Live Tables", icon: Table2, badge: 5 },
+      { id: "tournament", label: "Tournament", icon: Trophy },
+      { id: "cashgame", label: "Cash Game", icon: CircleDollarSign, badge: 5 },
       { id: "registrations", label: "Registrations", icon: ListChecks, badge: 6 },
       { id: "players", label: "Players", icon: Users },
     ],
   },
   {
-    label: "Competition",
+    label: "Club",
     items: [
-      { id: "results", label: "Results", icon: Medal },
-      { id: "leaderboard", label: "Leaderboard", icon: Trophy },
+      { id: "membership", label: "Club Membership ID", icon: IdCard },
+      { id: "jackpot", label: "Jackpot Wheel", icon: LoaderPinwheel },
     ],
   },
-  {
-    label: "Platform",
-    items: [{ id: "system", label: "System", icon: MonitorCog }],
-  },
 ]
+
+// Old pinned shortcuts (?tab=host / ?tab=tables) keep opening the same desks
+// under their new names.
+const legacyTabIds: Record<string, NavId> = {
+  host: "tournament",
+  tables: "cashgame",
+}
 
 const tables: GameTable[] = [
   {
@@ -255,17 +258,17 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
   overview: {
     eyebrow: "Venue command",
     title: "Operations overview",
-    description: "One view of tonight's floor, registrations, and operational health.",
+    description: "One view of tonight's floor, this install's licence, and operational health.",
   },
-  host: {
+  tournament: {
     eyebrow: "Venue command",
-    title: "Host a game",
+    title: "Tournament",
     description: "Set the structure, prices and cut-offs, then run the desk.",
   },
-  tables: {
-    eyebrow: "Operational system",
-    title: "Live tables",
-    description: "Monitor active games, update stacks, and keep every table moving.",
+  cashgame: {
+    eyebrow: "Cash game floor",
+    title: "Cash game",
+    description: "Run cash tables — stacks, buy-ins, rebuys, and the live waitlist.",
   },
   registrations: {
     eyebrow: "Player operations",
@@ -277,29 +280,21 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     title: "Players",
     description: "Find local players and review their venue activity.",
   },
-  results: {
-    eyebrow: "Results archive",
-    title: "Results",
-    description: "Review completed tables and prepare verified result exports.",
+  membership: {
+    eyebrow: "Club programme",
+    title: "Club Membership ID",
+    description: "Issue and verify club member IDs tied to NPL player accounts.",
   },
-  leaderboard: {
-    eyebrow: "Live standings",
-    title: "Leaderboard",
-    description: "Track venue performance and championship points.",
-  },
-  system: {
-    eyebrow: "Local platform",
-    title: "System",
-    description: "Inspect the Go host, Caddy gateway, and local service health.",
+  jackpot: {
+    eyebrow: "Club programme",
+    title: "Jackpot Wheel",
+    description: "Spin the venue jackpot wheel and track the live prize pool.",
   },
 }
 
-const modulePreviewCards: Record<Exclude<NavId, "tables" | "host">, Array<[string, string, string]>> = {
-  overview: [
-    ["Tables in play", "5", "4 live · 1 seating"],
-    ["Players on floor", "43", "Up 8 since 6 PM"],
-    ["Open actions", "6", "Registrations waiting"],
-  ],
+type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame">
+
+const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> = {
   registrations: [
     ["Checked in", "54", "For today's sessions"],
     ["Waiting", "6", "Longest wait 11 min"],
@@ -310,21 +305,23 @@ const modulePreviewCards: Record<Exclude<NavId, "tables" | "host">, Array<[strin
     ["Active tonight", "47", "Across all sessions"],
     ["Needs review", "2", "Identity checks"],
   ],
-  results: [
-    ["Completed today", "8", "All balanced"],
-    ["Awaiting export", "2", "Ready for review"],
-    ["Last close", "6:42 PM", "Table 08"],
+  membership: [
+    ["Members enrolled", "1,284", "Linked NPL accounts"],
+    ["Cards issued", "312", "Physical club IDs"],
+    ["Pending prints", "9", "Queued for next batch"],
   ],
-  leaderboard: [
-    ["Current leader", "A. Park", "1,860 venue points"],
-    ["Players ranked", "96", "Current season"],
-    ["Next update", "Tonight", "After session close"],
+  jackpot: [
+    ["Jackpot pool", "$4,820", "Backed by desk entries"],
+    ["Spins tonight", "3", "Across two sessions"],
+    ["Last winner", "R. Taylor", "$150 · 9:42 PM"],
   ],
-  system: [
-    ["Go host", "Online", "127.0.0.1:8788"],
-    ["Caddy gateway", "Online", "127.0.0.1:8787"],
-    ["Resource profile", "Adaptive", "Low-resource runtime limits"],
-  ],
+}
+
+const modulePreviewIcons: Record<PreviewNavId, LucideIcon> = {
+  registrations: ListChecks,
+  players: Users,
+  membership: IdCard,
+  jackpot: LoaderPinwheel,
 }
 
 function money(value: number) {
@@ -835,9 +832,10 @@ export default function App() {
   // A venue can pin a desktop shortcut straight to the station this laptop
   // is used for — the door scanner opens on Host, the floor opens on tables.
   const [activeSection, setActiveSection] = useState<NavId>(() => {
-    const requested = new URLSearchParams(window.location.search).get("tab")
-    const known = navigation.flatMap((group) => group.items).some((item) => item.id === requested)
-    return known ? (requested as NavId) : "tables"
+    const requested = new URLSearchParams(window.location.search).get("tab") ?? ""
+    const resolved = legacyTabIds[requested] ?? requested
+    const known = navigation.flatMap((group) => group.items).some((item) => item.id === resolved)
+    return known ? (resolved as NavId) : "overview"
   })
   const [selectedTableId, setSelectedTableId] = useState(tables[0].id)
   const [health, setHealth] = useState<HealthState>({ status: "loading" })
@@ -1385,10 +1383,12 @@ export default function App() {
 
         <div className={notificationOpen ? "app-content app-content--notification-open" : "app-content"}>
           <main className="workspace">
-            {activeSection === "host" ? (
+            {activeSection === "tournament" ? (
               <HostWorkspace venue={activeVenue} />
-            ) : activeSection === "tables" ? (
-              <LiveTablesWorkspace
+            ) : activeSection === "overview" ? (
+              <OverviewWorkspace onNotice={setNotice} />
+            ) : activeSection === "cashgame" ? (
+              <CashGameWorkspace
                 selectedTable={selectedTable}
                 selectedTableId={selectedTableId}
                 paused={paused}
@@ -1403,12 +1403,7 @@ export default function App() {
                 onNotice={setNotice}
               />
             ) : (
-              <ModulePreview
-                id={activeSection}
-                health={health}
-                onRefresh={loadHealth}
-                onNotice={setNotice}
-              />
+              <ModulePreview id={activeSection} onNotice={setNotice} />
             )}
           </main>
 
@@ -1478,7 +1473,7 @@ const notificationEvents: Array<{
     title: "Table 04 is paused",
     detail: "East Wing · Operator attention required",
     time: "4 min",
-    section: "tables",
+    section: "cashgame",
     icon: Pause,
     tone: "warning",
   },
@@ -1487,18 +1482,18 @@ const notificationEvents: Array<{
     title: "Rebuy recorded",
     detail: "Ethan Wong · Table 03 · $500",
     time: "8 min",
-    section: "tables",
+    section: "cashgame",
     icon: CircleDollarSign,
     tone: "gold",
   },
   {
-    id: "results-ready",
-    title: "Two results ready for review",
-    detail: "Completed tables are balanced",
+    id: "jackpot-pool",
+    title: "Jackpot pool climbed to $4,820",
+    detail: "Backed by tonight's desk entries",
     time: "12 min",
-    section: "results",
-    icon: Trophy,
-    tone: "info",
+    section: "jackpot",
+    icon: LoaderPinwheel,
+    tone: "gold",
   },
   {
     id: "avatars-synced",
@@ -1510,13 +1505,13 @@ const notificationEvents: Array<{
     tone: "registration",
   },
   {
-    id: "services-healthy",
-    title: "Local services healthy",
-    detail: "Go host and Caddy are operational",
+    id: "membership-prints",
+    title: "Nine club cards queued to print",
+    detail: "Club Membership ID · Next batch",
     time: "22 min",
-    section: "system",
-    icon: ShieldCheck,
-    tone: "success",
+    section: "membership",
+    icon: IdCard,
+    tone: "info",
   },
 ]
 
@@ -1571,7 +1566,7 @@ function NotificationSession({ onNavigate }: { onNavigate: (id: NavId) => void }
   )
 }
 
-type LiveTablesWorkspaceProps = {
+type CashGameWorkspaceProps = {
   selectedTable: GameTable
   selectedTableId: string
   paused: boolean
@@ -1586,7 +1581,7 @@ type LiveTablesWorkspaceProps = {
   onNotice: (message: string) => void
 }
 
-function LiveTablesWorkspace({
+function CashGameWorkspace({
   selectedTable,
   selectedTableId,
   paused,
@@ -1599,8 +1594,8 @@ function LiveTablesWorkspace({
   onSave,
   onTogglePause,
   onNotice,
-}: LiveTablesWorkspaceProps) {
-  const title = moduleTitles.tables
+}: CashGameWorkspaceProps) {
+  const title = moduleTitles.cashgame
 
   return (
     <>
@@ -1886,17 +1881,14 @@ function MetricCard({
 
 function ModulePreview({
   id,
-  health,
-  onRefresh,
   onNotice,
 }: {
-  id: Exclude<NavId, "tables" | "host">
-  health: HealthState
-  onRefresh: () => void
+  id: PreviewNavId
   onNotice: (message: string) => void
 }) {
   const title = moduleTitles[id]
   const cards = modulePreviewCards[id]
+  const Icon = modulePreviewIcons[id]
 
   return (
     <>
@@ -1907,12 +1899,6 @@ function ModulePreview({
           <p className="page-description">{title.description}</p>
         </div>
         <div className="page-actions">
-          {id === "system" ? (
-            <button className="secondary-button" type="button" onClick={onRefresh}>
-              <RefreshCw size={16} />
-              Check services
-            </button>
-          ) : null}
           <button className="primary-button" type="button" onClick={() => onNotice(`${title.title} action is ready for backend wiring.`)}>
             <Plus size={17} />
             New action
@@ -1921,40 +1907,201 @@ function ModulePreview({
       </div>
 
       <section className="module-preview-grid">
-        {cards.map(([label, value, note], index) => {
-          let displayValue = value
-          let displayNote = note
-          if (id === "system" && index < 2) {
-            displayValue = health.status === "ready" ? "Online" : health.status
-          } else if (id === "system" && index === 2 && health.status === "ready") {
-            displayValue = health.health.resource_profile.replace(/^./, (letter) => letter.toUpperCase())
-            displayNote = `${health.health.go_max_procs} Go workers · ${health.health.go_memory_limit_mib} MiB limit`
-          }
-
-          return (
-            <article className="module-preview-card" key={label}>
-              <span>0{index + 1}</span>
-              <p>{label}</p>
-              <strong>{displayValue}</strong>
-              <small>{displayNote}</small>
-            </article>
-          )
-        })}
+        {cards.map(([label, value, note], index) => (
+          <article className="module-preview-card" key={label}>
+            <span>0{index + 1}</span>
+            <p>{label}</p>
+            <strong>{value}</strong>
+            <small>{note}</small>
+          </article>
+        ))}
       </section>
 
       <section className="panel module-empty-state">
         <div className="module-empty-icon">
-          {id === "system" ? <Network size={28} /> : <Spade size={28} />}
+          <Icon size={28} />
         </div>
         <p>Design foundation ready</p>
         <h2>{title.title} workspace</h2>
         <span>This module now has the NPL operational shell and is ready for its API workflow.</span>
-        {id === "system" ? (
-          <div className="system-health-row">
-            <span><Wifi size={15} /> Gateway</span>
-            <strong>{health.status}</strong>
+      </section>
+    </>
+  )
+}
+
+function formatLeaseDate(value: string | null | undefined) {
+  if (!value) return "—"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(parsed)
+}
+
+function OverviewWorkspace({ onNotice }: { onNotice: (message: string) => void }) {
+  const title = moduleTitles.overview
+  const [license, setLicense] = useState<LicenseStatus | null>(null)
+  const [licenseError, setLicenseError] = useState(false)
+  const [checking, setChecking] = useState(false)
+
+  const loadLicense = useCallback(async () => {
+    try {
+      const response = await fetch("/api/license/status", { headers: { Accept: "application/json" } })
+      if (!response.ok) throw new Error("Licence status unavailable")
+      setLicense((await response.json()) as LicenseStatus)
+      setLicenseError(false)
+    } catch {
+      setLicenseError(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadLicense()
+  }, [loadLicense])
+
+  const recheckLicense = async () => {
+    if (checking) return
+    setChecking(true)
+    try {
+      const response = await fetch("/api/license/check", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      })
+      const body = await response.json() as LicenseStatus | { status: LicenseStatus }
+      const status = "status" in body ? body.status : body
+      setLicense(status)
+      setLicenseError(false)
+      onNotice(status.valid
+        ? "The licence lease was refreshed with the NPL cloud."
+        : "The licence could not be refreshed. Check this machine's internet connection.")
+    } catch {
+      onNotice("The licence server could not be reached. The current lease stays in effect.")
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const lease = license?.lease ?? null
+  const valid = license?.valid ?? false
+
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">{title.eyebrow}</p>
+          <h1>{title.title}</h1>
+          <p className="page-description">{title.description}</p>
+        </div>
+        <div className="page-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={checking}
+            onClick={() => void recheckLicense()}
+          >
+            <RefreshCw size={16} />
+            {checking ? "Checking licence…" : "Re-check licence"}
+          </button>
+        </div>
+      </div>
+
+      <section className="metric-grid" aria-label="Tonight at a glance">
+        <MetricCard icon={Table2} label="Tables in play" value="5" note="4 live · 1 seating" tone="cyan" />
+        <MetricCard icon={Users} label="Players on floor" value="43" note="Up 8 since 6 PM" tone="blue" />
+        <MetricCard icon={ListChecks} label="Open actions" value="6" note="Registrations waiting" tone="gold" />
+        <MetricCard icon={LoaderPinwheel} label="Jackpot pool" value="$4,820" note="Backed by desk entries" tone="green" />
+      </section>
+
+      <section className="panel license-panel" aria-label="CD-Key licence">
+        <header className="panel-header compact-panel-header">
+          <div>
+            <p>This install</p>
+            <h2>CD-Key licence</h2>
           </div>
-        ) : null}
+          {valid ? <ShieldCheck size={18} /> : <ShieldAlert size={18} />}
+        </header>
+
+        {licenseError ? (
+          <div className="license-panel__error">
+            <AlertTriangle size={22} />
+            <p>The local licence state could not be read. Local operations continue while the last lease holds.</p>
+          </div>
+        ) : (
+          <div className="license-panel__body">
+            <div className={valid ? "license-keycard" : "license-keycard license-keycard--invalid"}>
+              <span className="license-keycard__suit license-keycard__suit--top" aria-hidden="true">♠</span>
+              <span className="license-keycard__suit license-keycard__suit--bottom" aria-hidden="true">♠</span>
+              <div className="license-keycard__head">
+                <span className="license-keycard__icon"><KeyRound size={17} /></span>
+                <small>{lease?.product ?? "NPL Poker Internal"}</small>
+              </div>
+              <strong className="license-keycard__key">{license?.masked_key || "Not activated"}</strong>
+              <div className={valid ? "license-keycard__state" : "license-keycard__state license-keycard__state--warn"}>
+                <i />
+                {valid ? "Licence active" : license?.activated ? "Lease expired" : "Awaiting activation"}
+              </div>
+              <footer>
+                <span>{lease?.venue_name || "No venue bound"}</span>
+                <span>{lease?.label || license?.device_id || "—"}</span>
+              </footer>
+            </div>
+
+            <dl className="license-facts">
+              <div>
+                <dt>Device ID</dt>
+                <dd>{license?.device_id ?? "—"}</dd>
+              </div>
+              <div>
+                <dt>Device label</dt>
+                <dd>{lease?.device_label || "This station"}</dd>
+              </div>
+              <div>
+                <dt>Lease held until</dt>
+                <dd>{formatLeaseDate(lease?.lease_until)}</dd>
+              </div>
+              <div>
+                <dt>Licence expires</dt>
+                <dd>{formatLeaseDate(lease?.expires_at)}</dd>
+              </div>
+              <div>
+                <dt>Licence server</dt>
+                <dd>{license?.cloud_base?.replace(/^https?:\/\//, "") ?? "—"}</dd>
+              </div>
+              <div>
+                <dt>Lease status</dt>
+                <dd>{lease?.status ? lease.status.replace(/^./, (letter) => letter.toUpperCase()) : "—"}</dd>
+              </div>
+            </dl>
+          </div>
+        )}
+
+        <footer className="license-panel__foot">
+          <ShieldCheck size={15} />
+          <span>
+            {license?.message ||
+              "The lease re-checks with the NPL cloud every six hours. A revoked key locks this desk at its next check."}
+          </span>
+        </footer>
+      </section>
+
+      <section className="module-preview-grid" aria-label="Floor summary">
+        {[
+          ["Registrations", "54 checked in", "6 waiting · longest 11 min"],
+          ["Cash game floor", "5 tables", "43 players seated"],
+          ["Club programme", "1,284 members", "9 club cards queued to print"],
+        ].map(([label, value, note], index) => (
+          <article className="module-preview-card" key={label}>
+            <span>0{index + 1}</span>
+            <p>{label}</p>
+            <strong>{value}</strong>
+            <small>{note}</small>
+          </article>
+        ))}
       </section>
     </>
   )
