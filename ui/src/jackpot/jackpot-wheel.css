@@ -227,6 +227,22 @@
   font-size: 12px;
 }
 
+.wheel-player-bar__spins {
+  display: inline-block;
+  margin-left: 10px;
+  border: 1px solid rgba(61, 255, 160, 0.4);
+  border-radius: 999px;
+  padding: 2px 10px;
+  color: #3dffa0;
+  background: rgba(61, 255, 160, 0.08);
+  font-family: var(--npl-font-mono);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .wheel-player-bar button {
   display: inline-flex;
   align-items: center;

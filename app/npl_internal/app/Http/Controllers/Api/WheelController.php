@@ -66,6 +66,19 @@ final class WheelController extends Controller
             ], 422);
         }
 
+        // Eligibility is the cloud's call (it may be gated to jackpot desk
+        // entries). Unreachable cloud → unknown; the spin itself will speak.
+        $eligibility = null;
+
+        try {
+            $result = $this->cloud->getJson('/api/v1/internal/wheel/eligibility', [
+                'npl_id' => (string) $player->npl_id,
+            ]);
+            $eligibility = (array) ($result['data'] ?? []);
+        } catch (CloudException) {
+            // Leave it unknown.
+        }
+
         return $this->ok([
             'player' => [
                 'npl_id' => $player->npl_id,
@@ -73,6 +86,7 @@ final class WheelController extends Controller
                 'avatar_media_key' => $player->avatar_media_key ?? null,
                 'state_code' => $player->state_code,
             ],
+            'eligibility' => $eligibility,
         ]);
     }
 

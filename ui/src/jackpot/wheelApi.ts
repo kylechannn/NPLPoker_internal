@@ -26,6 +26,14 @@ export type WheelPlayer = {
   state_code: string | null
 }
 
+/** The cloud's spin gate. Null when the cloud could not be asked. */
+export type WheelEligibility = {
+  mode: "operator" | "jackpot_entry"
+  eligible: boolean
+  spins_available: number | null
+  reason: string | null
+} | null
+
 export type SpinResult = {
   spin_id: number
   reference: string
@@ -81,7 +89,7 @@ export const wheelApi = {
   segments: () => request<{ segments: WheelSegment[] }>("/api/v1/wheel"),
 
   lookup: (nplId: string) =>
-    request<{ player: WheelPlayer }>("/api/v1/wheel/lookup", {
+    request<{ player: WheelPlayer, eligibility: WheelEligibility }>("/api/v1/wheel/lookup", {
       method: "POST",
       body: JSON.stringify({ npl_id: nplId }),
     }),

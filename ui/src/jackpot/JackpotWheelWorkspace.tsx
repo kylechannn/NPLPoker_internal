@@ -14,7 +14,7 @@ import "@fontsource/inter/700.css"
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import { ScanLine, RefreshCw, ShieldCheck, Undo2 } from "lucide-react"
 import PrizeWheel, { type SpinOutcome } from "./PrizeWheel"
-import { toWheelPrizes, wheelApi, type WheelPlayer, type WheelSegment } from "./wheelApi"
+import { toWheelPrizes, wheelApi, type WheelEligibility, type WheelPlayer, type WheelSegment } from "./wheelApi"
 import "./jackpot-wheel.css"
 
 /**
@@ -29,6 +29,7 @@ export default function JackpotWheelWorkspace() {
   const [scanBusy, setScanBusy] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [player, setPlayer] = useState<WheelPlayer | null>(null)
+  const [eligibility, setEligibility] = useState<WheelEligibility>(null)
   const [spinError, setSpinError] = useState<string | null>(null)
   // A spin's reference survives a failed attempt so the retry can never
   // double-award — the cloud treats the same reference as the same spin.
@@ -57,7 +58,16 @@ export default function JackpotWheelWorkspace() {
     setScanError(null)
     try {
       const result = await wheelApi.lookup(nplId)
+
+      // The cloud gate speaks before the wheel opens: an ineligible player
+      // stays on the scan page with the reason on screen.
+      if (result.eligibility && !result.eligibility.eligible) {
+        setScanError(result.eligibility.reason ?? "This player cannot spin right now.")
+        return
+      }
+
       setPlayer(result.player)
+      setEligibility(result.eligibility)
       setScanValue("")
       setSpinError(null)
       referenceRef.current = null
@@ -70,6 +80,7 @@ export default function JackpotWheelWorkspace() {
 
   function resetToScan() {
     setPlayer(null)
+    setEligibility(null)
     setScanError(null)
     setSpinError(null)
     referenceRef.current = null
@@ -157,6 +168,11 @@ export default function JackpotWheelWorkspace() {
           <small>Spinning for</small>
           <strong>{player.display_name}</strong>
           <span>{player.npl_id}</span>
+          {eligibility?.mode === "jackpot_entry" && eligibility.spins_available !== null ? (
+            <em className="wheel-player-bar__spins">
+              {eligibility.spins_available} spin{eligibility.spins_available === 1 ? "" : "s"} available
+            </em>
+          ) : null}
         </div>
         <button type="button" onClick={resetToScan}>
           <Undo2 size={15} /> Change player
