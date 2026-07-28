@@ -30,9 +30,10 @@ const (
 )
 
 type backendApp struct {
-	cmd    *exec.Cmd
-	target *url.URL
-	proxy  *httputil.ReverseProxy
+	cmd       *exec.Cmd
+	scheduler *exec.Cmd
+	target    *url.URL
+	proxy     *httputil.ReverseProxy
 }
 
 // startBackendApp boots `php artisan serve` for the bundled app on a loopback
@@ -74,6 +75,20 @@ func startBackendApp(ctx context.Context) (*backendApp, error) {
 
 	app := &backendApp{cmd: cmd, target: target, proxy: httputil.NewSingleHostReverseProxy(target)}
 
+	// The schedules in routes/console.php (tournament broadcast, outbox
+	// drain) only fire if something runs them; `serve` alone never does.
+	scheduler := exec.CommandContext(ctx, php, "artisan", "schedule:work")
+	scheduler.Dir = appDir
+	scheduler.Stdout = os.Stdout
+	scheduler.Stderr = os.Stderr
+	configureBackgroundProcess(scheduler)
+	if err := scheduler.Start(); err != nil {
+		log.Printf("[npl-internal] scheduler failed to start (broadcast/outbox sweeps off): %v", err)
+	} else {
+		adoptBackgroundProcess(scheduler)
+		app.scheduler = scheduler
+	}
+
 	app.proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		log.Printf("[npl-internal] bundled backend unreachable: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]any{
@@ -100,7 +115,16 @@ func (a *backendApp) register(mux *http.ServeMux) {
 }
 
 func (a *backendApp) stop() {
-	if a == nil || a.cmd == nil || a.cmd.Process == nil {
+	if a == nil {
+		return
+	}
+
+	if a.scheduler != nil && a.scheduler.Process != nil {
+		_ = a.scheduler.Process.Kill()
+		_ = a.scheduler.Wait()
+	}
+
+	if a.cmd == nil || a.cmd.Process == nil {
 		return
 	}
 

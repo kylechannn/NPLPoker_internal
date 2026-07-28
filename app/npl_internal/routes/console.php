@@ -15,3 +15,14 @@ Schedule::command('tournament:broadcast')
     ->everyFifteenSeconds()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * Queued local changes (jackpot entries today; seat moves and buy-ins once
+ * the operational layer lands) ride to the cloud on the same cadence. The
+ * desk also drains inline right after a jackpot entry, so this sweep only
+ * carries retries and anything queued while the connection was down.
+ */
+Schedule::command('outbox:drain')
+    ->everyFifteenSeconds()
+    ->withoutOverlapping()
+    ->runInBackground();

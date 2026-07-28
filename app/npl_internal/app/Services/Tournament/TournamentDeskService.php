@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Services\Tournament;
 
 use App\Services\Sync\OutboxService;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * The desk: what happens when a player walks up and their card is scanned.
@@ -334,6 +336,19 @@ final class TournamentDeskService
             'amount_cents' => $amount,
             'entered_at' => now()->toIso8601String(),
         ]);
+
+        // Drain after the response so the entry reaches the cloud before the
+        // player walks from the desk to the wheel — the wheel refuses to spin
+        // until the cloud knows about the entry. Offline it just stays queued
+        // for the scheduled sweep; the desk response is never held up.
+        $outbox = $this->outbox;
+        App::terminating(function () use ($outbox): void {
+            try {
+                $outbox->drain();
+            } catch (Throwable) {
+                // Already queued locally; the scheduled drain retries.
+            }
+        });
 
         return [
             'jackpot' => [

@@ -101,6 +101,7 @@ final class WheelController extends Controller
             'reference' => ['required', 'string', 'min:8', 'max:64'],
             'npl_id' => ['required', 'string', 'max:32'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
+            'game_session_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
         try {
@@ -108,6 +109,7 @@ final class WheelController extends Controller
                 'reference' => $validated['reference'],
                 'npl_id' => trim($validated['npl_id']),
                 'venue_id' => $validated['venue_id'] ?? null,
+                'game_session_id' => $validated['game_session_id'] ?? null,
             ], $validated['reference']);
         } catch (CloudException $e) {
             return response()->json([
