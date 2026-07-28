@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Loader2, RotateCcw, ScanLine, Undo2 } from "lucide-react"
+import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Undo2 } from "lucide-react"
 import {
   countdown,
   deskApi,
@@ -176,6 +176,24 @@ export default function HostDesk({ sessionId, onExit }: Props) {
             )
           })}
         </div>
+
+        <button
+          className="host-desk__display"
+          type="button"
+          title="Open the room clock in its own window"
+          onClick={() => {
+            // A real window, not a tab: it gets dragged onto the projector and
+            // left there. The clock is server-authoritative, so opening two of
+            // these can never make them disagree.
+            window.open(
+              `${window.location.pathname}?display=timer&session=${sessionId}`,
+              `npl-timer-${sessionId}`,
+              "width=1280,height=720,menubar=no,toolbar=no,location=no,status=no",
+            )
+          }}
+        >
+          <MonitorPlay size={15} /> Room clock
+        </button>
 
         <button className="host-desk__exit" type="button" onClick={onExit}>Preset</button>
       </header>

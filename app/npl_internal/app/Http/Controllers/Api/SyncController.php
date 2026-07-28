@@ -82,6 +82,23 @@ final class SyncController
         return response()->json(['ok' => true, 'data' => ['run' => $result]], 202);
     }
 
+    /**
+     * Re-install player avatars without a full pull.
+     *
+     * Separate from the full update because it is the one piece an operator
+     * commonly wants on its own — a player changes their picture and the desk
+     * wants it on the seating map now, not after a whole sync.
+     */
+    public function avatars(Request $request): JsonResponse
+    {
+        $force = (bool) $request->boolean('force');
+
+        return response()->json([
+            'ok' => true,
+            'data' => ['avatars' => app(\App\Services\Media\AvatarInstaller::class)->installAll($force)],
+        ]);
+    }
+
     public function status(string $uuid): JsonResponse
     {
         return response()->json(['ok' => true, 'data' => ['run' => $this->runner->status($uuid)]]);

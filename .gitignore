@@ -19,3 +19,7 @@ app/npl_internal/database/*.sqlite
 app/npl_internal/database/*.sqlite-journal
 app/npl_internal/.phpunit.result.cache
 
+
+# Built desktop binaries — the exe is produced by a build, never committed.
+NPLPokerOS.exe
+nplpoker-internal.exe

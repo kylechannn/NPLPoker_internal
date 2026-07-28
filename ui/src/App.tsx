@@ -4,6 +4,7 @@ import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
 import HostWorkspace from "./desk/HostWorkspace"
 import { deskApi, type Venue } from "./desk/deskApi"
+import { describeRun, syncApi } from "./sync/syncApi"
 import nplLogoUrl from "./assets/npl-logo.png"
 import {
   Activity,
@@ -1130,21 +1131,45 @@ export default function App() {
     setMobileNavOpen(false)
   }
 
-  const syncAvatars = () => {
+  const syncAvatars = async () => {
     if (avatarSyncing) return
     setAvatarSyncing(true)
-    window.setTimeout(() => {
+
+    try {
+      const result = await syncApi.avatars()
+      const installed = Number(result.avatars.installed ?? 0)
+      setNotice(installed > 0
+        ? `${installed} player ${installed === 1 ? "avatar" : "avatars"} installed.`
+        : "Avatars are already up to date.")
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Avatars could not be synced.")
+    } finally {
       setAvatarSyncing(false)
-      setNotice("Player avatars were manually refreshed.")
-    }, 900)
+    }
   }
 
   const runManualUpdate = async () => {
     if (manualUpdating) return
     setManualUpdating(true)
-    await Promise.all([loadHealth(), loadNetworkQuality(true)])
-    setManualUpdating(false)
-    setNotice("Operations data and connection quality were manually updated.")
+
+    try {
+      const { run } = await syncApi.run("console")
+      setNotice(describeRun(run))
+
+      // Venues and sessions may have changed underneath the header picker,
+      // so re-read them rather than leaving a stale list on screen.
+      const venueResult = await deskApi.venues()
+      setVenues(venueResult.venues)
+      setVenueId((current) => {
+        if (current !== null && venueResult.venues.some((entry) => entry.id === current)) return current
+        return venueResult.venues.length === 1 ? venueResult.venues[0].id : current
+      })
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "The update could not be completed.")
+    } finally {
+      setManualUpdating(false)
+      void Promise.all([loadHealth(), loadNetworkQuality(true)])
+    }
   }
 
   const handleUnifiedHeaderPointerDown = (event: React.PointerEvent<HTMLElement>) => {
@@ -1332,7 +1357,7 @@ export default function App() {
               type="button"
               aria-label={avatarSyncing ? "Syncing player avatars" : "Sync player avatars manually"}
               disabled={avatarSyncing}
-              onClick={syncAvatars}
+              onClick={() => void syncAvatars()}
             >
               <Users size={18} />
               <span>{avatarSyncing ? "Syncing avatars…" : "Sync avatars"}</span>

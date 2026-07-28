@@ -56,7 +56,16 @@ export type Seating = {
   tables: DeskTable[]
   unseated: SeatedPlayer[]
   eliminated: SeatedPlayer[]
-  counts: { entries: number, active: number, eliminated: number, in_jackpot: number }
+  counts: {
+    entries: number
+    active: number
+    eliminated: number
+    in_jackpot: number
+    total_players?: number
+    active_players?: number
+    average_stack?: number
+    total_chips?: number
+  }
   gates: Gates
   clock: Record<string, unknown>
 }

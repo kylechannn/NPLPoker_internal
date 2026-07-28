@@ -26,6 +26,7 @@ Route::prefix('v1/sync')->controller(SyncController::class)->group(function (): 
     Route::get('runs/latest', 'latest');
     Route::get('runs/{uuid}', 'status');
     Route::get('snapshot', 'snapshot');
+    Route::post('avatars', 'avatars');
 });
 
 Route::get('/media/{key}', [MediaController::class, 'show'])->where('key', '[A-Za-z0-9]+');

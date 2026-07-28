@@ -537,7 +537,9 @@ final class TournamentDeskService
                 ->values()
                 ->map(fn (object $row): array => $this->presentEntry($row, $sessionId, $session))
                 ->all(),
-            'counts' => [
+            // The room display reads these too, so chip totals live here
+            // rather than only in the heavier summary() call.
+            'counts' => $this->tournaments->summary($sessionId) + [
                 'entries' => $entries->count(),
                 'active' => $active->count(),
                 'eliminated' => $entries->where('status', 'eliminated')->count(),

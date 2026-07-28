@@ -1,0 +1,186 @@
+/* Room display. Everything here is sized to be read from across a poker
+   room, so it scales with the viewport rather than sitting at fixed px. */
+
+.timer {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 2vh;
+  padding: 3vh 4vw;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(56, 189, 248, 0.16), transparent 60%),
+    #04101f;
+  color: #eaf4ff;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+
+.timer--error {
+  place-content: center;
+  text-align: center;
+  color: #ffc9d1;
+}
+
+.timer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 3vw;
+}
+
+.timer__head h1 {
+  margin: 0;
+  font-size: clamp(1.2rem, 2.6vw, 2.4rem);
+  line-height: 1.05;
+  /* Large type reads too loose at default tracking. */
+  letter-spacing: -0.02em;
+}
+
+.timer__head p {
+  margin: 0.4vh 0 0;
+  font-size: clamp(0.8rem, 1.2vw, 1.1rem);
+  color: rgba(214, 232, 255, 0.6);
+}
+
+.timer__level {
+  display: grid;
+  justify-items: end;
+  gap: 0.3vh;
+  font-size: clamp(1rem, 2vw, 1.8rem);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.timer__level em {
+  font-style: normal;
+  font-size: clamp(0.7rem, 1vw, 1rem);
+  font-weight: 500;
+  color: rgba(214, 232, 255, 0.5);
+}
+
+.timer__clock {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 3vh;
+  min-height: 0;
+}
+
+.timer__count {
+  font-size: clamp(5rem, 24vw, 20rem);
+  font-weight: 800;
+  line-height: 0.86;
+  letter-spacing: -0.03em;
+  text-shadow: 0 0 8vw rgba(56, 189, 248, 0.28);
+  transition: color 300ms ease;
+}
+
+/* The last minute of a level is the one moment the room needs to notice. */
+.timer__count--urgent {
+  color: #ffb4b4;
+  text-shadow: 0 0 8vw rgba(248, 113, 113, 0.4);
+}
+
+.timer__progress {
+  width: min(70vw, 900px);
+  height: 0.8vh;
+  min-height: 5px;
+  border-radius: 999px;
+  background: rgba(148, 180, 220, 0.16);
+  overflow: hidden;
+}
+
+.timer__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(56, 229, 255, 0.5), #38e5ff);
+  transition: width 300ms linear;
+}
+
+.timer__blinds {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2vw;
+}
+
+.timer__blinds strong {
+  font-size: clamp(2rem, 8vw, 6rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #ffc53d;
+}
+
+.timer__blinds span {
+  font-size: clamp(0.9rem, 2vw, 1.8rem);
+  color: rgba(214, 232, 255, 0.6);
+}
+
+.timer__break { color: #7dd3fc !important; }
+
+.timer__foot {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2vw;
+  padding-top: 2vh;
+  border-top: 1px solid rgba(148, 180, 220, 0.16);
+}
+
+.timer__next,
+.timer__stat {
+  display: grid;
+  gap: 0.4vh;
+  font-size: clamp(1rem, 2.2vw, 2rem);
+  font-weight: 650;
+}
+
+.timer__next small,
+.timer__stat small {
+  font-size: clamp(0.6rem, 0.9vw, 0.85rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(214, 232, 255, 0.45);
+}
+
+.timer__stat em {
+  font-style: normal;
+  font-size: 0.6em;
+  color: rgba(214, 232, 255, 0.5);
+}
+
+.timer__stat--gate { color: #a7f3d0; }
+.timer__stat--shut { color: rgba(214, 232, 255, 0.45); }
+
+/* A paused clock should be unmistakable from the back of the room. */
+.timer--paused .timer__count {
+  font-size: clamp(3rem, 14vw, 11rem);
+  color: #ffc53d;
+}
+
+.timer--paused::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 197, 61, 0.05);
+  pointer-events: none;
+}
+
+.timer__stale {
+  position: absolute;
+  bottom: 1.2vh;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #ffb4b4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timer__progress span,
+  .timer__count { transition: none; }
+}
