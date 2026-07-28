@@ -18,6 +18,7 @@ class TournamentTemplateTest extends TestCase
         $service = app(TournamentService::class);
 
         $turbo = $service->create([
+            'registration_closes_at_level' => 1,
             'name' => 'Thursday Turbo',
             'starting_stack' => 10000,
             'max_rebuys_per_player' => 1,
@@ -28,6 +29,7 @@ class TournamentTemplateTest extends TestCase
         ]);
 
         $deepstack = $service->create([
+            'registration_closes_at_level' => 1,
             'name' => 'Sunday Deepstack',
             'starting_stack' => 50000,
             'max_rebuys_per_player' => 0,
@@ -56,6 +58,7 @@ class TournamentTemplateTest extends TestCase
         $templates = app(TournamentTemplateService::class);
 
         $original = $service->create([
+            'registration_closes_at_level' => 1,
             'name' => 'Friday Deepstack',
             'starting_stack' => 30000,
             'rebuy_price_cents' => 5500,
@@ -79,7 +82,7 @@ class TournamentTemplateTest extends TestCase
         $this->assertSame(30000, $template['settings']['starting_stack']);
 
         // Next week: name only — everything else comes from the template.
-        $nextWeek = $service->create(['name' => 'Friday Deepstack (2 Aug)']);
+        $nextWeek = $service->create(['name' => 'Friday Deepstack (2 Aug)', 'registration_closes_at_level' => 1]);
 
         $this->assertSame(30000, $nextWeek['session']['starting_stack']);
         $this->assertSame(5500, $nextWeek['session']['rebuy_price_cents']);
@@ -99,7 +102,7 @@ class TournamentTemplateTest extends TestCase
         $templates->save([
             'name' => 'House Default',
             'is_default' => true,
-            'settings' => ['starting_stack' => 20000, 'buy_in_price_cents' => 10000],
+            'settings' => ['starting_stack' => 20000, 'buy_in_price_cents' => 10000, 'registration_closes_at_level' => 1],
             'levels' => [['type' => 'blind', 'small_blind' => 100, 'big_blind' => 200, 'duration_min' => 20]],
         ]);
 
@@ -146,6 +149,7 @@ class TournamentTemplateTest extends TestCase
 
         // Creating from a template id, over HTTP.
         $created = $this->postJson('/api/v1/tournaments', [
+            'registration_closes_at_level' => 1,
             'name' => 'Tonight',
             'template_id' => $body['templates'][0]['id'],
         ])->assertStatus(201)->json('data');
@@ -162,8 +166,8 @@ class TournamentTemplateTest extends TestCase
         $service = app(TournamentService::class);
         $clock = app(TournamentClockService::class);
 
-        $a = $service->create(['name' => 'Live A']);
-        $service->create(['name' => 'Draft B']);
+        $a = $service->create(['name' => 'Live A', 'registration_closes_at_level' => 1]);
+        $service->create(['name' => 'Draft B', 'registration_closes_at_level' => 1]);
         $clock->start($a['session']['id']);
 
         // No licence in tests, so publishing is a no-op — but the command must

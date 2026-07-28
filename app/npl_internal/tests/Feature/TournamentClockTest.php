@@ -26,6 +26,9 @@ class TournamentClockTest extends TestCase
             'addon_price_cents' => 5000,
             'max_addons_per_player' => 1,
             'buy_in_price_cents' => 10000,
+            // Required since the desk cut-off work: a session cannot open
+            // without a level at which registration shuts.
+            'registration_closes_at_level' => 3,
             'levels' => [
                 ['level_no' => 1, 'type' => 'blind', 'small_blind' => 100, 'big_blind' => 200, 'duration_min' => 20],
                 ['level_no' => 2, 'type' => 'blind', 'small_blind' => 200, 'big_blind' => 400, 'duration_min' => 20],

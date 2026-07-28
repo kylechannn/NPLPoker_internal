@@ -59,3 +59,21 @@ Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\Tournament
     Route::post('{id}/register', 'register')->whereNumber('id');
     Route::post('{id}/actions', 'act')->whereNumber('id');
 });
+
+/**
+ * The operator's desk. Split from the clock routes because the desk is a
+ * different station: the scanner at the door, not the director's screen.
+ */
+Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::class)->group(function (): void {
+    Route::get('venues', 'venues');
+    Route::get('dashboard', 'dashboard');
+    Route::post('structure-preview', 'previewStructure');
+
+    Route::post('{id}/scan', 'scan')->whereNumber('id');
+    Route::post('{id}/act', 'act')->whereNumber('id');
+    Route::get('{id}/seating', 'seating')->whereNumber('id');
+    Route::get('{id}/gates', 'gates')->whereNumber('id');
+    Route::post('{id}/eliminate', 'eliminate')->whereNumber('id');
+    Route::post('{id}/reinstate', 'reinstate')->whereNumber('id');
+    Route::post('{id}/seat', 'seat')->whereNumber('id');
+});

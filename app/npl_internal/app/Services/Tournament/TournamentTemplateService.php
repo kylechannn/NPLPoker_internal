@@ -17,7 +17,13 @@ final class TournamentTemplateService
     private const SETTING_KEYS = [
         'starting_stack', 'rebuy_chips', 'rebuy_price_cents', 'max_rebuys_per_player',
         'addon_chips', 'addon_price_cents', 'max_addons_per_player',
-        'buy_in_price_cents', 'ko_bounty_cents', 'registration_closes_at_level',
+        'buy_in_price_cents', 'ko_bounty_cents',
+        // Cut-offs travel with the template: a template that dropped them
+        // would make "start next week's game in one tap" fail validation,
+        // since the registration cut-off is required to open a session.
+        'registration_closes_at_level', 'addon_closes_at_level', 'rebuy_closes_at_level',
+        'jackpot_enabled', 'jackpot_price_cents', 'jackpot_closes_at_level',
+        'seats_per_table',
     ];
 
     public function __construct(private readonly TournamentClockService $clock) {}

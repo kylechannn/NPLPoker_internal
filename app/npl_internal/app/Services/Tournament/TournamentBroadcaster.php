@@ -25,6 +25,7 @@ final class TournamentBroadcaster
         private readonly TournamentClockService $clock,
         private readonly TournamentService $tournaments,
         private readonly LicenseKeyProvider $license,
+        private readonly TournamentGateService $gates,
     ) {}
 
     public function publish(int $sessionId): bool
@@ -66,6 +67,10 @@ final class TournamentBroadcaster
                 'players_active' => $summary['active_players'],
                 'average_stack' => $summary['average_stack'],
                 'registration_open' => $state['registration_open'],
+                // Cut-offs travel with the clock so the website and the phone
+                // apps can run the same countdown the room is watching,
+                // including the pauses.
+                'gates' => $this->gates->gates($sessionId, $session, $state),
                 'started_at' => $state['started_at'],
                 'finished_at' => $state['finished_at'],
             ]);

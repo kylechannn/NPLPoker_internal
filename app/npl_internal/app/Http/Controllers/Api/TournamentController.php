@@ -48,7 +48,30 @@ final class TournamentController
             'max_addons_per_player' => ['sometimes', 'integer', 'min:0', 'max:255'],
             'buy_in_price_cents' => ['sometimes', 'integer', 'min:0'],
             'ko_bounty_cents' => ['sometimes', 'integer', 'min:0'],
-            'registration_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            // Required: the desk has to decide when the doors shut. The
+            // other cut-offs are optional and only bite when supplied.
+            'registration_closes_at_level' => ['required', 'integer', 'min:1'],
+            'addon_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'rebuy_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'jackpot_enabled' => ['sometimes', 'boolean'],
+            'jackpot_price_cents' => ['sometimes', 'integer', 'min:0'],
+            'jackpot_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'seats_per_table' => ['sometimes', 'integer', 'min:2', 'max:10'],
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+
+            // Generate the ladder from a pattern instead of typing it out.
+            'structure' => ['sometimes', 'array'],
+            'structure.levels' => ['sometimes', 'integer', 'min:1', 'max:60'],
+            'structure.duration_min' => ['sometimes', 'integer', 'min:1', 'max:180'],
+            'structure.small_blind' => ['sometimes', 'integer', 'min:1'],
+            'structure.big_blind_multiple' => ['sometimes', 'numeric', 'min:1'],
+            'structure.mode' => ['sometimes', Rule::in(['add', 'multiply'])],
+            'structure.step' => ['sometimes', 'numeric', 'min:0.1'],
+            'structure.break_every' => ['sometimes', 'integer', 'min:0', 'max:20'],
+            'structure.break_duration_min' => ['sometimes', 'integer', 'min:1', 'max:120'],
+            'structure.ante_from_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'structure.ante_as_big_blind' => ['sometimes', 'boolean'],
+
             'levels' => ['sometimes', 'array', 'min:1'],
             'levels.*.type' => ['sometimes', Rule::in(['blind', 'break'])],
             'levels.*.small_blind' => ['sometimes', 'integer', 'min:0'],

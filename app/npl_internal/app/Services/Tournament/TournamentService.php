@@ -44,10 +44,35 @@ final class TournamentService
             $data = $this->templates->toCreatePayload($template, $data);
         }
 
-        $levels = $data['levels'] ?? TournamentClockService::DEFAULT_STRUCTURE;
+        // A pattern is the usual way a venue describes its structure, so the
+        // preset screen can send one instead of twenty hand-typed rows.
+        $levels = isset($data['structure']) && is_array($data['structure'])
+            ? app(BlindStructureGenerator::class)->generate($data['structure'])
+            : ($data['levels'] ?? TournamentClockService::DEFAULT_STRUCTURE);
 
         if ($levels === []) {
             throw ValidationException::withMessages(['levels' => ['A tournament needs at least one level.']]);
+        }
+
+        // The registration cut-off is the one setting the desk must decide:
+        // everything downstream (online registration closing, the countdown
+        // players watch, what a scan is allowed to do) hangs off it.
+        $registrationCloses = $data['registration_closes_at_level'] ?? null;
+
+        if ($registrationCloses === null) {
+            throw ValidationException::withMessages([
+                'registration_closes_at_level' => ['Set the level registration closes at before opening the session.'],
+            ]);
+        }
+
+        $this->assertCutOffWithinStructure('registration_closes_at_level', $registrationCloses, $levels);
+
+        foreach (['addon_closes_at_level', 'rebuy_closes_at_level', 'jackpot_closes_at_level'] as $field) {
+            // Optional — but once entered they have to be reachable, or the
+            // desk has set a rule that silently never fires.
+            if (($data[$field] ?? null) !== null) {
+                $this->assertCutOffWithinStructure($field, (int) $data[$field], $levels);
+            }
         }
 
         return DB::transaction(function () use ($data, $levels): array {
@@ -67,7 +92,14 @@ final class TournamentService
                 'max_addons_per_player' => (int) ($data['max_addons_per_player'] ?? 1),
                 'buy_in_price_cents' => (int) ($data['buy_in_price_cents'] ?? 0),
                 'ko_bounty_cents' => (int) ($data['ko_bounty_cents'] ?? 0),
-                'registration_closes_at_level' => $data['registration_closes_at_level'] ?? null,
+                'registration_closes_at_level' => (int) $data['registration_closes_at_level'],
+                'addon_closes_at_level' => $data['addon_closes_at_level'] ?? null,
+                'rebuy_closes_at_level' => $data['rebuy_closes_at_level'] ?? null,
+                'jackpot_enabled' => (bool) ($data['jackpot_enabled'] ?? false),
+                'jackpot_price_cents' => (int) ($data['jackpot_price_cents'] ?? 0),
+                'jackpot_closes_at_level' => $data['jackpot_closes_at_level'] ?? null,
+                'seats_per_table' => (int) ($data['seats_per_table'] ?? 8),
+                'venue_id' => $data['venue_id'] ?? null,
                 'settings' => isset($data['settings']) ? json_encode($data['settings']) : null,
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -77,6 +109,21 @@ final class TournamentService
 
             return $this->show($id);
         }, 3);
+    }
+
+    /** @param  list<array<string, mixed>>  $levels */
+    private function assertCutOffWithinStructure(string $field, int $value, array $levels): void
+    {
+        // A cut-off is a position in the ladder — it is compared against
+        // `current_level_index`, which counts breaks too. Validating against
+        // the printed level_no would be wrong the moment a break exists.
+        $highest = count($levels);
+
+        if ($value < 1 || $value > $highest) {
+            throw ValidationException::withMessages([
+                $field => [sprintf('Cut-off must be between 1 and %d (the structure has %d levels).', $highest, $highest)],
+            ]);
+        }
     }
 
     /** Structure edits are refused once play has started. */
@@ -215,6 +262,17 @@ final class TournamentService
 
         $this->assertRegistered($sessionId, $nplId);
 
+        // Enforced here as well as at the desk: this method is reachable
+        // straight from the action API, and a cut-off that only holds on one
+        // route is not a cut-off.
+        if (in_array($action, ['rebuy', 'addon'], true)) {
+            $gate = app(TournamentGateService::class)->check($sessionId, $action, true, $session, $state);
+
+            if (! $gate['allowed']) {
+                throw ValidationException::withMessages(['action' => [$gate['reason']]]);
+            }
+        }
+
         $attributes = match ($action) {
             'rebuy' => $this->rebuyAttributes($session, $sessionId, $nplId, $state),
             'addon' => $this->addonAttributes($session, $sessionId, $nplId),
@@ -311,10 +369,11 @@ final class TournamentService
 
     private function rebuyAttributes(object $session, int $sessionId, string $nplId, array $state): array
     {
-        if (! $state['registration_open']) {
-            throw ValidationException::withMessages(['action' => ['Rebuys have closed for this tournament.']]);
-        }
-
+        // Whether rebuys are still open is TournamentGateService's call, not
+        // this method's — rebuys have their own cut-off and routinely outlive
+        // registration, so tying them together here would silently override
+        // what the desk set on the preset screen. Caps stay here because they
+        // are per-player, not per-tournament.
         $cap = (int) $session->max_rebuys_per_player;
 
         if ($cap > 0) {
