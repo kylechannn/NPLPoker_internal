@@ -110,6 +110,70 @@ final class WheelController extends Controller
         return $this->ok(['spin' => $result]);
     }
 
+    /**
+     * Desk scan hook: does this player hold an entry voucher usable here?
+     * A live cloud question — voucher truth never mirrors locally, or two
+     * desks could each accept the same last use.
+     */
+    public function voucherEntitlement(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'npl_id' => ['required', 'string', 'max:32'],
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        try {
+            $result = $this->cloud->getJson('/api/v1/internal/vouchers/entitlement', array_filter([
+                'npl_id' => trim($validated['npl_id']),
+                'venue_id' => $validated['venue_id'] ?? null,
+            ], fn ($value): bool => $value !== null));
+        } catch (CloudException) {
+            // Offline is not an error at the desk — the prompt just does not
+            // appear and the normal fee flow continues untouched.
+            return $this->ok(['entitled' => false, 'voucher' => null, 'offline' => true]);
+        }
+
+        $data = (array) ($result['data'] ?? []);
+
+        return $this->ok([
+            'entitled' => (bool) ($data['entitled'] ?? false),
+            'voucher' => $data['voucher'] ?? null,
+            'offline' => false,
+        ]);
+    }
+
+    /** One-tap apply: consume the use in the cloud, idempotent by reference. */
+    public function voucherRedeem(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'reference' => ['required', 'string', 'min:8', 'max:64'],
+            'npl_id' => ['required', 'string', 'max:32'],
+            'voucher_id' => ['sometimes', 'nullable', 'integer'],
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        try {
+            $result = $this->cloud->postJson('/api/v1/internal/vouchers/redeem', [
+                'reference' => $validated['reference'],
+                'npl_id' => trim($validated['npl_id']),
+                'voucher_id' => $validated['voucher_id'] ?? null,
+                'venue_id' => $validated['venue_id'] ?? null,
+            ], $validated['reference']);
+        } catch (CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => [
+                    'code' => $e->errorCode,
+                    'message' => $e->errorCode === CloudException::UNREACHABLE
+                        ? 'The NPL cloud could not be reached — the voucher was NOT used. Charge the normal fee or retry.'
+                        : $e->getMessage(),
+                ],
+            ], 502);
+        }
+
+        return $this->ok(['voucher' => $result['voucher'] ?? null]);
+    }
+
     private function ok(array $data): JsonResponse
     {
         return response()->json(['ok' => true, 'data' => $data]);

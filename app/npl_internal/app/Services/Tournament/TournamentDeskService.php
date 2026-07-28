@@ -239,12 +239,21 @@ final class TournamentDeskService
     {
         $player = DB::table('mirror_players')->where('npl_id', $nplId)->first();
 
+        // The entry was covered by a cloud-redeemed voucher: book it at zero
+        // and keep the code on the action for the audit trail.
+        $voucherCode = isset($options['voucher_code']) && $options['voucher_code'] !== ''
+            ? (string) $options['voucher_code']
+            : null;
+
         return $this->tournaments->register(
             $sessionId,
             $nplId,
             $player->display_name ?? null,
             isset($options['table_number']) ? (int) $options['table_number'] : null,
             isset($options['seat_number']) ? (int) $options['seat_number'] : null,
+            $voucherCode !== null
+                ? ['price_cents' => 0, 'meta' => ['voucher_code' => $voucherCode]]
+                : [],
         );
     }
 

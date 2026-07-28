@@ -809,6 +809,59 @@
 .host-desk__idle,
 .host-desk__new { margin: 0; font-size: 0.85rem; color: var(--host-text-dim); }
 
+/* Free-entry voucher prompt: appears on scan when the cloud confirms one. */
+.host-voucher-banner {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(255, 197, 61, 0.6);
+  margin-bottom: 10px;
+  padding: 12px 15px;
+  text-align: left;
+  font: inherit;
+  color: var(--npl-gold-hot, #ffe08a);
+  cursor: pointer;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(255, 197, 61, 0.18), transparent 55%),
+    rgba(255, 197, 61, 0.07);
+  clip-path: var(--npl-clip-sm);
+  box-shadow: 0 0 22px rgba(255, 197, 61, 0.16);
+  animation: host-voucher-pulse 2.2s ease-in-out infinite;
+}
+
+.host-voucher-banner:hover:not(:disabled) {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(255, 197, 61, 0.26), transparent 55%),
+    rgba(255, 197, 61, 0.13);
+}
+
+.host-voucher-banner:disabled { cursor: default; opacity: 0.6; }
+
+.host-voucher-banner svg { flex: 0 0 auto; color: var(--npl-gold, #ffc53d); }
+
+.host-voucher-banner strong {
+  display: block;
+  font-family: var(--npl-font-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.host-voucher-banner small {
+  display: block;
+  margin-top: 2px;
+  color: rgba(255, 224, 138, 0.75);
+  font-family: var(--npl-font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+}
+
+@keyframes host-voucher-pulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(255, 197, 61, 0.14); }
+  50% { box-shadow: 0 0 34px rgba(255, 197, 61, 0.32); }
+}
+
 .host-desk__actions { display: grid; gap: 9px; }
 
 .host-action {

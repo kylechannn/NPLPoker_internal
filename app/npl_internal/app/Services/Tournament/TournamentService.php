@@ -203,7 +203,7 @@ final class TournamentService
     }
 
     /** Register a player and take their buy-in in one step. */
-    public function register(int $sessionId, string $nplId, ?string $name = null, ?int $tableNumber = null, ?int $seatNumber = null): array
+    public function register(int $sessionId, string $nplId, ?string $name = null, ?int $tableNumber = null, ?int $seatNumber = null, array $extras = []): array
     {
         $session = $this->clock->session($sessionId);
         $state = $this->clock->state($sessionId);
@@ -214,7 +214,7 @@ final class TournamentService
             ]);
         }
 
-        return DB::transaction(function () use ($session, $sessionId, $nplId, $name, $tableNumber, $seatNumber, $state): array {
+        return DB::transaction(function () use ($session, $sessionId, $nplId, $name, $tableNumber, $seatNumber, $state, $extras): array {
             $existing = DB::table('tournament_entries')
                 ->where('tournament_session_id', $sessionId)
                 ->where('player_npl_id', $nplId)
@@ -235,10 +235,15 @@ final class TournamentService
                 'updated_at' => now(),
             ]);
 
+            // A voucher-covered entry books at zero so the desk's takings
+            // stay honest; the voucher code rides in the action meta.
             $this->recordAction($sessionId, $nplId, 'buy_in', [
                 'chips' => (int) $session->starting_stack,
-                'price_cents' => (int) $session->buy_in_price_cents,
+                'price_cents' => array_key_exists('price_cents', $extras)
+                    ? (int) $extras['price_cents']
+                    : (int) $session->buy_in_price_cents,
                 'level_index' => $state['level_index'],
+                'meta' => $extras['meta'] ?? null,
             ]);
 
             $entry = DB::table('tournament_entries')

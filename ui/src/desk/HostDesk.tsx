@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Undo2 } from "lucide-react"
+import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2 } from "lucide-react"
 import {
   countdown,
   deskApi,
   money,
   type DeskOption,
+  type DeskVoucher,
   type Gates,
   type ScanResult,
   type SeatedPlayer,
   type Seating,
 } from "./deskApi"
+
+function activeVenueId(): number | null {
+  const stored = window.localStorage.getItem("npl.activeVenueId")
+  return stored ? Number(stored) || null : null
+}
 
 type Props = {
   sessionId: number
@@ -45,6 +51,9 @@ export default function HostDesk({ sessionId, onExit }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
+  const [voucher, setVoucher] = useState<DeskVoucher | null>(null)
+  // The redeem reference survives a failed attempt so retrying is safe.
+  const voucherRefRef = useRef<string | null>(null)
 
   const focusScan = useCallback(() => {
     window.setTimeout(() => scanRef.current?.focus(), 0)
@@ -89,13 +98,60 @@ export default function HostDesk({ sessionId, onExit }: Props) {
 
     setBusy(true)
     setError(null)
+    setVoucher(null)
+    voucherRefRef.current = null
 
     try {
-      setScan(await deskApi.scan(sessionId, id))
+      const result = await deskApi.scan(sessionId, id)
+      setScan(result)
       setValue("")
+
+      // Free-entry check happens after the scan lands, without blocking it:
+      // the prompt appears a beat later only for unregistered players.
+      if (!result.entry) {
+        void checkVoucher(result.player.npl_id)
+      }
     } catch (e) {
       setScan(null)
       setError(e instanceof Error ? e.message : "That scan could not be read.")
+    } finally {
+      setBusy(false)
+      focusScan()
+    }
+  }
+
+  async function checkVoucher(nplId: string) {
+    try {
+      const check = await deskApi.voucherEntitlement(nplId, activeVenueId())
+      setVoucher((current) => (current === null && check.entitled ? check.voucher : current))
+    } catch {
+      // No prompt on failure — the normal fee flow is never blocked.
+    }
+  }
+
+  /**
+   * One tap: redeem the voucher in the cloud (idempotent by reference, so a
+   * retry after a dropped connection can never consume twice), then book
+   * the buy-in locally at zero with the code on the action.
+   */
+  async function applyVoucher() {
+    if (!scan || !voucher || busy) return
+
+    setBusy(true)
+    setError(null)
+    voucherRefRef.current ??= `DV-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
+
+    try {
+      await deskApi.voucherRedeem(voucherRefRef.current, scan.player.npl_id, voucher.id, activeVenueId())
+      const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", { voucher_code: voucher.code })
+      voucherRefRef.current = null
+      setSeating(result.seating)
+      setFlash(`FREE entry for ${scan.player.display_name} — voucher ${voucher.code} applied.`)
+      setVoucher(null)
+      setScan(await deskApi.scan(sessionId, scan.player.npl_id))
+    } catch (e) {
+      // The kept reference makes pressing the button again a safe retry.
+      setError(e instanceof Error ? e.message : "The voucher could not be applied.")
     } finally {
       setBusy(false)
       focusScan()
@@ -225,6 +281,29 @@ export default function HostDesk({ sessionId, onExit }: Props) {
               ) : (
                 <p className="host-desk__new">Not in this tournament yet.</p>
               )}
+
+              {voucher && !scan.entry && scan.options.some((option) => option.action === "buy_in" && option.allowed) ? (
+                <button
+                  className="host-voucher-banner"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void applyVoucher()}
+                >
+                  <Ticket size={18} />
+                  <span>
+                    <strong>FREE ENTRY — {voucher.title || "entry voucher"}</strong>
+                    <small>
+                      {voucher.code}
+                      {voucher.unlimited_uses
+                        ? " · pass active"
+                        : voucher.uses_remaining !== null
+                          ? ` · ${voucher.uses_remaining} use${voucher.uses_remaining === 1 ? "" : "s"} left`
+                          : ""}
+                      {" — tap to apply to Buy-in"}
+                    </small>
+                  </span>
+                </button>
+              ) : null}
 
               <div className="host-desk__actions">
                 {scan.options.map((option) => (

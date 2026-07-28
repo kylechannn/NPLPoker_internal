@@ -108,21 +108,45 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   const body = (await response.json().catch(() => null)) as
-    | { ok?: boolean, data?: T, message?: string, errors?: Record<string, string[]> }
+    | { ok?: boolean, data?: T, message?: string, error?: { message?: string }, errors?: Record<string, string[]> }
     | null
 
   if (!response.ok) {
     // Laravel puts the useful sentence in the first field error; the generic
     // "The given data was invalid" is never the thing the operator needs.
     const fieldError = body?.errors ? Object.values(body.errors)[0]?.[0] : undefined
-    throw new Error(fieldError ?? body?.message ?? `Request failed (${response.status})`)
+    throw new Error(fieldError ?? body?.error?.message ?? body?.message ?? `Request failed (${response.status})`)
   }
 
   return body?.data as T
 }
 
+export type DeskVoucher = {
+  id: number
+  code: string
+  type: string
+  title: string | null
+  unlimited_uses: boolean
+  uses_remaining: number | null
+  expires_at: string | null
+}
+
 export const deskApi = {
   venues: () => request<{ venues: Venue[] }>('/api/v1/desk/venues'),
+
+  /** Live cloud check on scan: does this player enter free? */
+  voucherEntitlement: (nplId: string, venueId: number | null) =>
+    request<{ entitled: boolean, voucher: DeskVoucher | null, offline: boolean }>('/api/v1/vouchers/entitlement', {
+      method: 'POST',
+      body: JSON.stringify({ npl_id: nplId, venue_id: venueId }),
+    }),
+
+  /** One-tap apply — idempotent by reference, safe to retry. */
+  voucherRedeem: (reference: string, nplId: string, voucherId: number | null, venueId: number | null) =>
+    request<{ voucher: DeskVoucher | null }>('/api/v1/vouchers/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ reference, npl_id: nplId, voucher_id: voucherId, venue_id: venueId }),
+    }),
 
   dashboard: (venueId: number | null) =>
     request<{ venue_id: number | null, sessions: Array<Record<string, unknown>>, players_mirrored: number }>(

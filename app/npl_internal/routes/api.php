@@ -71,6 +71,12 @@ Route::prefix('v1/wheel')->controller(\App\Http\Controllers\Api\WheelController:
     Route::post('spin', 'spin');
 });
 
+// Entry-voucher hooks for the desk: live cloud checks, never mirrored.
+Route::prefix('v1/vouchers')->controller(\App\Http\Controllers\Api\WheelController::class)->group(function (): void {
+    Route::post('entitlement', 'voucherEntitlement');
+    Route::post('redeem', 'voucherRedeem');
+});
+
 /**
  * The operator's desk. Split from the clock routes because the desk is a
  * different station: the scanner at the door, not the director's screen.
