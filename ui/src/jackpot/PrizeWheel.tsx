@@ -4,11 +4,28 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { hueGradients, wheelPrizes } from './wheelPrizes'
 import type { WheelPrize } from './wheelPrizes'
 
+/** A real draw performed by the NPL cloud — the wheel animates to it. */
+export type SpinOutcome = {
+  segmentIndex: number
+  prizeLabel: string
+  voucherCode: string | null
+  voucherExpiresAt: string | null
+  pointsAmount: number | null
+  playerName: string
+}
+
 type PrizeWheelProps = {
+  /** Live catalog segments; falls back to the preview fixture. */
+  prizes?: WheelPrize[]
+  /**
+   * When provided the wheel is REAL: this asks the cloud (via the local
+   * host) to draw, and the rotor lands on the returned segment. Without it
+   * the wheel is a local, award-nothing simulation.
+   */
+  requestSpin?: () => Promise<SpinOutcome | null>
   onResult?: (prize: WheelPrize) => void
 }
 
-const SEGMENT_ANGLE = 360 / wheelPrizes.length
 const ROTOR_SIZE = 500
 const ROTOR_CENTER = ROTOR_SIZE / 2
 const ROTOR_RADIUS = 246
@@ -39,14 +56,14 @@ function slicePath(startAngle: number, endAngle: number): string {
   return `M ${ROTOR_CENTER} ${ROTOR_CENTER} L ${from.x.toFixed(2)} ${from.y.toFixed(2)} A ${ROTOR_RADIUS} ${ROTOR_RADIUS} 0 0 1 ${to.x.toFixed(2)} ${to.y.toFixed(2)} Z`
 }
 
-function pickWeightedIndex(): number {
-  const total = wheelPrizes.reduce((sum, prize) => sum + prize.weight, 0)
+function pickWeightedIndex(prizes: WheelPrize[]): number {
+  const total = prizes.reduce((sum, prize) => sum + prize.weight, 0)
   let roll = Math.random() * total
-  for (let i = 0; i < wheelPrizes.length; i += 1) {
-    roll -= wheelPrizes[i].weight
+  for (let i = 0; i < prizes.length; i += 1) {
+    roll -= prizes[i].weight
     if (roll < 0) return i
   }
-  return wheelPrizes.length - 1
+  return prizes.length - 1
 }
 
 type ConfettiPiece = {
@@ -162,9 +179,12 @@ function strokePolyline(ctx: CanvasRenderingContext2D, points: Point[]) {
   ctx.stroke()
 }
 
-export default function PrizeWheel({ onResult }: PrizeWheelProps) {
+export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult }: PrizeWheelProps) {
+  const SEGMENT_ANGLE = 360 / Math.max(1, prizes.length)
   const [rotation, setRotation] = useState(0)
   const [spinning, setSpinning] = useState(false)
+  const [drawing, setDrawing] = useState(false)
+  const [outcome, setOutcome] = useState<SpinOutcome | null>(null)
   const [winner, setWinner] = useState<WheelPrize | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [hovered, setHovered] = useState<number | null>(null)
@@ -404,15 +424,34 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
     setHovered(null)
   }
 
-  function spin() {
-    if (spinning) return
+  async function spin() {
+    if (spinning || drawing) return
 
     setModalOpen(false)
     setWinner(null)
+    setOutcome(null)
     setHovered(null)
 
-    const index = pickWeightedIndex()
-    const landed = wheelPrizes[index]
+    // Real wheels ask the cloud for the winner; the rotor then lands on the
+    // server's segment. Preview wheels draw locally and award nothing.
+    let index: number
+    let landedOutcome: SpinOutcome | null = null
+
+    if (requestSpin) {
+      setDrawing(true)
+      try {
+        landedOutcome = await requestSpin()
+      } catch {
+        landedOutcome = null
+      }
+      setDrawing(false)
+      if (!landedOutcome) return
+      index = Math.min(Math.max(0, landedOutcome.segmentIndex), prizes.length - 1)
+    } else {
+      index = pickWeightedIndex(prizes)
+    }
+
+    const landed = prizes[index]
     const midAngle = index * SEGMENT_ANGLE + SEGMENT_ANGLE / 2
     const jitter = (Math.random() - 0.5) * (SEGMENT_ANGLE - 16)
     const targetMod = (((360 - midAngle + jitter) % 360) + 360) % 360
@@ -427,6 +466,7 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
     settleTimerRef.current = window.setTimeout(() => {
       setSpinning(false)
       setWinner(landed)
+      setOutcome(landedOutcome)
       setModalOpen(true)
       onResultRef.current?.(landed)
     }, duration + 150)
@@ -434,7 +474,7 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
 
   function handleSpinAgain() {
     setModalOpen(false)
-    spin()
+    void spin()
   }
 
   const rotorStyle: CSSProperties = {
@@ -444,7 +484,9 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
       : 'none',
   }
 
-  const hoveredPrize = hovered !== null ? wheelPrizes[hovered] : null
+  const hoveredPrize = hovered !== null ? prizes[hovered] : null
+  const busy = spinning || drawing
+  const real = Boolean(requestSpin)
 
   return (
     <div
@@ -503,7 +545,7 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
               </radialGradient>
             </defs>
 
-            {wheelPrizes.map((segment, index) => {
+            {prizes.map((segment, index) => {
               const start = index * SEGMENT_ANGLE
               const mid = start + SEGMENT_ANGLE / 2
               return (
@@ -532,7 +574,7 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
               )
             })}
 
-            {wheelPrizes.map((segment, index) => {
+            {prizes.map((segment, index) => {
               const edge = polarPoint(index * SEGMENT_ANGLE, ROTOR_RADIUS)
               return (
                 <line
@@ -560,20 +602,24 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
 
         <span className="npl-wheel-pointer" aria-hidden="true" />
 
-        <button type="button" className="npl-wheel-hub" onClick={spin} disabled={spinning}>
-          <strong>{spinning ? '···' : 'SIM'}</strong>
-          <small>{spinning ? 'RUNNING' : 'RUN PREVIEW'}</small>
+        <button type="button" className="npl-wheel-hub" onClick={() => void spin()} disabled={busy}>
+          <strong>{busy ? '···' : real ? 'SPIN' : 'SIM'}</strong>
+          <small>{drawing ? 'DRAWING' : spinning ? 'SPINNING' : real ? 'SPIN TO WIN' : 'RUN PREVIEW'}</small>
         </button>
       </div>
 
       <p className="npl-wheel-status" role="status">
-        {spinning
-          ? 'Running local simulation…'
-          : hoveredPrize
-            ? `${hoveredPrize.prize} — ${hoveredPrize.weight}%`
-            : winner
-              ? `Last simulation: ${winner.prize}`
-              : 'Press the wheel to run a local preview.'}
+        {drawing
+          ? 'Drawing with the NPL cloud…'
+          : spinning
+            ? real ? 'Spinning…' : 'Running local simulation…'
+            : hoveredPrize
+              ? `${hoveredPrize.prize} — ${hoveredPrize.weight}%`
+              : winner
+                ? `${real ? 'Last prize' : 'Last simulation'}: ${winner.prize}`
+                : real
+                  ? 'Press the wheel to spin for this player.'
+                  : 'Press the wheel to run a local preview.'}
       </p>
 
       {modalOpen && winner ? createPortal(
@@ -595,18 +641,31 @@ export default function PrizeWheel({ onResult }: PrizeWheelProps) {
             ))}
           </div>
           <div className="npl-wheel-modal__card">
-            <p className="npl-kicker">Simulation Result</p>
-            <span className="npl-wheel-modal__badge">♠ Preview ♠</span>
-            <h3 id="npl-wheel-winner">{winner.prize}</h3>
-            <p className="npl-wheel-modal__note">
-              This local simulation is not redeemable and creates no backend draw, entitlement, transaction, or audit record.
-            </p>
+            <p className="npl-kicker">{outcome ? 'Jackpot Wheel' : 'Simulation Result'}</p>
+            <span className="npl-wheel-modal__badge">{outcome ? '♠ Winner ♠' : '♠ Preview ♠'}</span>
+            <h3 id="npl-wheel-winner">{outcome?.prizeLabel ?? winner.prize}</h3>
+            {outcome ? (
+              <p className="npl-wheel-modal__note">
+                {outcome.playerName} won this prize.{' '}
+                {outcome.voucherCode
+                  ? `Voucher ${outcome.voucherCode}${outcome.voucherExpiresAt ? ` (valid to ${outcome.voucherExpiresAt})` : ''} has been sent to their inbox.`
+                  : outcome.pointsAmount
+                    ? `${outcome.pointsAmount.toLocaleString()} Loyalty Points are already in their wallet — a receipt is in their inbox.`
+                    : 'The prize has been recorded and sent to their inbox.'}
+              </p>
+            ) : (
+              <p className="npl-wheel-modal__note">
+                This local simulation is not redeemable and creates no backend draw, entitlement, transaction, or audit record.
+              </p>
+            )}
             <div className="npl-wheel-modal__actions">
-              <button type="button" className="npl-button npl-button--gold" onClick={handleSpinAgain}>
-                Simulate Again
-              </button>
-              <button type="button" className="npl-button npl-button--outline" onClick={() => setModalOpen(false)}>
-                Close
+              {!outcome ? (
+                <button type="button" className="npl-button npl-button--gold" onClick={handleSpinAgain}>
+                  Simulate Again
+                </button>
+              ) : null}
+              <button type="button" className={outcome ? 'npl-button npl-button--gold' : 'npl-button npl-button--outline'} onClick={() => setModalOpen(false)}>
+                {outcome ? 'Done' : 'Close'}
               </button>
             </div>
           </div>

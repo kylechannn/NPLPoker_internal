@@ -70,6 +70,11 @@ return [
             'mode' => 'delta',
             'table' => 'mirror_player_relationships',
         ],
+        'wheel_prizes' => [
+            'label' => 'Jackpot wheel',
+            'mode' => 'delta',
+            'table' => 'mirror_wheel_prizes',
+        ],
         'seating' => [
             'label' => 'Tables & seats',
             // Fanned out per session by the sync service — see SyncService.

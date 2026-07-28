@@ -31,6 +31,7 @@ final class DeltaSyncService
         'players' => 'mirror_players',
         'game_entities' => 'mirror_game_entities',
         'player_relationships' => 'mirror_player_relationships',
+        'wheel_prizes' => 'mirror_wheel_prizes',
     ];
 
     public function __construct(private readonly CloudClient $cloud) {}
@@ -211,6 +212,22 @@ final class DeltaSyncService
                     'player_id' => (int) ($row['player_id'] ?? 0),
                     'related_player_id' => (int) ($row['related_player_id'] ?? 0),
                     'type' => $this->str($row['type'] ?? null, 20),
+                    'cloud_updated_at' => $row['updated_at'] ?? null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ],
+
+                'wheel_prizes' => [
+                    'cloud_id' => (int) $row['id'],
+                    'label' => $this->str($row['label'] ?? null, 200) ?? '',
+                    'line_one' => $this->str($row['line_one'] ?? null, 20) ?? '',
+                    'line_two' => $this->str($row['line_two'] ?? null, 20) ?? '',
+                    'hue' => $this->str($row['hue'] ?? null, 16) ?? 'electric',
+                    'weight' => (int) ($row['weight'] ?? 1),
+                    'sort_order' => (int) ($row['sort_order'] ?? 0),
+                    'benefit_type' => $this->str($row['benefit_type'] ?? null, 20) ?? 'voucher',
+                    'voucher_type' => $this->str($row['voucher_type'] ?? null, 40),
+                    'points_amount' => isset($row['points_amount']) ? (int) $row['points_amount'] : null,
                     'cloud_updated_at' => $row['updated_at'] ?? null,
                     'created_at' => $now,
                     'updated_at' => $now,

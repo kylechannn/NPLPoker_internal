@@ -35,13 +35,226 @@
   font-family: var(--npl-font);
 }
 
-/* Just the wheel, centred in the workspace. */
+/* Scan gate first, then just the wheel — centred in the workspace. */
 .jackpot-wheel-view {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
   width: 100%;
   min-height: 100%;
   padding: 24px 0 56px;
+}
+
+/* --- Scan gate ------------------------------------------------------------ */
+
+.wheel-scan-card {
+  display: grid;
+  justify-items: center;
+  width: min(520px, 100%);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  border-radius: var(--npl-radius-lg);
+  padding: 38px 34px 30px;
+  text-align: center;
+  background:
+    radial-gradient(ellipse 90% 60% at 50% -10%, rgba(0, 229, 255, 0.12), transparent 65%),
+    linear-gradient(175deg, rgba(10, 26, 54, 0.72), rgba(3, 8, 20, 0.96));
+  box-shadow: var(--npl-shadow-drop), 0 0 60px rgba(0, 229, 255, 0.12);
+}
+
+.wheel-scan-card__icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid rgba(0, 229, 255, 0.5);
+  border-radius: 50%;
+  margin-bottom: 14px;
+  color: #7ff4ff;
+  background: rgba(0, 229, 255, 0.08);
+  box-shadow: 0 0 26px rgba(0, 229, 255, 0.25);
+}
+
+.wheel-scan-card__kicker {
+  margin: 0 0 8px;
+  color: var(--npl-cyan);
+  font-family: var(--npl-font-mono);
+  font-size: 11.52px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.wheel-scan-card h1 {
+  margin: 0;
+  color: #fff;
+  font-family: var(--npl-font-display);
+  font-size: clamp(24px, 3vw, 30px);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.wheel-scan-card__lead {
+  max-width: 380px;
+  margin: 12px 0 0;
+  color: var(--npl-muted);
+  font-size: 13.76px;
+  line-height: 1.65;
+}
+
+.wheel-scan-card__form {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.wheel-scan-card__form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 52px;
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 10px;
+  padding: 0 16px;
+  color: #eafcff;
+  background: rgba(2, 8, 20, 0.75);
+  font-family: var(--npl-font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.wheel-scan-card__form input:focus-visible {
+  outline: 2px solid var(--npl-cyan);
+  outline-offset: 2px;
+}
+
+.wheel-scan-card__form button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  border: 0;
+  padding: 0 20px;
+  clip-path: var(--npl-clip-sm);
+  color: #06222b;
+  cursor: pointer;
+  background: linear-gradient(180deg, #b7f4ff 0%, #00e5ff 60%, #00b8d4 100%);
+  font-family: var(--npl-font-display);
+  font-size: 12.48px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: transform 0.25s var(--npl-ease), box-shadow 0.3s var(--npl-ease);
+}
+
+.wheel-scan-card__form button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--npl-shadow-cyan);
+}
+
+.wheel-scan-card__form button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.wheel-scan-card__spin {
+  animation: npl-hub-ring 1s linear infinite;
+}
+
+.wheel-scan-card__error {
+  margin: 14px 0 0;
+  color: #ff8ba1;
+  font-size: 13.76px;
+}
+
+.wheel-scan-card__note {
+  max-width: 400px;
+  margin: 16px 0 0;
+  color: var(--npl-gold-hot);
+  font-size: 13.76px;
+  line-height: 1.6;
+}
+
+.wheel-scan-card__foot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 0;
+  color: var(--npl-faint);
+  font-size: 11.84px;
+}
+
+.wheel-scan-card__foot svg {
+  color: var(--npl-cyan);
+}
+
+/* --- Player bar above the wheel ------------------------------------------- */
+
+.wheel-player-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: min(540px, 100%);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(175deg, rgba(10, 26, 54, 0.72), rgba(3, 8, 20, 0.9));
+}
+
+.wheel-player-bar small {
+  display: block;
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 9.6px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.wheel-player-bar strong {
+  margin-right: 8px;
+  color: #fff;
+  font-family: var(--npl-font-display);
+  font-size: 17.6px;
+}
+
+.wheel-player-bar span {
+  color: var(--npl-cyan);
+  font-family: var(--npl-font-mono);
+  font-size: 12px;
+}
+
+.wheel-player-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  padding: 9px 14px;
+  clip-path: var(--npl-clip-sm);
+  color: var(--npl-cyan);
+  cursor: pointer;
+  background: rgba(0, 229, 255, 0.06);
+  font-family: var(--npl-font-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: background 0.25s ease;
+}
+
+.wheel-player-bar button:hover {
+  background: rgba(0, 229, 255, 0.14);
+}
+
+.wheel-spin-error {
+  max-width: 480px;
+  margin: 0;
+  color: #ff8ba1;
+  font-size: 13.76px;
+  text-align: center;
 }
 
 /* --- Wheel stage --------------------------------------------------------- */

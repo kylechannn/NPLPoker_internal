@@ -221,7 +221,7 @@ class ManualUpdateTest extends TestCase
 
         // game_sessions must precede seating — dependency order.
         $this->assertSame(
-            ['venues', 'game_sessions', 'game_entities', 'players', 'player_relationships', 'seating'],
+            ['venues', 'game_sessions', 'game_entities', 'players', 'player_relationships', 'wheel_prizes', 'seating'],
             $entities,
         );
         $this->assertTrue($response->json('data.activated'));

@@ -61,6 +61,16 @@ Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\Tournament
     Route::post('{id}/actions', 'act')->whereNumber('id');
 });
 
+/*
+ * The Jackpot Wheel: composition from the local mirror, spins proxied live
+ * to the cloud (only the cloud draws and awards).
+ */
+Route::prefix('v1/wheel')->controller(\App\Http\Controllers\Api\WheelController::class)->group(function (): void {
+    Route::get('/', 'segments');
+    Route::post('lookup', 'lookup');
+    Route::post('spin', 'spin');
+});
+
 /**
  * The operator's desk. Split from the clock routes because the desk is a
  * different station: the scanner at the door, not the director's screen.

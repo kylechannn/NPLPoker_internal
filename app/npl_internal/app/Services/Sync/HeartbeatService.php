@@ -59,6 +59,7 @@ final class HeartbeatService
             'players' => 'mirror_players',
             'game_entities' => 'mirror_game_entities',
             'relationships' => 'mirror_player_relationships',
+            'wheel_prizes' => 'mirror_wheel_prizes',
         ] as $label => $table) {
             $counts[$label] = DB::table($table)->count();
         }
