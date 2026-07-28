@@ -23,3 +23,4 @@ app/npl_internal/.phpunit.result.cache
 # Built desktop binaries — the exe is produced by a build, never committed.
 NPLPokerOS.exe
 nplpoker-internal.exe
+NPLPokerOS.exe~
