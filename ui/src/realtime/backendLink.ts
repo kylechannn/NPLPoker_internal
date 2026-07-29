@@ -188,6 +188,17 @@ export function useBackendLink(venueId: number | null) {
           return
         }
 
+        // Server-side rejections (bad app key, over capacity) arrive as
+        // pusher:error — name the reason instead of spinning silently. The
+        // connection details are re-fetched on every attempt, so a rotated
+        // key heals itself on the next cycle.
+        if (message?.event === "pusher:error") {
+          const data = message.data as { code?: number, message?: string } | undefined
+          setLastError(`Realtime server refused the connection${data?.code ? ` (${data.code})` : ""}: ${data?.message ?? "unknown error"}`)
+          socket.close()
+          return
+        }
+
         if (message?.event === "session.touched") {
           void pullSessionsNow().catch(() => {})
         }
