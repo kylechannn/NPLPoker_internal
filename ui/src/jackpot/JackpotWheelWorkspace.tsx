@@ -128,7 +128,7 @@ export default function JackpotWheelWorkspace() {
             <input
               value={scanValue}
               onChange={(event) => setScanValue(event.target.value.toUpperCase())}
-              placeholder="Scan or type NPL ID…"
+              placeholder="Scan member card or type NPL ID…"
               spellCheck={false}
               autoComplete="off"
               autoFocus

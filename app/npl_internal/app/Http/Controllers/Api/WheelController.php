@@ -10,7 +10,6 @@ use App\Services\Cloud\CloudException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * The venue's real Jackpot Wheel.
@@ -53,15 +52,15 @@ final class WheelController extends Controller
             'npl_id' => ['required', 'string', 'max:32'],
         ]);
 
-        $player = DB::table('mirror_players')
-            ->whereRaw('UPPER(npl_id) = ?', [Str::upper(trim($validated['npl_id']))])
-            ->first();
+        // Card number or NPL ID, mirror-first with live cloud fallback —
+        // the same resolution as the tournament desk.
+        $player = app(\App\Services\Players\PlayerResolver::class)->resolve((string) $validated['npl_id']);
 
         if (! $player || $player->status !== 'active') {
             return response()->json([
                 'ok' => false,
                 'error' => ['message' => $player === null
-                    ? 'No player was found for this NPL ID. Run a Manual update if they joined recently.'
+                    ? 'No player matches that card number or NPL ID. If they registered seconds ago, scan again.'
                     : 'This player is not active and cannot spin.'],
             ], 422);
         }
