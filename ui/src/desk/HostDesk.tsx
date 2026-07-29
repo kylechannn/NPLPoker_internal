@@ -57,6 +57,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [scan, setScan] = useState<ScanResult | null>(null)
   const [seating, setSeating] = useState<Seating | null>(null)
   const [menu, setMenu] = useState<SeatMenu | null>(null)
+  const [tableMenu, setTableMenu] = useState<{ x: number, y: number, tableNumber: number } | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
@@ -101,11 +103,14 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   }, [flash])
 
   useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(null)
+    if (!menu && !tableMenu) return
+    const close = () => {
+      setMenu(null)
+      setTableMenu(null)
+    }
     window.addEventListener("click", close)
     return () => window.removeEventListener("click", close)
-  }, [menu])
+  }, [menu, tableMenu])
 
   async function submitScan(raw: string) {
     const id = raw.trim()
@@ -320,6 +325,15 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           })}
         </div>
 
+        {seating ? (
+          <div className="host-desk__headcounts" aria-label="Tonight's counts">
+            <span><small>In play</small><strong>{seating.counts.active}</strong></span>
+            <span><small>Entries</small><strong>{seating.counts.entries}</strong></span>
+            <span><small>Out</small><strong>{seating.counts.eliminated}</strong></span>
+            <span><small>Jackpot</small><strong>{seating.counts.in_jackpot}</strong></span>
+          </div>
+        ) : null}
+
         <button
           className="host-desk__display"
           type="button"
@@ -468,30 +482,24 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         </div>
       ) : null}
 
-      <div className="host-desk__body">
-        <section className="host-desk__player">
-          <p className="host-desk__idle">Scan a card to begin.</p>
-
-          {seating ? (
-            <dl className="host-desk__counts">
-              <div><dt>In play</dt><dd>{seating.counts.active}</dd></div>
-              <div><dt>Entries</dt><dd>{seating.counts.entries}</dd></div>
-              <div><dt>Out</dt><dd>{seating.counts.eliminated}</dd></div>
-              <div><dt>Jackpot</dt><dd>{seating.counts.in_jackpot}</dd></div>
-            </dl>
-          ) : null}
-        </section>
-
+      <div className="host-desk__body host-desk__body--full">
         <section className="host-desk__tables">
           {seating?.unseated.length ? (
             <div className="host-desk__pool">
-              <h4>Waiting to be seated</h4>
+              <h4>Waiting to be seated — drag onto a seat</h4>
               <div>
                 {seating.unseated.map((player) => (
                   <button
                     key={player.npl_id}
                     type="button"
                     className="host-chip"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/npl-id", player.npl_id)
+                      e.dataTransfer.effectAllowed = "move"
+                      setDragging(player.npl_id)
+                    }}
+                    onDragEnd={() => setDragging(null)}
                     onContextMenu={(e) => {
                       e.preventDefault()
                       setMenu({ x: e.clientX, y: e.clientY, player })
@@ -506,7 +514,17 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
           <div className="host-desk__grid">
             {seating?.tables.map((table) => (
-              <article key={table.table_number} className="host-table">
+              <article
+                key={table.table_number}
+                className="host-table"
+                onContextMenu={(e) => {
+                  // Right-click on the table itself (not a seat) offers
+                  // deletion — but only when nobody is sitting there.
+                  if (table.occupied > 0) return
+                  e.preventDefault()
+                  setTableMenu({ x: e.clientX, y: e.clientY, tableNumber: table.table_number })
+                }}
+              >
                 <header>
                   <strong>Table {table.table_number}</strong>
                   <span>{table.occupied} / {seating.seats_per_table}</span>
@@ -514,10 +532,39 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 <ul>
                   {table.seats.map((seat) => (
                     <li key={seat.seat_number}
-                      className={seat.player ? "host-seat host-seat--taken" : "host-seat"}
+                      className={[
+                        "host-seat",
+                        seat.player ? "host-seat--taken" : "",
+                        !seat.player && dragging ? "host-seat--target" : "",
+                      ].filter(Boolean).join(" ")}
+                      draggable={seat.player !== null}
+                      onDragStart={(e) => {
+                        if (!seat.player) return
+                        e.dataTransfer.setData("text/npl-id", seat.player.npl_id)
+                        e.dataTransfer.effectAllowed = "move"
+                        setDragging(seat.player.npl_id)
+                      }}
+                      onDragEnd={() => setDragging(null)}
+                      onDragOver={(e) => {
+                        if (seat.player) return
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = "move"
+                      }}
+                      onDrop={(e) => {
+                        if (seat.player) return
+                        e.preventDefault()
+                        const nplId = e.dataTransfer.getData("text/npl-id")
+                        setDragging(null)
+                        if (!nplId) return
+                        void seatAction(
+                          () => deskApi.seat(sessionId, nplId, table.table_number, seat.seat_number),
+                          `Moved to table ${table.table_number}, seat ${seat.seat_number}.`,
+                        )
+                      }}
                       onContextMenu={(e) => {
                         if (!seat.player) return
                         e.preventDefault()
+                        e.stopPropagation()
                         setMenu({ x: e.clientX, y: e.clientY, player: seat.player })
                       }}
                     >
@@ -570,6 +617,33 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           ) : null}
         </section>
       </div>
+
+      {tableMenu ? (
+        <div className="host-menu" style={{ left: tableMenu.x, top: tableMenu.y }} role="menu">
+          <p>Table {tableMenu.tableNumber} — empty</p>
+          <button
+            type="button"
+            onClick={() => {
+              const gameSessionId = seating?.game_session_id ?? null
+              setTableMenu(null)
+              if (gameSessionId === null) {
+                setError("This tournament is not linked to an online session — local tables grow and shrink automatically with the field.")
+                return
+              }
+              void seatAction(
+                async () => {
+                  await deskApi.cancelCloudTable(gameSessionId, tableMenu.tableNumber)
+                  notify("system", `Table ${tableMenu.tableNumber} deleted`, "Removed from the cloud seat map.", "warning")
+                  return deskApi.seating(sessionId)
+                },
+                `Table ${tableMenu.tableNumber} deleted.`,
+              )
+            }}
+          >
+            <Ban size={14} /> Delete this table
+          </button>
+        </div>
+      ) : null}
 
       {menu ? (
         <div className="host-menu" style={{ left: menu.x, top: menu.y }} role="menu">

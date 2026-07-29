@@ -60,6 +60,7 @@ export type DeskTable = {
 
 export type Seating = {
   seats_per_table: number
+  game_session_id: number | null
   tables: DeskTable[]
   unseated: SeatedPlayer[]
   eliminated: SeatedPlayer[]

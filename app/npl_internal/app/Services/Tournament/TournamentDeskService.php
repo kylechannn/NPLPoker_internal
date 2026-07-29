@@ -897,6 +897,7 @@ final class TournamentDeskService
 
         return [
             'seats_per_table' => $perTable,
+            'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
             'tables' => $tables,
             'unseated' => $active
                 ->filter(fn (object $row): bool => $row->table_number === null || $row->seat_number === null)

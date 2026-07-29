@@ -747,6 +747,51 @@
   align-items: start;
 }
 
+/* Scan lives in a popup now — the seat grid owns the whole width. */
+.host-desk__body--full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Header stat chips: In play / Entries / Out / Jackpot. */
+.host-desk__headcounts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--host-line);
+  border-radius: 10px;
+  padding: 6px 12px;
+}
+
+.host-desk__headcounts span {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.host-desk__headcounts small {
+  color: var(--npl-faint, #7e93b4);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.host-desk__headcounts strong {
+  font-size: 0.95rem;
+  color: var(--npl-gold-hot, #ffe08a);
+}
+
+/* Drag targets glow while a player is mid-air. */
+.host-seat--target {
+  border-color: rgba(95, 229, 192, 0.55) !important;
+  background: rgba(95, 229, 192, 0.07);
+}
+
+.host-chip,
+.host-seat--taken {
+  cursor: grab;
+}
+
 .host-desk__player {
   position: sticky;
   top: 88px;
