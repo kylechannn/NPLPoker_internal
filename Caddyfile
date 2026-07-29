@@ -12,7 +12,11 @@ http://{$NPL_INTERNAL_LISTEN:127.0.0.1:8787} {
 		X-Frame-Options "DENY"
 		Referrer-Policy "same-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
-		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		# connect-src additionally allows the NPL cloud realtime link: the
+		# backend-link WebSocket dials Reverb (ws-*.laravel.cloud) directly,
+		# and a future custom realtime domain stays covered. Everything else
+		# still rides the local proxy under 'self'.
+		Content-Security-Policy "default-src 'self'; connect-src 'self' wss://*.laravel.cloud https://*.laravel.cloud wss://*.nplpokerclub.com.au https://*.nplpokerclub.com.au; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 	}
 
 	reverse_proxy {$NPL_INTERNAL_UPSTREAM:127.0.0.1:8788} {
