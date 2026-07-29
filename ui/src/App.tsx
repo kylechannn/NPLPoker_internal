@@ -62,6 +62,7 @@ declare global {
     nplWindowIsMaximized?: () => Promise<boolean>
     nplWindowStartDrag?: () => Promise<void>
     nplWindowClose?: () => Promise<void>
+    nplWindowSyncRegion?: () => Promise<void>
   }
 }
 
@@ -460,6 +461,7 @@ function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boole
   useEffect(() => {
     const syncMaximizedState = () => {
       void window.nplWindowIsMaximized?.().then(setMaximized)
+      void window.nplWindowSyncRegion?.()
     }
 
     syncMaximizedState()
@@ -509,7 +511,7 @@ function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boole
           title="Close"
           onClick={requestClose}
         >
-          <span><X size={20} strokeWidth={2.4} /></span>
+          <span><X size={24} strokeWidth={2.5} /></span>
         </button>
       </div>
 

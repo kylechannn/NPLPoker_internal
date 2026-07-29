@@ -26,6 +26,11 @@ var (
 	isZoomed              = user32.NewProc("IsZoomed")
 	releaseCapture        = user32.NewProc("ReleaseCapture")
 	sendMessageW          = user32.NewProc("SendMessageW")
+	setWindowRgn          = user32.NewProc("SetWindowRgn")
+	getWindowRect         = user32.NewProc("GetWindowRect")
+	getDpiForWindow       = user32.NewProc("GetDpiForWindow")
+	gdi32                 = syscall.NewLazyDLL("gdi32.dll")
+	createRoundRectRgn    = gdi32.NewProc("CreateRoundRectRgn")
 )
 
 const (
@@ -77,6 +82,7 @@ func runDesktopWindow(target string) error {
 	window.SetSize(1024, 680, wv.HintMin)
 	hwnd := uintptr(window.Window())
 	applyDesktopWindowStyle(hwnd)
+	applyDesktopWindowRegion(hwnd)
 
 	if err := bindDesktopWindowControls(window, hwnd); err != nil {
 		return err
@@ -98,10 +104,20 @@ func bindDesktopWindowControls(window wv.WebView, hwnd uintptr) error {
 	if err := window.Bind("nplWindowToggleMaximize", func() bool {
 		if windowIsMaximized(hwnd) {
 			_, _, _ = showWindow.Call(hwnd, showRestored)
+			applyDesktopWindowRegion(hwnd)
 			return false
 		}
 		_, _, _ = showWindow.Call(hwnd, showMaximized)
+		applyDesktopWindowRegion(hwnd)
 		return true
+	}); err != nil {
+		return err
+	}
+
+	// The page calls this on every resize: the region is window-sized,
+	// so dragging an edge (or a snap shortcut) has to re-cut it.
+	if err := window.Bind("nplWindowSyncRegion", func() {
+		applyDesktopWindowRegion(hwnd)
 	}); err != nil {
 		return err
 	}
@@ -131,6 +147,47 @@ func bindDesktopWindowControls(window wv.WebView, hwnd uintptr) error {
 func windowIsMaximized(hwnd uintptr) bool {
 	zoomed, _, _ := isZoomed.Call(hwnd)
 	return zoomed != 0
+}
+
+// The corner radius in CSS pixels. The topbar's border-top-right-radius
+// and the round close button share this value, so the window's cut edge,
+// the bar's arc and the circle's rim are one and the same curve.
+const desktopCornerRadius = 24
+
+type desktopWindowRect struct {
+	left, top, right, bottom int32
+}
+
+// applyDesktopWindowRegion cuts the frameless window into a rounded
+// rectangle. Without it the rounding only exists as a drawing inside a
+// square window — the "two layers" look. Maximised windows revert to a
+// plain rectangle so the app meets the screen edges.
+func applyDesktopWindowRegion(hwnd uintptr) {
+	if windowIsMaximized(hwnd) {
+		_, _, _ = setWindowRgn.Call(hwnd, 0, 1)
+		return
+	}
+
+	var rect desktopWindowRect
+	if ok, _, _ := getWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&rect))); ok == 0 {
+		return
+	}
+
+	width := uintptr(rect.right - rect.left)
+	height := uintptr(rect.bottom - rect.top)
+
+	dpi, _, _ := getDpiForWindow.Call(hwnd)
+	if dpi == 0 {
+		dpi = 96
+	}
+	diameter := uintptr(desktopCornerRadius*2) * dpi / 96
+
+	region, _, _ := createRoundRectRgn.Call(0, 0, width+1, height+1, diameter, diameter)
+	if region == 0 {
+		return
+	}
+	// The system owns the region once SetWindowRgn accepts it.
+	_, _, _ = setWindowRgn.Call(hwnd, region, 1)
 }
 
 func applyDesktopWindowStyle(hwnd uintptr) {
