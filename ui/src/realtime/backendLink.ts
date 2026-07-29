@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { notify } from "../notifications/store"
 
 /**
  * The live link to the NPL cloud.
@@ -195,6 +196,9 @@ export function useBackendLink(venueId: number | null) {
           attemptRef.current = 0
           setLastError(null)
           setPhase(null)
+          if (statusRef.current !== "connected") {
+            notify("system", "Backend link connected", `Live sync active for venue ${venueId}.`, "success")
+          }
           setStatus("connected")
           // Catch up on anything that happened while the link was down.
           void pullSessionsNow().catch(() => {})
@@ -218,6 +222,25 @@ export function useBackendLink(venueId: number | null) {
         }
 
         if (message?.event === "session.touched") {
+          const data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as
+            | { game_session_id?: number, kind?: string }
+            | undefined
+          const kind = data?.kind ?? "update"
+          const labels: Record<string, string> = {
+            register: "Online registration received",
+            waitlist: "Online wait-list join",
+            cancel: "Online registration cancelled",
+            checkin: "Desk check-in reached the cloud",
+            seat_change: "Seat map updated",
+            table_created: "New table opened",
+            table_cancelled: "Table cancelled",
+            finished: "Session finished",
+          }
+          notify(
+            kind === "register" || kind === "waitlist" || kind === "cancel" || kind === "checkin" ? "registration" : "system",
+            labels[kind] ?? "Session updated",
+            `Session #${data?.game_session_id ?? "?"} — syncing now.`,
+          )
           void pullSessionsNow().catch(() => {})
         }
       }
@@ -227,6 +250,9 @@ export function useBackendLink(venueId: number | null) {
         if (!disposed) {
           // 1006 = the connection never completed or died abnormally —
           // the close code is the single most diagnostic number we have.
+          if (statusRef.current === "connected") {
+            notify("system", "Backend link lost", `Socket closed (code ${event.code}) — reconnecting automatically.`, "warning")
+          }
           setLastError((current) => current ?? `Socket closed (code ${event.code}${event.reason ? `: ${event.reason}` : ""}) — reconnecting.`)
           setStatus("connecting")
           scheduleReconnect()

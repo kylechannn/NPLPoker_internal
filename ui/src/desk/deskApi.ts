@@ -205,6 +205,13 @@ export const deskApi = {
       body: JSON.stringify({ player_npl_id: nplId }),
     }),
 
+  /** Finish the game: record top placements and push standings to the cloud. */
+  finalise: (sessionId: number, placements: Array<{ npl_id: string, position: number }>) =>
+    request<{ result: { finished: boolean, pushed: boolean, queued: boolean, name: string, venue_name: string | null, recorded: number } }>(
+      `/api/v1/desk/${sessionId}/finalise`,
+      { method: 'POST', body: JSON.stringify({ placements }) },
+    ),
+
   /** Open a new table in the cloud for a linked session. */
   createTable: (sessionId: number) =>
     request<{ table: Record<string, unknown>, seating: Seating }>(`/api/v1/desk/${sessionId}/tables`, {

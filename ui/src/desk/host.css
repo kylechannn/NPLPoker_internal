@@ -810,6 +810,187 @@
 .host-desk__new { margin: 0; font-size: 0.85rem; color: var(--host-text-dim); }
 
 /* Free-entry voucher prompt: appears on scan when the cloud confirms one. */
+/* The staged Host tab: the four-step bar stays put across desk/finishing. */
+.host-staged {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.host-staged__steps {
+  padding: 14px 18px 0;
+}
+
+.host-staged__progress {
+  padding: 8px 18px 12px;
+}
+
+.host-desk__finish {
+  border: 1px solid rgba(255, 197, 61, 0.6);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #241a02;
+  background: linear-gradient(160deg, #ffd766, #eab308);
+  cursor: pointer;
+}
+
+/* Step 4 — the top-10 entry screen. */
+.host-finish {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 6px 18px 22px;
+}
+
+.host-finish__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.host-finish__head h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.host-finish__head p {
+  margin: 0;
+  color: var(--npl-faint, #7e93b4);
+  font-size: 0.78rem;
+}
+
+.host-finish__slots {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  list-style: none;
+}
+
+.host-finish__slot {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--host-line);
+  border-radius: 12px;
+  padding: 10px 13px;
+  background: var(--host-surface, #0a1626);
+}
+
+.host-finish__slot--filled {
+  border-color: rgba(95, 229, 192, 0.45);
+  background: rgba(95, 229, 192, 0.05);
+}
+
+.host-finish__rank {
+  font-family: var(--npl-font-mono, monospace);
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--npl-gold-hot, #ffe08a);
+}
+
+.host-finish__slot strong {
+  font-size: 0.9rem;
+}
+
+.host-finish__slot small {
+  color: var(--npl-faint, #7e93b4);
+  font-size: 0.68rem;
+}
+
+.host-finish__slot label {
+  display: flex;
+  grid-column: 2 / -1;
+  align-items: center;
+  gap: 8px;
+  color: var(--npl-faint, #7e93b4);
+}
+
+.host-finish__slot input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  outline: none;
+}
+
+.host-finish__slot button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--host-line);
+  border-radius: 8px;
+  color: var(--npl-faint, #7e93b4);
+  background: transparent;
+  cursor: pointer;
+}
+
+.host-finish__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--npl-faint, #7e93b4);
+  font-size: 0.78rem;
+}
+
+.host-finish__submit {
+  border: 1px solid rgba(255, 197, 61, 0.6);
+  border-radius: 10px;
+  padding: 12px 22px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #241a02;
+  background: linear-gradient(160deg, #ffd766, #eab308);
+  cursor: pointer;
+}
+
+.host-finish__submit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.host-finish__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 30px;
+  text-align: center;
+  color: var(--npl-text, #e9f2ff);
+  background: rgba(1, 4, 12, 0.88);
+  backdrop-filter: blur(4px);
+}
+
+.host-finish__overlay strong {
+  font-size: 1.15rem;
+}
+
+.host-finish__overlay small {
+  max-width: 460px;
+  color: var(--npl-faint, #7e93b4);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 /* Scan popup: the operator takes control of one scan, ticks the actions,
    submits once. */
 .host-scan-modal {

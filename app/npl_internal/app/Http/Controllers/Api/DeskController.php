@@ -190,6 +190,24 @@ final class DeskController
         ]);
     }
 
+    /**
+     * Finish the game with the night's top placements. The desk waits on
+     * this: it finishes the clock, records positions, and pushes the
+     * standings to the cloud before answering.
+     */
+    public function finalise(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'placements' => ['required', 'array', 'min:1', 'max:10'],
+            'placements.*.npl_id' => ['required', 'string', 'max:32'],
+            'placements.*.position' => ['required', 'integer', 'min:1', 'max:10', 'distinct'],
+        ]);
+
+        $result = $this->desk->finishWithResults($id, $validated['placements']);
+
+        return $this->ok(['result' => $result]);
+    }
+
     /** Preview a blind ladder before committing to it. */
     public function previewStructure(Request $request): JsonResponse
     {

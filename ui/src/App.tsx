@@ -6,6 +6,7 @@ import HostWorkspace from "./desk/HostWorkspace"
 import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
 import { deskApi, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
+import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
 import { describeRun, syncApi } from "./sync/syncApi"
 import nplLogoUrl from "./assets/npl-logo.png"
 import {
@@ -431,9 +432,6 @@ function BackendLinkLight({
       <span className="backend-link__copy">
         <small>Backend link</small>
         <strong>{label}</strong>
-        {enabled && status !== "connected" && hint ? (
-          <em className="backend-link__detail">{hint}</em>
-        ) : null}
       </span>
     </button>
   )
@@ -1435,81 +1433,18 @@ export default function App() {
   )
 }
 
-const notificationEvents: Array<{
-  id: string
-  title: string
-  detail: string
-  time: string
-  section: NavId
-  icon: LucideIcon
-  tone: "registration" | "warning" | "info" | "success" | "gold"
-}> = [
-  {
-    id: "registration-olivia",
-    title: "Olivia Moore registered",
-    detail: "Main Event · Registration confirmed",
-    time: "Just now",
-    section: "registrations",
-    icon: UserPlus,
-    tone: "registration",
-  },
-  {
-    id: "waitlist-six",
-    title: "Six players are waiting",
-    detail: "Longest wait is now 11 minutes",
-    time: "2 min",
-    section: "registrations",
-    icon: Users,
-    tone: "info",
-  },
-  {
-    id: "table-04-paused",
-    title: "Table 04 is paused",
-    detail: "East Wing · Operator attention required",
-    time: "4 min",
-    section: "cashgame",
-    icon: Pause,
-    tone: "warning",
-  },
-  {
-    id: "rebuy-ethan",
-    title: "Rebuy recorded",
-    detail: "Ethan Wong · Table 03 · $500",
-    time: "8 min",
-    section: "cashgame",
-    icon: CircleDollarSign,
-    tone: "gold",
-  },
-  {
-    id: "jackpot-pool",
-    title: "Jackpot pool climbed to $4,820",
-    detail: "Backed by tonight's desk entries",
-    time: "12 min",
-    section: "jackpot",
-    icon: LoaderPinwheel,
-    tone: "gold",
-  },
-  {
-    id: "avatars-synced",
-    title: "Player avatars synchronized",
-    detail: "47 active player records updated",
-    time: "18 min",
-    section: "players",
-    icon: Users,
-    tone: "registration",
-  },
-  {
-    id: "membership-prints",
-    title: "Nine club cards queued to print",
-    detail: "Club Membership ID · Next batch",
-    time: "22 min",
-    section: "membership",
-    icon: IdCard,
-    tone: "info",
-  },
+
+const NOTICE_TABS: { id: "all" | NoticeCategory, label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "registration", label: "Registrations" },
+  { id: "system", label: "System" },
 ]
 
-function NotificationSession({ onNavigate }: { onNavigate: (id: NavId) => void }) {
+function NotificationSession(_props: { onNavigate: (id: NavId) => void }) {
+  const notices = useNotices()
+  const [tab, setTab] = useState<"all" | NoticeCategory>("all")
+  const visible = tab === "all" ? notices : notices.filter((notice) => notice.category === tab)
+
   return (
     <aside className="notification-session" aria-label="Persistent operations notification session">
       <header>
@@ -1520,36 +1455,46 @@ function NotificationSession({ onNavigate }: { onNavigate: (id: NavId) => void }
             <h2>Notification session</h2>
           </div>
         </div>
-        <strong>{notificationEvents.length}</strong>
+        <strong>{visible.length}</strong>
       </header>
 
-      <div className="notification-session__status">
-        <span><Activity size={16} /> Current session</span>
-        <small>Stays open while you work</small>
+      <div className="notification-session__tabs" role="tablist" aria-label="Notice categories">
+        {NOTICE_TABS.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === entry.id}
+            className={tab === entry.id ? "notification-tab notification-tab--active" : "notification-tab"}
+            onClick={() => setTab(entry.id)}
+          >
+            {entry.label}
+          </button>
+        ))}
       </div>
 
-      <div className="notification-session__day">Today</div>
-
       <div className="notification-stream">
-        {notificationEvents.map((event) => {
-          const Icon = event.icon
-          return (
-            <button
-              className={`notification-item notification-item--${event.tone}`}
-              type="button"
-              key={event.id}
-              onClick={() => onNavigate(event.section)}
+        {visible.length === 0 ? (
+          <p className="notification-empty">
+            {tab === "registration"
+              ? "No registrations recorded yet — desk buy-ins and online bookings will appear here."
+              : "Nothing recorded yet."}
+          </p>
+        ) : (
+          visible.map((notice) => (
+            <div
+              className={`notification-item notification-item--${notice.tone === "success" ? "success" : notice.tone === "warning" ? "warning" : notice.category === "registration" ? "registration" : "gold"}`}
+              key={notice.id}
             >
-              <span><Icon size={19} /></span>
+              <span>{notice.category === "registration" ? <Users size={19} /> : <Activity size={19} />}</span>
               <div>
-                <strong>{event.title}</strong>
-                <small>{event.detail}</small>
-                <time>{event.time}</time>
+                <strong>{notice.title}</strong>
+                <small>{notice.detail}</small>
+                <time>{noticeTime(notice)}</time>
               </div>
-              <ChevronDown size={17} />
-            </button>
-          )
-        })}
+            </div>
+          ))
+        )}
       </div>
 
       <footer>

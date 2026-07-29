@@ -475,6 +475,86 @@ final class TournamentDeskService
     }
 
     /**
+     * The end of the night: record the top placements, finish the clock,
+     * push the standings to the cloud and WAIT for the push — the operator
+     * asked to finish and expects to see it land. Offline, the standings
+     * queue and the response says so honestly.
+     *
+     * @param  list<array{npl_id: string, position: int}>  $placements
+     * @return array{finished: bool, pushed: bool, queued: bool, name: string, venue_name: ?string, recorded: int}
+     */
+    public function finishWithResults(int $sessionId, array $placements): array
+    {
+        $session = $this->clock->session($sessionId);
+
+        $recorded = 0;
+
+        DB::transaction(function () use ($sessionId, $placements, &$recorded): void {
+            foreach ($placements as $placement) {
+                $nplId = $this->normaliseId((string) $placement['npl_id']);
+                $position = (int) $placement['position'];
+
+                $updated = DB::table('tournament_entries')
+                    ->where('tournament_session_id', $sessionId)
+                    ->whereRaw('UPPER(player_npl_id) = ?', [$nplId])
+                    ->update([
+                        'finish_position' => $position,
+                        'status' => 'eliminated',
+                        'eliminated_at' => now(),
+                        'table_number' => null,
+                        'seat_number' => null,
+                        'updated_at' => now(),
+                    ]);
+
+                $recorded += $updated;
+            }
+        }, 3);
+
+        $this->clock->finish($sessionId);
+        $this->broadcaster->publish($sessionId);
+
+        $pushed = false;
+        $queued = false;
+
+        if ($session->game_session_id !== null && $recorded > 0) {
+            $fieldSize = (int) DB::table('tournament_entries')
+                ->where('tournament_session_id', $sessionId)
+                ->count();
+
+            $key = $this->outbox->enqueue('session_result', 'create', [
+                'reference' => (string) Str::uuid(),
+                'game_session_id' => (int) $session->game_session_id,
+                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+                'played_on' => now()->toDateString(),
+                'field_size' => $fieldSize,
+                'placements' => array_map(fn (array $placement): array => [
+                    'npl_id' => $this->normaliseId((string) $placement['npl_id']),
+                    'position' => (int) $placement['position'],
+                    'rebuys' => $this->usedCount($sessionId, $this->normaliseId((string) $placement['npl_id']), 'rebuy'),
+                    'addons' => $this->usedCount($sessionId, $this->normaliseId((string) $placement['npl_id']), 'addon'),
+                ], $placements),
+            ]);
+
+            // Synchronous on purpose: the operator pressed Finish and is
+            // watching a spinner. One drain, then the truth.
+            $this->outbox->drain();
+
+            $status = DB::table('sync_outbox')->where('idempotency_key', $key)->value('status');
+            $pushed = $status === 'sent';
+            $queued = ! $pushed;
+        }
+
+        return [
+            'finished' => true,
+            'pushed' => $pushed,
+            'queued' => $queued,
+            'name' => (string) $session->name,
+            'venue_name' => $session->venue_name !== null ? (string) $session->venue_name : null,
+            'recorded' => $recorded,
+        ];
+    }
+
+    /**
      * Push the outbox after the response is sent. Instant when online,
      * silently deferred to the 15-second scheduled sweep when not — the
      * desk response is never held up either way.

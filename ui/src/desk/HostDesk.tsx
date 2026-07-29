@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2 } from "lucide-react"
+import { notify } from "../notifications/store"
 import {
   countdown,
   deskApi,
@@ -20,6 +21,10 @@ function activeVenueId(): number | null {
 type Props = {
   sessionId: number
   onExit: () => void
+  /** Reports the clock status upward so the workspace stepper can follow. */
+  onClockStatus?: (status: string) => void
+  /** Moves to the Finishing step (top-10 entry). */
+  onFinishGame?: () => void
 }
 
 type SeatMenu = {
@@ -46,7 +51,7 @@ function optionKey(option: DeskOption): string {
   return `${option.action}:${option.tier ?? "-"}`
 }
 
-export default function HostDesk({ sessionId, onExit }: Props) {
+export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGame }: Props) {
   const scanRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState("")
   const [scan, setScan] = useState<ScanResult | null>(null)
@@ -68,11 +73,14 @@ export default function HostDesk({ sessionId, onExit }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      setSeating(await deskApi.seating(sessionId))
+      const next = await deskApi.seating(sessionId)
+      setSeating(next)
+      const status = (next.clock as { status?: string } | undefined)?.status
+      if (status) onClockStatus?.(status)
     } catch (e) {
       setError(e instanceof Error ? e.message : "The seating map could not be loaded.")
     }
-  }, [sessionId])
+  }, [sessionId, onClockStatus])
 
   useEffect(() => {
     void refresh()
@@ -159,6 +167,7 @@ export default function HostDesk({ sessionId, onExit }: Props) {
       voucherRefRef.current = null
       setSeating(result.seating)
       setFlash(`FREE entry for ${scan.player.display_name} — voucher ${voucher.code} applied.`)
+      notify("registration", `${scan.player.display_name} — desk`, `Free entry, voucher ${voucher.code} applied.`, "success")
       setVoucher(null)
       setScan(await deskApi.scan(sessionId, scan.player.npl_id))
     } catch (e) {
@@ -230,6 +239,12 @@ export default function HostDesk({ sessionId, onExit }: Props) {
       }
 
       setFlash(`${scan.player.display_name}: ${applied.join(" + ")} — ${money(total)} collected.`)
+      notify(
+        "registration",
+        `${scan.player.display_name} — desk`,
+        `${applied.join(" + ")} · ${money(total)} collected.`,
+        "success",
+      )
       setScan(null)
       setPicked(new Set())
       setVoucher(null)
@@ -323,6 +338,9 @@ export default function HostDesk({ sessionId, onExit }: Props) {
           <MonitorPlay size={15} /> Room clock
         </button>
 
+        {onFinishGame ? (
+          <button className="host-desk__finish" type="button" onClick={onFinishGame}>Finish game</button>
+        ) : null}
         <button className="host-desk__exit" type="button" onClick={onExit}>Preset</button>
       </header>
 

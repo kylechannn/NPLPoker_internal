@@ -658,16 +658,16 @@ a:focus-visible {
   --signal-border: rgba(61, 255, 160, 0.25);
 }
 
-/* Compact form: bars + a word, half the height, no dropdown. */
+/* Compact form: bars + a word, minimal height, no dropdown. */
 .connection-signal--compact {
   display: grid;
   width: calc(100% - 28px);
-  min-height: 34px;
-  grid-template-columns: 34px minmax(0, 1fr);
+  min-height: 24px;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   border: 1px solid var(--signal-border);
-  padding: 5px 9px;
+  padding: 3px 8px;
   color: var(--npl-text);
   background:
     linear-gradient(110deg, var(--signal-soft), transparent 75%),
@@ -679,8 +679,8 @@ a:focus-visible {
 }
 
 .connection-signal--compact .signal-bars {
-  width: 32px;
-  height: 18px;
+  width: 22px;
+  height: 13px;
   gap: 2px;
 }
 
@@ -715,13 +715,13 @@ a:focus-visible {
   --link-border: rgba(255, 108, 114, 0.28);
   display: grid;
   width: calc(100% - 28px);
-  min-height: 34px;
-  margin: 6px 14px 0;
-  grid-template-columns: 34px minmax(0, 1fr);
+  min-height: 24px;
+  margin: 5px 14px 0;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   border: 1px solid var(--link-border);
-  padding: 5px 9px;
+  padding: 3px 8px;
   color: var(--npl-text);
   background:
     linear-gradient(110deg, var(--link-soft), transparent 75%),
@@ -747,8 +747,8 @@ a:focus-visible {
 .backend-link__light {
   position: relative;
   display: flex;
-  width: 32px;
-  height: 18px;
+  width: 22px;
+  height: 13px;
   align-items: center;
   justify-content: center;
 }
@@ -803,17 +803,38 @@ a:focus-visible {
   flex-wrap: wrap;
 }
 
-/* The live diagnosis line — which step the connect sequence is stuck on.
-   One quiet line; the full text lives in the tooltip. */
-.backend-link__detail {
-  flex-basis: 100%;
-  overflow: hidden;
+/* Notification panel: category sub-tabs + the recorded notice stream. */
+.notification-session__tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px 4px;
+}
+
+.notification-tab {
+  border: 1px solid rgba(143, 169, 207, 0.18);
+  border-radius: 999px;
+  padding: 5px 13px;
   color: var(--npl-faint);
-  font-size: 0.58rem;
-  font-style: normal;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.notification-tab--active {
+  border-color: rgba(255, 197, 61, 0.5);
+  color: var(--npl-gold-hot, #ffe08a);
+  background: rgba(255, 197, 61, 0.08);
+}
+
+.notification-empty {
+  margin: 0;
+  padding: 22px 16px;
+  color: var(--npl-faint);
+  font-size: 0.74rem;
+  line-height: 1.5;
 }
 
 .backend-link__copy small {

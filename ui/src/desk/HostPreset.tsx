@@ -66,10 +66,11 @@ const PATTERN = {
   ante_as_big_blind: true,
 }
 
-const STEPS: { id: "prepare" | "host" | "play", label: string }[] = [
+const STEPS: { id: "prepare" | "host" | "play" | "finish", label: string }[] = [
   { id: "prepare", label: "Preparation" },
   { id: "host", label: "Host" },
   { id: "play", label: "Playing" },
+  { id: "finish", label: "Finishing" },
 ]
 
 /**
@@ -316,7 +317,7 @@ export default function HostPreset({ venue, onOpened }: Props) {
     }
   }
 
-  const handleStepClick = (id: "prepare" | "host" | "play") => {
+  const handleStepClick = (id: "prepare" | "host" | "play" | "finish") => {
     if (id === "prepare") {
       setCurrentStepIndex(0)
       return
@@ -326,7 +327,8 @@ export default function HostPreset({ venue, onOpened }: Props) {
       void open()
       return
     }
-    setCurrentStepIndex(2)
+    // Playing and Finishing only exist once a session is open — opening it
+    // is the Host step's job.
   }
 
   const totalLevels = useMemo(() => levels.filter((row) => row.type === "blind").length, [levels])
