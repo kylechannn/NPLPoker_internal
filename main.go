@@ -261,6 +261,14 @@ func newHandlerWithBackend(
 		writeJSON(w, http.StatusOK, networkMonitor.snapshot(r.Context(), forceRefresh))
 	})
 
+	// The room-clock popup runs without native chrome and without webview
+	// bindings — its "—" title-bar button lands here and the host
+	// minimises the window on its behalf.
+	mux.HandleFunc("POST /api/window/room-clock/minimize", func(w http.ResponseWriter, _ *http.Request) {
+		minimizeRoomClockWindow()
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// Registered after the Go-owned endpoints so the licence routes can never
 	// be shadowed by the bundled app.
 	if backend != nil {

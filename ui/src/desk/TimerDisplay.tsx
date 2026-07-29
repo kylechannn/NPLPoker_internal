@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, Minus, Pause, Play, Square, X } from "lucide-react"
 import { countdown, deskApi, type Gates, type Seating } from "./deskApi"
 import "./timer.css"
 
@@ -255,8 +255,17 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           <span className="rc-dot rc-dot--idle" />
           <span className="rc-titlebar__label">Room Clock</span>
           <span className="rc-titlebar__spacer" />
-          <button type="button" className="rc-winbtn rc-winbtn--close" title="Close" onClick={() => window.close()}>
-            <X size={15} strokeWidth={2.2} />
+          <button
+            type="button"
+            className="rc-winbtn"
+            title="Hide the clock"
+            aria-label="Minimize window"
+            onClick={() => void fetch("/api/window/room-clock/minimize", { method: "POST" }).catch(() => {})}
+          >
+            <Minus size={15} strokeWidth={1.7} />
+          </button>
+          <button type="button" className="rc-winbtn rc-winbtn--close" title="Close" aria-label="Close window" onClick={() => window.close()}>
+            <span><X size={16} strokeWidth={2.2} /></span>
           </button>
         </header>
         <div className="rc-errorbody">
@@ -266,6 +275,9 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     )
   }
 
+  // The window's real title bar: — hides the window, the square drives
+  // the layout (restore = mini clock, maximise = fullscreen display),
+  // the red cross closes. Same glyphs and styling as the OS shell.
   const titlebar = (
     <header className="rc-titlebar" onPointerDown={startTitleDrag} onDoubleClick={() => void toggleMode()}>
       <span className={`rc-dot rc-dot--${tone}`} />
@@ -279,13 +291,23 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       <button
         type="button"
         className="rc-winbtn"
-        title={mode === "max" ? "Minimise into a mini clock" : "Maximise to fullscreen"}
+        title="Hide the clock"
+        aria-label="Minimize window"
+        onClick={() => void fetch("/api/window/room-clock/minimize", { method: "POST" }).catch(() => {})}
+      >
+        <Minus size={15} strokeWidth={1.7} />
+      </button>
+      <button
+        type="button"
+        className="rc-winbtn"
+        title={mode === "max" ? "Restore to the mini clock" : "Maximise the display"}
+        aria-label={mode === "max" ? "Restore window" : "Maximize window"}
         onClick={() => void toggleMode()}
       >
-        {mode === "max" ? <Minimize2 size={14} strokeWidth={2} /> : <Maximize2 size={14} strokeWidth={2} />}
+        {mode === "max" ? <Copy size={13} strokeWidth={1.6} /> : <Square size={12} strokeWidth={1.6} />}
       </button>
-      <button type="button" className="rc-winbtn rc-winbtn--close" title="Close the display" onClick={() => window.close()}>
-        <X size={15} strokeWidth={2.2} />
+      <button type="button" className="rc-winbtn rc-winbtn--close" title="Close the display" aria-label="Close window" onClick={() => window.close()}>
+        <span><X size={16} strokeWidth={2.2} /></span>
       </button>
     </header>
   )

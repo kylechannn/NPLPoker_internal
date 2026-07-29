@@ -106,6 +106,22 @@
 
 .rc-winbtn:active { transform: scale(0.94); }
 
+/* The close cross matches the OS shell: a red circle, white cross. */
+.rc-winbtn--close { width: 42px; }
+
+.rc-winbtn--close > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 125, 150, 0.6);
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(160deg, #ff5d7a, #d92646);
+  box-shadow: 0 2px 10px rgba(217, 38, 70, 0.35);
+  transition: filter 140ms ease, box-shadow 140ms ease;
+}
+
 /* Status dot: the one glance that says the clock is alive. */
 .rc-dot {
   flex-shrink: 0;
@@ -424,14 +440,14 @@
 /* ---- hover, only where hover exists ---- */
 
 @media (hover: hover) and (pointer: fine) {
-  .rc-winbtn:hover {
+  .rc-winbtn:not(.rc-winbtn--close):hover {
     color: #e6f1ff;
     background: rgba(56, 229, 255, 0.08);
   }
 
-  .rc-winbtn--close:hover {
-    color: #fff;
-    background: #e0304e;
+  .rc-winbtn--close:hover > span {
+    filter: brightness(1.12);
+    box-shadow: 0 0 16px rgba(255, 70, 103, 0.5);
   }
 
   .rc-btn:hover:not(:disabled) {

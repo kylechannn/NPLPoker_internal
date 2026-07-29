@@ -95,6 +95,25 @@ func runDesktopWindow(target string) error {
 // TimerDisplay.tsx.
 const roomClockWindowTitle = "NPL Room Clock"
 
+// minimizeRoomClockWindow sends every room-clock popup to the taskbar.
+// The popup's own "—" button calls this through the local API.
+func minimizeRoomClockWindow() {
+	titlePtr, err := syscall.UTF16PtrFromString(roomClockWindowTitle)
+	if err != nil {
+		return
+	}
+
+	var hwnd uintptr
+	for {
+		found, _, _ := findWindowExW.Call(0, hwnd, 0, uintptr(unsafe.Pointer(titlePtr)))
+		if found == 0 {
+			break
+		}
+		hwnd = found
+		_, _, _ = showWindow.Call(hwnd, showMinimized)
+	}
+}
+
 // watchRoomClockWindows re-frames room-clock popups. WebView2 opens
 // window.open windows with the stock system caption; the page draws its
 // own title bar, so the system one comes off — same treatment as the
