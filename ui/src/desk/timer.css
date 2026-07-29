@@ -275,3 +275,41 @@
   font-size: 3.2vh;
   color: #ffe08a;
 }
+
+/* Level-change announcement: a brief gold wash, the way the mahjong
+   clock flags a new round. */
+.timer--flash {
+  animation: timer-level-flash 2s ease-out;
+}
+
+@keyframes timer-level-flash {
+  0% {
+    box-shadow: inset 0 0 0 100vmax rgba(255, 197, 61, 0.28);
+  }
+
+  100% {
+    box-shadow: inset 0 0 0 100vmax rgba(255, 197, 61, 0);
+  }
+}
+
+/* Breaks read differently across a room: the felt goes teal. */
+.timer--break {
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(95, 229, 192, 0.2), transparent 60%),
+    #04140f;
+}
+
+.timer__head-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.8vh;
+}
+
+.timer__wall {
+  color: #8fb0d9;
+  font-family: inherit;
+  font-size: 2.4vh;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}

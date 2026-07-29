@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { countdown, deskApi, type Gates, type Seating } from "./deskApi"
 import "./timer.css"
 
@@ -33,6 +33,30 @@ type Summary = {
 const SYNC_MS = 5000
 const TICK_MS = 250
 
+/** A short two-tone chime on level change; deeper pair for a break. */
+function chime(isBreak: boolean) {
+  try {
+    const ctx = new AudioContext()
+    const tone = (freq: number, at: number) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.frequency.value = freq
+      osc.type = "sine"
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + at)
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + at + 0.03)
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + 0.5)
+      osc.connect(gain).connect(ctx.destination)
+      osc.start(ctx.currentTime + at)
+      osc.stop(ctx.currentTime + at + 0.55)
+    }
+    tone(isBreak ? 392 : 660, 0)
+    tone(isBreak ? 294 : 880, 0.28)
+    window.setTimeout(() => void ctx.close(), 1200)
+  } catch {
+    // No audio device / autoplay blocked: the flash still announces it.
+  }
+}
+
 /**
  * The room display: the clock as everyone at the tables reads it.
  *
@@ -56,6 +80,28 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [mode, setMode] = useState<"max" | "mini">("max")
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Level-change cue, the way the mahjong room clock announces a new
+  // round: a short flash and a two-tone chime.
+  const [levelFlash, setLevelFlash] = useState(false)
+  const prevLevelRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const levelNo = clock?.current_level?.level_no ?? null
+    if (levelNo === null) return
+
+    if (prevLevelRef.current !== null && prevLevelRef.current !== levelNo) {
+      setLevelFlash(true)
+      chime(clock?.current_level?.is_break === true)
+      const handle = window.setTimeout(() => setLevelFlash(false), 2000)
+      return () => window.clearTimeout(handle)
+    }
+
+    prevLevelRef.current = levelNo
+  }, [clock?.current_level?.level_no, clock?.current_level?.is_break])
+
+  useEffect(() => {
+    prevLevelRef.current = clock?.current_level?.level_no ?? prevLevelRef.current
+  }, [clock?.current_level?.level_no])
 
   useEffect(() => {
     let cancelled = false
@@ -168,12 +214,23 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       >
         {mode === "max" ? "▣ Minimise" : "⛶ Maximise"}
       </button>
+      <button
+        type="button"
+        className="timer__btn timer__btn--mode"
+        title="Toggle fullscreen — the clock keeps running either way"
+        onClick={() => {
+          if (document.fullscreenElement) void document.exitFullscreen()
+          else void document.documentElement.requestFullscreen().catch(() => {})
+        }}
+      >
+        ⛶ Fullscreen
+      </button>
     </div>
   )
 
   if (mode === "mini") {
     return (
-      <div className={`timer timer--mini${clock?.status === "paused" ? " timer--paused" : ""}`}>
+      <div className={`timer timer--mini${clock?.status === "paused" ? " timer--paused" : ""}${levelFlash ? " timer--flash" : ""}${level?.is_break ? " timer--break" : ""}`}>
         <header className="timer__mini-head">
           <strong>{clock?.name ?? "Tournament"}</strong>
           <span>
@@ -202,18 +259,21 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   }
 
   return (
-    <div className={`timer${clock?.status === "paused" ? " timer--paused" : ""}`}>
+    <div className={`timer${clock?.status === "paused" ? " timer--paused" : ""}${levelFlash ? " timer--flash" : ""}${level?.is_break ? " timer--break" : ""}`}>
       <header className="timer__head">
         <div>
           <h1>{clock?.name ?? "Tournament"}</h1>
           {clock?.venue_name ? <p>{clock.venue_name}</p> : null}
         </div>
-        <span className="timer__level">
-          {level?.is_break
-            ? "Break"
-            : `Level ${level?.level_no ?? "—"}`}
-          <em>of {clock?.level_count ?? "—"}</em>
-        </span>
+        <div className="timer__head-right">
+          <span className="timer__wall">{new Date(now).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>
+          <span className="timer__level">
+            {level?.is_break
+              ? "Break"
+              : `Level ${level?.level_no ?? "—"}`}
+            <em>of {clock?.level_count ?? "—"}</em>
+          </span>
+        </div>
       </header>
 
       <div className="timer__clock">

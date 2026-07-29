@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { notify } from "../notifications/store"
-import ClockPanel from "./ClockPanel"
 import {
   countdown,
   deskApi,
@@ -75,13 +74,10 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     window.setTimeout(() => scanRef.current?.focus(), 0)
   }, [])
 
-  const [clockSyncedAt, setClockSyncedAt] = useState(() => Date.now())
-
   const refresh = useCallback(async () => {
     try {
       const next = await deskApi.seating(sessionId)
       setSeating(next)
-      setClockSyncedAt(Date.now())
       const status = (next.clock as { status?: string } | undefined)?.status
       if (status) onClockStatus?.(status)
     } catch (e) {
@@ -486,13 +482,6 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           </section>
         </div>
       ) : null}
-
-      <ClockPanel
-        sessionId={sessionId}
-        clock={seating?.clock as Parameters<typeof ClockPanel>[0]["clock"]}
-        syncedAt={clockSyncedAt}
-        onChanged={() => void refresh()}
-      />
 
       <div className="host-desk__body host-desk__body--full">
         <section className="host-desk__tables">
