@@ -509,7 +509,7 @@ function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boole
           title="Close"
           onClick={requestClose}
         >
-          <span><X size={14} strokeWidth={2} /></span>
+          <span><X size={20} strokeWidth={2.4} /></span>
         </button>
       </div>
 

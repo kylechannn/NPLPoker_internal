@@ -143,18 +143,22 @@ a:focus-visible {
 }
 
 .desktop-window-controls__close {
-  width: 42px !important;
+  width: 52px !important;
 }
 
+/* A solid red circle with a white cross, sized and placed so its
+   centre matches the topbar's rounded corner arc — the corner curve
+   wraps the button concentrically. */
 .desktop-window-controls__close > span {
   display: grid;
-  width: 27px;
-  height: 27px;
+  width: 36px;
+  height: 36px;
   place-items: center;
-  border: 1px solid rgba(255, 93, 122, 0.52);
+  border: 1px solid rgba(255, 125, 150, 0.6);
   border-radius: 50%;
-  color: #ff8da2;
-  background: rgba(255, 93, 122, 0.055);
+  color: #fff;
+  background: linear-gradient(160deg, #ff5d7a, #d92646);
+  box-shadow: 0 3px 12px rgba(217, 38, 70, 0.35);
   transition:
     border-color 150ms ease,
     color 150ms ease,
@@ -1545,7 +1549,12 @@ a:focus-visible {
   align-items: center;
   justify-content: space-between;
   min-height: 74px;
+  border-top: 1px solid var(--npl-border);
+  border-right: 1px solid var(--npl-border);
   border-bottom: 1px solid var(--npl-border);
+  /* Concentric with the round close button: its centre sits half the
+     bar height in from the corner, so a matching radius wraps it. */
+  border-top-right-radius: 37px;
   padding: 0 6px 0 28px;
   background: rgba(2, 7, 18, 0.82);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.14);
@@ -4227,6 +4236,7 @@ html {
 
 .topbar {
   gap: 18px;
+  border-top-right-radius: 42px;
   padding: 0 7px 0 30px;
 }
 
@@ -4277,12 +4287,12 @@ html {
 }
 
 .desktop-window-controls__close {
-  width: 46px !important;
+  width: 60px !important;
 }
 
 .desktop-window-controls__close > span {
-  width: 31px;
-  height: 31px;
+  width: 40px;
+  height: 40px;
 }
 
 .close-confirmation {
@@ -4789,10 +4799,10 @@ html {
   }
 
   .desktop-window-controls__close:hover > span {
-    border-color: #ff728d;
+    border-color: #ff8da2;
     color: #fff;
-    background: #e84766;
-    box-shadow: 0 0 18px rgba(255, 70, 103, 0.34);
+    background: linear-gradient(160deg, #ff7590, #ef3d5c);
+    box-shadow: 0 0 20px rgba(255, 70, 103, 0.45);
   }
 
   .manual-update-button:hover,
