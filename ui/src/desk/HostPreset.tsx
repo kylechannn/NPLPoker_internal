@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { deskApi, money, type GeneratedLevel, type Venue } from "./deskApi"
+import { deskApi, money, type AddonTier, type GeneratedLevel, type Venue } from "./deskApi"
 import "./preparation.css"
 
 export type CutOffKind = "registration" | "rebuy" | "addon" | "jackpot"
@@ -26,11 +26,31 @@ const DEFAULTS = {
   rebuy_chips: 20000,
   rebuy_price_cents: 10000,
   max_rebuys_per_player: 0,
-  addon_chips: 30000,
-  addon_price_cents: 5000,
+  addon_tiers: [{ price_cents: 5000, chips: 30000 }] as AddonTier[],
   max_addons_per_player: 1,
   jackpot_enabled: true,
   jackpot_price_cents: 1000,
+}
+
+// Last night's setup is next night's starting point — venues run the same
+// game week after week, so the form remembers itself across restarts and
+// across venues. The name is not remembered: it defaults to date + venue.
+const SETUP_MEMORY_KEY = "npl.tournamentSetup.v1"
+
+function rememberedSetup(): { form: typeof DEFAULTS, pattern: typeof PATTERN, cutOffs: Record<CutOffKind, Optional> } | null {
+  try {
+    const raw = window.localStorage.getItem(SETUP_MEMORY_KEY)
+    if (!raw) return null
+    const stored = JSON.parse(raw) as { form?: Partial<typeof DEFAULTS>, pattern?: Partial<typeof PATTERN>, cutOffs?: Partial<Record<CutOffKind, Optional>> }
+
+    return {
+      form: { ...DEFAULTS, ...stored.form, name: "" },
+      pattern: { ...PATTERN, ...stored.pattern },
+      cutOffs: { registration: 6, rebuy: "", addon: "", jackpot: "", ...stored.cutOffs },
+    }
+  } catch {
+    return null
+  }
 }
 
 const PATTERN = {
@@ -66,10 +86,11 @@ const STEPS: { id: "prepare" | "host" | "play", label: string }[] = [
  * conversation anyone wants to have.
  */
 export default function HostPreset({ venue, onOpened }: Props) {
-  const [form, setForm] = useState(DEFAULTS)
-  const [pattern, setPattern] = useState(PATTERN)
+  const remembered = useMemo(rememberedSetup, [])
+  const [form, setForm] = useState(remembered?.form ?? DEFAULTS)
+  const [pattern, setPattern] = useState(remembered?.pattern ?? PATTERN)
   const [levels, setLevels] = useState<GeneratedLevel[]>([])
-  const [cutOffs, setCutOffs] = useState<Record<CutOffKind, Optional>>({
+  const [cutOffs, setCutOffs] = useState<Record<CutOffKind, Optional>>(remembered?.cutOffs ?? {
     registration: 6,
     rebuy: "",
     addon: "",
@@ -210,13 +231,13 @@ export default function HostPreset({ venue, onOpened }: Props) {
     setHandEdited(true)
   }
 
+  const defaultName = useMemo(() => {
+    const date = new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" })
+    return venue?.name ? `${date} — ${venue.name}` : date
+  }, [venue?.name])
+
   async function open() {
     setError(null)
-
-    if (!form.name.trim()) {
-      setError("Give the tournament a name.")
-      return
-    }
 
     if (cutOffs.registration === "") {
       setCutOffsOpen(true)
@@ -228,10 +249,15 @@ export default function HostPreset({ venue, onOpened }: Props) {
 
     try {
       const optional = (value: Optional) => (value === "" ? null : Number(value))
+      const tiers = form.addon_tiers.filter((tier) => tier.chips > 0)
 
       const created = await deskApi.createTournament({
         ...form,
-        name: form.name.trim(),
+        name: form.name.trim() || defaultName,
+        addon_tiers: tiers,
+        // Legacy pair mirrors tier one for older readers of the session.
+        addon_price_cents: tiers[0]?.price_cents ?? 0,
+        addon_chips: tiers[0]?.chips ?? 0,
         venue_id: venue?.id ?? null,
         venue_name: venue?.name ?? null,
         registration_closes_at_level: Number(cutOffs.registration),
@@ -240,6 +266,13 @@ export default function HostPreset({ venue, onOpened }: Props) {
         jackpot_closes_at_level: optional(cutOffs.jackpot),
         levels,
       })
+
+      // Tonight's setup becomes next time's starting point.
+      try {
+        window.localStorage.setItem(SETUP_MEMORY_KEY, JSON.stringify({ form: { ...form, name: "" }, pattern, cutOffs }))
+      } catch {
+        // Storage full/blocked: not worth failing the open.
+      }
 
       onOpened(created.session.id)
     } catch (e) {
@@ -363,7 +396,12 @@ export default function HostPreset({ venue, onOpened }: Props) {
           <Chip label="Stack" value={form.starting_stack.toLocaleString()} />
           <Chip label="Seats" value={String(form.seats_per_table)} />
           <Chip label="Rebuy" value={money(form.rebuy_price_cents)} />
-          <Chip label="Add-on" value={money(form.addon_price_cents)} />
+          <Chip
+            label={form.addon_tiers.length > 1 ? "Add-ons" : "Add-on"}
+            value={form.addon_tiers.length
+              ? form.addon_tiers.map((tier) => money(tier.price_cents)).join(" / ")
+              : "—"}
+          />
           {form.jackpot_enabled ? <Chip label="Jackpot" value={money(form.jackpot_price_cents)} /> : null}
           <Chip label="Levels" value={`${totalLevels}${hasBreak ? " + Break" : ""}`} />
           <Chip label="Max blind" value={maxBlind ? maxBlind.toLocaleString() : "—"} />
@@ -384,13 +422,14 @@ export default function HostPreset({ venue, onOpened }: Props) {
               </div>
               <div className="prep-card__body">
                 <div className="prep-field">
-                  <label>Tournament name</label>
+                  <label>Tournament name (optional)</label>
                   <input
                     type="text"
                     value={form.name}
-                    placeholder="Thursday Deepstack"
+                    placeholder={defaultName}
                     onChange={(e) => update("name", e.target.value)}
                   />
+                  <small>Leave empty to use the date and venue automatically.</small>
                 </div>
 
                 <div className="prep-field-grid">
@@ -452,28 +491,64 @@ export default function HostPreset({ venue, onOpened }: Props) {
 
                 <div className="prep-divider" />
 
-                <div className="prep-subhead">Add-on</div>
+                <div className="prep-subhead">Add-ons — up to four tiers, the desk offers one button per tier</div>
+                {form.addon_tiers.map((tier, index) => (
+                  <div className="prep-field-grid prep-tier-row" key={index}>
+                    <div className="prep-field">
+                      <label>Tier {index + 1} price ($)</label>
+                      <input
+                        type="number" min={0} value={tier.price_cents / 100}
+                        onChange={(e) => update("addon_tiers", form.addon_tiers.map((row, i) =>
+                          i === index ? { ...row, price_cents: Math.round(Number(e.target.value) * 100) } : row))}
+                      />
+                    </div>
+                    <div className="prep-field">
+                      <label>Chips</label>
+                      <input
+                        type="number" min={0} value={tier.chips}
+                        onChange={(e) => update("addon_tiers", form.addon_tiers.map((row, i) =>
+                          i === index ? { ...row, chips: Number(e.target.value) } : row))}
+                      />
+                    </div>
+                    <div className="prep-field prep-tier-row__remove">
+                      <label>&nbsp;</label>
+                      <button
+                        type="button"
+                        className="prep-tier-remove"
+                        disabled={form.addon_tiers.length <= 1}
+                        onClick={() => update("addon_tiers", form.addon_tiers.filter((_, i) => i !== index))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
                 <div className="prep-field-grid">
                   <div className="prep-field">
-                    <label>Price ($)</label>
-                    <input
-                      type="number" min={0} value={form.addon_price_cents / 100}
-                      onChange={(e) => update("addon_price_cents", Math.round(Number(e.target.value) * 100))}
-                    />
+                    <label>&nbsp;</label>
+                    <button
+                      type="button"
+                      className="prep-tier-add"
+                      disabled={form.addon_tiers.length >= 4}
+                      onClick={() => {
+                        const last = form.addon_tiers[form.addon_tiers.length - 1]
+                        update("addon_tiers", [...form.addon_tiers, {
+                          price_cents: (last?.price_cents ?? 500) * 2,
+                          chips: (last?.chips ?? 10000) * 2,
+                        }])
+                      }}
+                    >
+                      + Add tier
+                    </button>
                   </div>
                   <div className="prep-field">
-                    <label>Chips</label>
-                    <input
-                      type="number" min={0} value={form.addon_chips}
-                      onChange={(e) => update("addon_chips", Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="prep-field">
-                    <label>Max per player</label>
+                    <label>Max add-ons per player</label>
                     <input
                       type="number" min={0} max={5} value={form.max_addons_per_player}
                       onChange={(e) => update("max_addons_per_player", Number(e.target.value))}
                     />
+                    <small>Counts across all tiers.</small>
                   </div>
                 </div>
               </div>
@@ -724,6 +799,11 @@ export default function HostPreset({ venue, onOpened }: Props) {
                       value={pattern.step}
                       onChange={(e) => updatePattern("step", Number(e.target.value))}
                     />
+                    <small>
+                      {pattern.mode === "multiply"
+                        ? "Each level's blinds ≈ previous × this. 1.5 = +50% per level."
+                        : "Blinds grow by this many chips each level."}
+                    </small>
                   </div>
                   <div className="prep-field">
                     <label>Antes from</label>
@@ -732,6 +812,7 @@ export default function HostPreset({ venue, onOpened }: Props) {
                       placeholder="None"
                       onChange={(e) => updatePattern("ante_from_level", e.target.value === "" ? "" : Number(e.target.value))}
                     />
+                    <small>Level antes start. Empty = no antes all night.</small>
                   </div>
                 </div>
 

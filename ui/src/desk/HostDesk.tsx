@@ -165,7 +165,12 @@ export default function HostDesk({ sessionId, onExit }: Props) {
     setError(null)
 
     try {
-      const result = await deskApi.act(sessionId, scan.player.npl_id, option.action)
+      const result = await deskApi.act(
+        sessionId,
+        scan.player.npl_id,
+        option.action,
+        option.tier !== undefined ? { tier: option.tier } : {},
+      )
       setSeating(result.seating)
       setFlash(`${option.label} taken for ${scan.player.display_name}${option.price_cents ? ` — ${money(option.price_cents)}` : ""}`)
       // Re-scan so the buttons reflect what is left (caps, jackpot already in).
@@ -399,6 +404,18 @@ export default function HostDesk({ sessionId, onExit }: Props) {
                 </ul>
               </article>
             ))}
+
+            <button
+              type="button"
+              className="host-table host-table--add"
+              disabled={busy}
+              onClick={() => void seatAction(
+                () => deskApi.createTable(sessionId).then((result) => result.seating),
+                "New table opened — online seat maps updated.",
+              )}
+            >
+              + Add table
+            </button>
           </div>
 
           {seating?.eliminated.length ? (

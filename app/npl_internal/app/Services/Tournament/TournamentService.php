@@ -75,20 +75,48 @@ final class TournamentService
             }
         }
 
-        return DB::transaction(function () use ($data, $levels): array {
+        // "Tue 29 Jul — NPL Sydney" is what most nights are actually called;
+        // a typed name is the exception, not the rule.
+        $name = trim((string) ($data['name'] ?? ''));
+        if ($name === '') {
+            $name = trim(sprintf(
+                '%s — %s',
+                now()->format('D j M Y'),
+                (string) ($data['venue_name'] ?? 'NPL Tournament'),
+            ), ' —');
+        }
+
+        // Tiered add-ons; the legacy single pair becomes tier one so old
+        // callers and old sessions keep working unchanged.
+        $tiers = collect($data['addon_tiers'] ?? [])
+            ->map(fn (array $tier): array => [
+                'price_cents' => (int) $tier['price_cents'],
+                'chips' => (int) $tier['chips'],
+            ])
+            ->values();
+
+        if ($tiers->isEmpty() && (int) ($data['addon_chips'] ?? 0) > 0) {
+            $tiers = collect([[
+                'price_cents' => (int) ($data['addon_price_cents'] ?? 0),
+                'chips' => (int) ($data['addon_chips'] ?? 0),
+            ]]);
+        }
+
+        return DB::transaction(function () use ($data, $levels, $name, $tiers): array {
             $id = DB::table('tournament_sessions')->insertGetId([
                 'uuid' => (string) Str::uuid(),
                 'game_session_id' => $data['game_session_id'] ?? null,
                 'game_entity_id' => $data['game_entity_id'] ?? null,
-                'name' => $data['name'] ?? 'NPL Tournament',
+                'name' => $name,
                 'venue_name' => $data['venue_name'] ?? null,
                 'status' => TournamentClockService::STATUS_DRAFT,
                 'starting_stack' => (int) ($data['starting_stack'] ?? 20000),
                 'rebuy_chips' => (int) ($data['rebuy_chips'] ?? 20000),
                 'rebuy_price_cents' => (int) ($data['rebuy_price_cents'] ?? 0),
                 'max_rebuys_per_player' => (int) ($data['max_rebuys_per_player'] ?? 0),
-                'addon_chips' => (int) ($data['addon_chips'] ?? 0),
-                'addon_price_cents' => (int) ($data['addon_price_cents'] ?? 0),
+                'addon_chips' => (int) ($tiers->first()['chips'] ?? $data['addon_chips'] ?? 0),
+                'addon_price_cents' => (int) ($tiers->first()['price_cents'] ?? $data['addon_price_cents'] ?? 0),
+                'addon_tiers' => $tiers->isNotEmpty() ? $tiers->toJson() : null,
                 'max_addons_per_player' => (int) ($data['max_addons_per_player'] ?? 1),
                 'buy_in_price_cents' => (int) ($data['buy_in_price_cents'] ?? 0),
                 'ko_bounty_cents' => (int) ($data['ko_bounty_cents'] ?? 0),
@@ -160,6 +188,7 @@ final class TournamentService
                 'max_rebuys_per_player' => (int) $session->max_rebuys_per_player,
                 'addon_chips' => (int) $session->addon_chips,
                 'addon_price_cents' => (int) $session->addon_price_cents,
+                'addon_tiers' => self::addonTiers($session),
                 'max_addons_per_player' => (int) $session->max_addons_per_player,
                 'buy_in_price_cents' => (int) $session->buy_in_price_cents,
                 'ko_bounty_cents' => (int) $session->ko_bounty_cents,
@@ -280,7 +309,7 @@ final class TournamentService
 
         $attributes = match ($action) {
             'rebuy' => $this->rebuyAttributes($session, $sessionId, $nplId, $state),
-            'addon' => $this->addonAttributes($session, $sessionId, $nplId),
+            'addon' => $this->addonAttributes($session, $sessionId, $nplId, $options),
             'addon_void' => $this->voidAttributes($sessionId, $nplId, 'addon', 'addon_void'),
             'ko' => ['chips' => 0, 'price_cents' => (int) $session->ko_bounty_cents],
             'unko' => ['chips' => 0, 'price_cents' => -1 * (int) $session->ko_bounty_cents],
@@ -398,7 +427,7 @@ final class TournamentService
         return ['chips' => (int) $session->rebuy_chips, 'price_cents' => (int) $session->rebuy_price_cents];
     }
 
-    private function addonAttributes(object $session, int $sessionId, string $nplId): array
+    private function addonAttributes(object $session, int $sessionId, string $nplId, array $options = []): array
     {
         $cap = (int) $session->max_addons_per_player;
 
@@ -421,7 +450,43 @@ final class TournamentService
             }
         }
 
+        $tiers = self::addonTiers($session);
+        $tierIndex = isset($options['tier']) ? (int) $options['tier'] : 0;
+        $tier = $tiers[$tierIndex] ?? $tiers[0] ?? null;
+
+        if ($tier !== null) {
+            return ['chips' => (int) $tier['chips'], 'price_cents' => (int) $tier['price_cents']];
+        }
+
         return ['chips' => (int) $session->addon_chips, 'price_cents' => (int) $session->addon_price_cents];
+    }
+
+    /**
+     * The session's add-on tiers, oldest sessions falling back to the
+     * single legacy pair.
+     *
+     * @return list<array{price_cents: int, chips: int}>
+     */
+    public static function addonTiers(object $session): array
+    {
+        $raw = $session->addon_tiers ?? null;
+        $tiers = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
+
+        if (is_array($tiers) && $tiers !== []) {
+            return array_values(array_map(fn (array $tier): array => [
+                'price_cents' => (int) ($tier['price_cents'] ?? 0),
+                'chips' => (int) ($tier['chips'] ?? 0),
+            ], $tiers));
+        }
+
+        if ((int) $session->addon_chips > 0) {
+            return [[
+                'price_cents' => (int) $session->addon_price_cents,
+                'chips' => (int) $session->addon_chips,
+            ]];
+        }
+
+        return [];
     }
 
     /** A void mirrors the most recent matching row with negated amounts. */

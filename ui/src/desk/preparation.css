@@ -426,6 +426,36 @@
   background: #f1f5f9;
 }
 
+.prep-tier-add,
+.prep-tier-remove {
+  border: 1px dashed var(--host-line, rgba(143, 169, 207, 0.3));
+  padding: 9px 14px;
+  color: var(--npl-faint);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.prep-tier-add:hover:not(:disabled) {
+  border-color: rgba(255, 197, 61, 0.5);
+  color: var(--npl-gold);
+}
+
+.prep-tier-remove:hover:not(:disabled) {
+  border-color: rgba(255, 108, 114, 0.5);
+  color: #ff6c72;
+}
+
+.prep-tier-add:disabled,
+.prep-tier-remove:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .prep-btn--green {
   padding: 8px 12px;
   border: 1px solid #059669;

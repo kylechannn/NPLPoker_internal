@@ -34,7 +34,9 @@ final class TournamentController
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:160'],
+            // Optional: an empty name defaults to "date — venue" downstream,
+            // because most nights that IS the name.
+            'name' => ['sometimes', 'nullable', 'string', 'max:160'],
             'template_id' => ['sometimes', 'nullable', 'integer'],
             'venue_name' => ['sometimes', 'nullable', 'string', 'max:160'],
             'game_session_id' => ['sometimes', 'nullable', 'integer'],
@@ -45,6 +47,9 @@ final class TournamentController
             'max_rebuys_per_player' => ['sometimes', 'integer', 'min:0', 'max:255'],
             'addon_chips' => ['sometimes', 'integer', 'min:0'],
             'addon_price_cents' => ['sometimes', 'integer', 'min:0'],
+            'addon_tiers' => ['sometimes', 'array', 'max:4'],
+            'addon_tiers.*.price_cents' => ['required_with:addon_tiers', 'integer', 'min:0'],
+            'addon_tiers.*.chips' => ['required_with:addon_tiers', 'integer', 'min:1'],
             'max_addons_per_player' => ['sometimes', 'integer', 'min:0', 'max:255'],
             'buy_in_price_cents' => ['sometimes', 'integer', 'min:0'],
             'ko_bounty_cents' => ['sometimes', 'integer', 'min:0'],

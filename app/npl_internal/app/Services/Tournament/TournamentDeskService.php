@@ -171,7 +171,20 @@ final class TournamentDeskService
                 'add-on',
             );
         }
-        $options[] = $this->option('addon', 'Add-on', (int) $session->addon_price_cents, (int) $session->addon_chips, $addonCheck);
+        // One option per tier: the operator taps the amount the player is
+        // holding out, no mental price list required.
+        $tiers = TournamentService::addonTiers($session);
+        if ($tiers === []) {
+            $options[] = $this->option('addon', 'Add-on', (int) $session->addon_price_cents, (int) $session->addon_chips, $addonCheck);
+        } else {
+            foreach ($tiers as $index => $tier) {
+                $label = count($tiers) > 1
+                    ? sprintf('Add-on %s', number_format($tier['chips']))
+                    : 'Add-on';
+                $options[] = $this->option('addon', $label, $tier['price_cents'], $tier['chips'], $addonCheck)
+                    + ['tier' => $index];
+            }
+        }
 
         if ((bool) $session->jackpot_enabled) {
             $jackpotCheck = $this->gates->check($sessionId, 'jackpot', $registered, $session, $state);
@@ -610,8 +623,22 @@ final class TournamentDeskService
         $seated = $active->filter(fn (object $row): bool => $row->table_number !== null && $row->seat_number !== null);
 
         $highestTable = (int) ($seated->max('table_number') ?? 0);
-        $needed = (int) ceil(max(1, $active->count()) / $perTable);
-        $tableCount = max($highestTable, $needed);
+
+        // The cloud's table list is the layout authority for a linked
+        // session — the same tables the website seats into, kept live by
+        // the realtime pull. Local head-count math only decides the layout
+        // for unlinked (ad-hoc) tournaments.
+        $cloudTableCount = 0;
+        if ($session->game_session_id !== null) {
+            $cloudTableCount = (int) DB::table('mirror_session_tables')
+                ->where('session_id', $session->game_session_id)
+                ->where(fn ($query) => $query->whereNull('table_status')->orWhere('table_status', '!=', 'cancelled'))
+                ->max('table_number');
+        }
+
+        $tableCount = $cloudTableCount > 0
+            ? max($cloudTableCount, $highestTable)
+            : max($highestTable, (int) ceil(max(1, $active->count()) / $perTable));
 
         $tables = [];
         for ($number = 1; $number <= $tableCount; $number++) {

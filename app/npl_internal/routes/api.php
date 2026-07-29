@@ -96,4 +96,5 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::post('{id}/eliminate', 'eliminate')->whereNumber('id');
     Route::post('{id}/reinstate', 'reinstate')->whereNumber('id');
     Route::post('{id}/seat', 'seat')->whereNumber('id');
+    Route::post('{id}/tables', 'createTable')->whereNumber('id');
 });

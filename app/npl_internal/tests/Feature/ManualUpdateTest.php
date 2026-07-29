@@ -128,7 +128,8 @@ class ManualUpdateTest extends TestCase
             venues: [['id' => 7, 'venue_name' => 'Rockdale RSL', 'state_code' => 'NSW']],
             sessions: [[
                 'session_id' => 91, 'title' => 'Nightly NLH', 'category' => 'cash_game',
-                'venue_id' => 7, 'venue_name' => 'Rockdale RSL', 'session_date' => '2026-07-28',
+                // Today: the seating fan-out only pulls today/tomorrow.
+                'venue_id' => 7, 'venue_name' => 'Rockdale RSL', 'session_date' => now()->toDateString(),
                 'start_time' => '19:00', 'status' => 'scheduled', 'registrations_count' => 3,
                 'is_open_for_registration' => true,
             ]],

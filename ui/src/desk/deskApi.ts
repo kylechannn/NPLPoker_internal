@@ -28,6 +28,13 @@ export type DeskOption = {
   chips: number
   allowed: boolean
   reason: string | null
+  /** Which add-on tier this option charges — absent on single-tier games. */
+  tier?: number
+}
+
+export type AddonTier = {
+  price_cents: number
+  chips: number
 }
 
 export type SeatedPlayer = {
@@ -196,6 +203,13 @@ export const deskApi = {
     request<ScanResult>(`/api/v1/desk/${sessionId}/scan`, {
       method: 'POST',
       body: JSON.stringify({ player_npl_id: nplId }),
+    }),
+
+  /** Open a new table in the cloud for a linked session. */
+  createTable: (sessionId: number) =>
+    request<{ table: Record<string, unknown>, seating: Seating }>(`/api/v1/desk/${sessionId}/tables`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
 
   act: (sessionId: number, nplId: string, action: string, extra: Record<string, unknown> = {}) =>

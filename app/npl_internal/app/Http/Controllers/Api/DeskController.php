@@ -26,6 +26,8 @@ final class DeskController
         private readonly TournamentDeskService $desk,
         private readonly TournamentGateService $gates,
         private readonly BlindStructureGenerator $structures,
+        private readonly \App\Services\Cloud\CloudClient $cloud,
+        private readonly \App\Services\Sync\SyncService $sync,
     ) {}
 
     /** Venues this install can host for — drives the header picker. */
@@ -135,6 +137,59 @@ final class DeskController
         return $this->ok(['venue_id' => $venueId, 'sessions' => $sessions]);
     }
 
+    /**
+     * Open a new table for a cloud-linked tournament. Synchronous to the
+     * cloud on purpose — the operator is watching the seating map and the
+     * cloud's table list is the layout authority for linked sessions.
+     */
+    public function createTable(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'max_seats' => ['sometimes', 'integer', 'min:2', 'max:10'],
+        ]);
+
+        $session = DB::table('tournament_sessions')->where('id', $id)->first();
+        abort_if($session === null, 404);
+
+        if ($session->game_session_id === null) {
+            // Unlinked ad-hoc tournament: tables are pure head-count math,
+            // there is nothing to create anywhere.
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'table' => ['This tournament is not linked to an online session — tables grow automatically with the field.'],
+            ]);
+        }
+
+        try {
+            $result = $this->cloud->postJson(
+                sprintf('/api/v1/internal/sessions/%d/tables', (int) $session->game_session_id),
+                ['max_seats' => (int) ($validated['max_seats'] ?? ($session->seats_per_table ?: 8))],
+            );
+        } catch (\App\Services\Cloud\CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => [
+                    'code' => $e->errorCode,
+                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                        ? 'The NPL cloud could not be reached — a new table needs a connection. Try again when the link is green.'
+                        : $e->getMessage(),
+                ],
+            ], 502);
+        }
+
+        // Refresh the local mirror right away so the new table is on the
+        // seating map before the operator's eyes leave the button.
+        try {
+            $this->sync->syncEntity('seating');
+        } catch (\Throwable) {
+            // The realtime signal from the cloud will bring it in anyway.
+        }
+
+        return $this->ok([
+            'table' => $result['data'] ?? $result,
+            'seating' => $this->desk->seating($id),
+        ]);
+    }
+
     /** Preview a blind ladder before committing to it. */
     public function previewStructure(Request $request): JsonResponse
     {
@@ -175,6 +230,7 @@ final class DeskController
         $validated = $request->validate([
             'player_npl_id' => ['required', 'string', 'max:32'],
             'action' => ['required', Rule::in(['buy_in', 'rebuy', 'addon', 'jackpot'])],
+            'tier' => ['sometimes', 'integer', 'min:0', 'max:9'],
             'table_number' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'seat_number' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:64'],
