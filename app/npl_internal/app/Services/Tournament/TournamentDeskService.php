@@ -166,7 +166,18 @@ final class TournamentDeskService
                 'rebuy',
             );
         }
-        $options[] = $this->option('rebuy', 'Rebuy', (int) $session->rebuy_price_cents, (int) $session->rebuy_chips, $rebuyCheck);
+        $rebuyTiers = TournamentService::rebuyTiers($session);
+        if ($rebuyTiers === []) {
+            $options[] = $this->option('rebuy', 'Rebuy', (int) $session->rebuy_price_cents, (int) $session->rebuy_chips, $rebuyCheck);
+        } else {
+            foreach ($rebuyTiers as $index => $tier) {
+                $label = count($rebuyTiers) > 1
+                    ? sprintf('Rebuy %s', number_format($tier['chips']))
+                    : 'Rebuy';
+                $options[] = $this->option('rebuy', $label, $tier['price_cents'], $tier['chips'], $rebuyCheck)
+                    + ['tier' => $index];
+            }
+        }
 
         $addonCheck = $this->gates->check($sessionId, 'addon', $registered, $session, $state);
         if ($addonCheck['allowed'] && $registered) {
@@ -555,6 +566,45 @@ final class TournamentDeskService
     }
 
     /**
+     * Kick a player out of the session entirely: the local entry goes, the
+     * seat frees, and (for linked sessions) their cloud registration is
+     * cancelled through the ordered outbox — same semantics as the player
+     * cancelling themselves, so wait-lists promote and they get an inbox
+     * notice. The money ledger keeps its rows: what was paid was paid.
+     */
+    public function removePlayer(int $sessionId, string $rawId): array
+    {
+        $nplId = $this->normaliseId($rawId);
+        $session = $this->clock->session($sessionId);
+
+        $entry = DB::table('tournament_entries')
+            ->where('tournament_session_id', $sessionId)
+            ->whereRaw('UPPER(player_npl_id) = ?', [$nplId])
+            ->first();
+
+        if ($entry === null) {
+            throw ValidationException::withMessages(['player_npl_id' => ['That player is not in this tournament.']]);
+        }
+
+        DB::table('tournament_entries')->where('id', $entry->id)->delete();
+
+        $this->broadcaster->publish($sessionId);
+
+        if ($session->game_session_id !== null) {
+            $this->outbox->enqueue('session_registration_cancel', 'delete', [
+                'game_session_id' => (int) $session->game_session_id,
+                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+                'player_npl_id' => (string) $entry->player_npl_id,
+                'removed_at' => now()->toIso8601String(),
+                'nonce' => (string) Str::uuid(),
+            ]);
+            $this->drainSoon();
+        }
+
+        return $this->seating($sessionId);
+    }
+
+    /**
      * Push the outbox after the response is sent. Instant when online,
      * silently deferred to the 15-second scheduled sweep when not — the
      * desk response is never held up either way.
@@ -898,6 +948,7 @@ final class TournamentDeskService
         return [
             'seats_per_table' => $perTable,
             'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
+            'rebuy_tiers' => TournamentService::rebuyTiers($session),
             'tables' => $tables,
             'unseated' => $active
                 ->filter(fn (object $row): bool => $row->table_number === null || $row->seat_number === null)

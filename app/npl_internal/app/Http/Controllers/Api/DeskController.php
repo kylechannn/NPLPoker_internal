@@ -292,6 +292,16 @@ final class DeskController
         ]);
     }
 
+    /** Kick a player out of the tournament (and their cloud registration). */
+    public function removePlayer(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'player_npl_id' => ['required', 'string', 'max:32'],
+        ]);
+
+        return $this->ok(['seating' => $this->desk->removePlayer($id, $validated['player_npl_id'])]);
+    }
+
     /**
      * Finish the game with the night's top placements. The desk waits on
      * this: it finishes the clock, records positions, and pushes the

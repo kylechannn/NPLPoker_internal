@@ -61,6 +61,7 @@ export type DeskTable = {
 export type Seating = {
   seats_per_table: number
   game_session_id: number | null
+  rebuy_tiers: AddonTier[]
   tables: DeskTable[]
   unseated: SeatedPlayer[]
   eliminated: SeatedPlayer[]
@@ -273,6 +274,13 @@ export const deskApi = {
       body: JSON.stringify({ player_npl_id: nplId }),
     }),
 
+  /** Kick a player out of the session entirely (local + cloud registration). */
+  removePlayer: (sessionId: number, nplId: string) =>
+    request<{ seating: Seating }>(`/api/v1/desk/${sessionId}/remove-player`, {
+      method: 'POST',
+      body: JSON.stringify({ player_npl_id: nplId }),
+    }).then((result) => result.seating),
+
   seat: (sessionId: number, nplId: string, tableNumber: number | null, seatNumber: number | null) =>
     request<Seating>(`/api/v1/desk/${sessionId}/seat`, {
       method: 'POST',
@@ -281,6 +289,18 @@ export const deskApi = {
 
   startClock: (sessionId: number) =>
     request<Record<string, unknown>>(`/api/v1/tournaments/${sessionId}/start`, { method: 'POST' }),
+
+  pauseClock: (sessionId: number) =>
+    request<Record<string, unknown>>(`/api/v1/tournaments/${sessionId}/pause`, { method: 'POST' }),
+
+  resumeClock: (sessionId: number) =>
+    request<Record<string, unknown>>(`/api/v1/tournaments/${sessionId}/resume`, { method: 'POST' }),
+
+  nextLevel: (sessionId: number) =>
+    request<Record<string, unknown>>(`/api/v1/tournaments/${sessionId}/next-level`, { method: 'POST' }),
+
+  previousLevel: (sessionId: number) =>
+    request<Record<string, unknown>>(`/api/v1/tournaments/${sessionId}/previous-level`, { method: 'POST' }),
 }
 
 export function money(cents: number): string {

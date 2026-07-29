@@ -102,7 +102,22 @@ final class TournamentService
             ]]);
         }
 
-        return DB::transaction(function () use ($data, $levels, $name, $tiers): array {
+        // Rebuys tier the same way.
+        $rebuyTiers = collect($data['rebuy_tiers'] ?? [])
+            ->map(fn (array $tier): array => [
+                'price_cents' => (int) $tier['price_cents'],
+                'chips' => (int) $tier['chips'],
+            ])
+            ->values();
+
+        if ($rebuyTiers->isEmpty() && (int) ($data['rebuy_chips'] ?? 0) > 0) {
+            $rebuyTiers = collect([[
+                'price_cents' => (int) ($data['rebuy_price_cents'] ?? 0),
+                'chips' => (int) ($data['rebuy_chips'] ?? 0),
+            ]]);
+        }
+
+        return DB::transaction(function () use ($data, $levels, $name, $tiers, $rebuyTiers): array {
             $id = DB::table('tournament_sessions')->insertGetId([
                 'uuid' => (string) Str::uuid(),
                 'game_session_id' => $data['game_session_id'] ?? null,
@@ -111,8 +126,9 @@ final class TournamentService
                 'venue_name' => $data['venue_name'] ?? null,
                 'status' => TournamentClockService::STATUS_DRAFT,
                 'starting_stack' => (int) ($data['starting_stack'] ?? 20000),
-                'rebuy_chips' => (int) ($data['rebuy_chips'] ?? 20000),
-                'rebuy_price_cents' => (int) ($data['rebuy_price_cents'] ?? 0),
+                'rebuy_chips' => (int) ($rebuyTiers->first()['chips'] ?? $data['rebuy_chips'] ?? 20000),
+                'rebuy_price_cents' => (int) ($rebuyTiers->first()['price_cents'] ?? $data['rebuy_price_cents'] ?? 0),
+                'rebuy_tiers' => $rebuyTiers->isNotEmpty() ? $rebuyTiers->toJson() : null,
                 'max_rebuys_per_player' => (int) ($data['max_rebuys_per_player'] ?? 0),
                 'addon_chips' => (int) ($tiers->first()['chips'] ?? $data['addon_chips'] ?? 0),
                 'addon_price_cents' => (int) ($tiers->first()['price_cents'] ?? $data['addon_price_cents'] ?? 0),
@@ -185,6 +201,7 @@ final class TournamentService
                 'starting_stack' => (int) $session->starting_stack,
                 'rebuy_chips' => (int) $session->rebuy_chips,
                 'rebuy_price_cents' => (int) $session->rebuy_price_cents,
+                'rebuy_tiers' => self::rebuyTiers($session),
                 'max_rebuys_per_player' => (int) $session->max_rebuys_per_player,
                 'addon_chips' => (int) $session->addon_chips,
                 'addon_price_cents' => (int) $session->addon_price_cents,
@@ -308,7 +325,7 @@ final class TournamentService
         }
 
         $attributes = match ($action) {
-            'rebuy' => $this->rebuyAttributes($session, $sessionId, $nplId, $state),
+            'rebuy' => $this->rebuyAttributes($session, $sessionId, $nplId, $state, $options),
             'addon' => $this->addonAttributes($session, $sessionId, $nplId, $options),
             'addon_void' => $this->voidAttributes($sessionId, $nplId, 'addon', 'addon_void'),
             'ko' => ['chips' => 0, 'price_cents' => (int) $session->ko_bounty_cents],
@@ -401,7 +418,7 @@ final class TournamentService
 
     // ---- internals -------------------------------------------------------
 
-    private function rebuyAttributes(object $session, int $sessionId, string $nplId, array $state): array
+    private function rebuyAttributes(object $session, int $sessionId, string $nplId, array $state, array $options = []): array
     {
         // Whether rebuys are still open is TournamentGateService's call, not
         // this method's — rebuys have their own cut-off and routinely outlive
@@ -424,7 +441,43 @@ final class TournamentService
             }
         }
 
+        $tiers = self::rebuyTiers($session);
+        $tierIndex = isset($options['tier']) ? (int) $options['tier'] : 0;
+        $tier = $tiers[$tierIndex] ?? $tiers[0] ?? null;
+
+        if ($tier !== null) {
+            return ['chips' => (int) $tier['chips'], 'price_cents' => (int) $tier['price_cents']];
+        }
+
         return ['chips' => (int) $session->rebuy_chips, 'price_cents' => (int) $session->rebuy_price_cents];
+    }
+
+    /**
+     * The session's rebuy tiers; old sessions fall back to the single
+     * legacy pair.
+     *
+     * @return list<array{price_cents: int, chips: int}>
+     */
+    public static function rebuyTiers(object $session): array
+    {
+        $raw = $session->rebuy_tiers ?? null;
+        $tiers = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
+
+        if (is_array($tiers) && $tiers !== []) {
+            return array_values(array_map(fn (array $tier): array => [
+                'price_cents' => (int) ($tier['price_cents'] ?? 0),
+                'chips' => (int) ($tier['chips'] ?? 0),
+            ], $tiers));
+        }
+
+        if ((int) $session->rebuy_chips > 0) {
+            return [[
+                'price_cents' => (int) $session->rebuy_price_cents,
+                'chips' => (int) $session->rebuy_chips,
+            ]];
+        }
+
+        return [];
     }
 
     private function addonAttributes(object $session, int $sessionId, string $nplId, array $options = []): array

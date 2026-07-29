@@ -27,8 +27,7 @@ const DEFAULTS = {
   seats_per_table: 8,
   starting_stack: 20000,
   buy_in_price_cents: 10000,
-  rebuy_chips: 20000,
-  rebuy_price_cents: 10000,
+  rebuy_tiers: [{ price_cents: 10000, chips: 20000 }] as AddonTier[],
   max_rebuys_per_player: 0,
   addon_tiers: [{ price_cents: 5000, chips: 30000 }] as AddonTier[],
   max_addons_per_player: 1,
@@ -293,15 +292,19 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
     try {
       const optional = (value: Optional) => (value === "" ? null : Number(value))
       const tiers = form.addon_tiers.filter((tier) => tier.chips > 0)
+      const rebuyTiers = form.rebuy_tiers.filter((tier) => tier.chips > 0)
 
       const created = await deskApi.createTournament({
         ...form,
         name: form.name.trim() || defaultName,
         game_session_id: linkedSessionId === "" ? null : linkedSessionId,
         addon_tiers: tiers,
-        // Legacy pair mirrors tier one for older readers of the session.
+        rebuy_tiers: rebuyTiers,
+        // Legacy pairs mirror tier one for older readers of the session.
         addon_price_cents: tiers[0]?.price_cents ?? 0,
         addon_chips: tiers[0]?.chips ?? 0,
+        rebuy_price_cents: rebuyTiers[0]?.price_cents ?? 0,
+        rebuy_chips: rebuyTiers[0]?.chips ?? 0,
         venue_id: venue?.id ?? null,
         venue_name: venue?.name ?? null,
         registration_closes_at_level: Number(cutOffs.registration),
@@ -443,7 +446,12 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
           <Chip label="Buy-in" value={money(form.buy_in_price_cents)} />
           <Chip label="Stack" value={form.starting_stack.toLocaleString()} />
           <Chip label="Seats" value={String(form.seats_per_table)} />
-          <Chip label="Rebuy" value={money(form.rebuy_price_cents)} />
+          <Chip
+            label={form.rebuy_tiers.length > 1 ? "Rebuys" : "Rebuy"}
+            value={form.rebuy_tiers.length
+              ? form.rebuy_tiers.map((tier) => money(tier.price_cents)).join(" / ")
+              : "—"}
+          />
           <Chip
             label={form.addon_tiers.length > 1 ? "Add-ons" : "Add-on"}
             value={form.addon_tiers.length
@@ -530,29 +538,64 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
                 <div className="prep-card__title">Rebuys &amp; Add-ons</div>
               </div>
               <div className="prep-card__body">
-                <div className="prep-subhead">Rebuy</div>
+                <div className="prep-subhead">Rebuys — up to four tiers, right-click a player for the fast rebuy</div>
+                {form.rebuy_tiers.map((tier, index) => (
+                  <div className="prep-field-grid prep-tier-row" key={index}>
+                    <div className="prep-field">
+                      <label>Tier {index + 1} price ($)</label>
+                      <input
+                        type="number" min={0} value={tier.price_cents / 100}
+                        onChange={(e) => update("rebuy_tiers", form.rebuy_tiers.map((row, i) =>
+                          i === index ? { ...row, price_cents: Math.round(Number(e.target.value) * 100) } : row))}
+                      />
+                    </div>
+                    <div className="prep-field">
+                      <label>Chips</label>
+                      <input
+                        type="number" min={0} value={tier.chips}
+                        onChange={(e) => update("rebuy_tiers", form.rebuy_tiers.map((row, i) =>
+                          i === index ? { ...row, chips: Number(e.target.value) } : row))}
+                      />
+                    </div>
+                    <div className="prep-field prep-tier-row__remove">
+                      <label>&nbsp;</label>
+                      <button
+                        type="button"
+                        className="prep-tier-remove"
+                        disabled={form.rebuy_tiers.length <= 1}
+                        onClick={() => update("rebuy_tiers", form.rebuy_tiers.filter((_, i) => i !== index))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
                 <div className="prep-field-grid">
                   <div className="prep-field">
-                    <label>Price ($)</label>
-                    <input
-                      type="number" min={0} value={form.rebuy_price_cents / 100}
-                      onChange={(e) => update("rebuy_price_cents", Math.round(Number(e.target.value) * 100))}
-                    />
+                    <label>&nbsp;</label>
+                    <button
+                      type="button"
+                      className="prep-tier-add"
+                      disabled={form.rebuy_tiers.length >= 4}
+                      onClick={() => {
+                        const last = form.rebuy_tiers[form.rebuy_tiers.length - 1]
+                        update("rebuy_tiers", [...form.rebuy_tiers, {
+                          price_cents: (last?.price_cents ?? 1000) * 2,
+                          chips: (last?.chips ?? 20000) * 2,
+                        }])
+                      }}
+                    >
+                      + Add tier
+                    </button>
                   </div>
                   <div className="prep-field">
-                    <label>Chips</label>
-                    <input
-                      type="number" min={0} value={form.rebuy_chips}
-                      onChange={(e) => update("rebuy_chips", Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="prep-field">
-                    <label>Max per player</label>
+                    <label>Max rebuys per player</label>
                     <input
                       type="number" min={0} value={form.max_rebuys_per_player}
                       onChange={(e) => update("max_rebuys_per_player", Number(e.target.value))}
                     />
-                    <small>0 = unlimited</small>
+                    <small>0 = unlimited · counts across all tiers</small>
                   </div>
                 </div>
 

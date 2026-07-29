@@ -101,4 +101,5 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::post('{id}/seat', 'seat')->whereNumber('id');
     Route::post('{id}/tables', 'createTable')->whereNumber('id');
     Route::post('{id}/finalise', 'finalise')->whereNumber('id');
+    Route::post('{id}/remove-player', 'removePlayer')->whereNumber('id');
 });

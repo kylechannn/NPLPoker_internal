@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2 } from "lucide-react"
+import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { notify } from "../notifications/store"
+import ClockPanel from "./ClockPanel"
 import {
   countdown,
   deskApi,
@@ -59,6 +60,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [menu, setMenu] = useState<SeatMenu | null>(null)
   const [tableMenu, setTableMenu] = useState<{ x: number, y: number, tableNumber: number } | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
+  const [removeCandidate, setRemoveCandidate] = useState<SeatedPlayer | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
@@ -73,10 +75,13 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     window.setTimeout(() => scanRef.current?.focus(), 0)
   }, [])
 
+  const [clockSyncedAt, setClockSyncedAt] = useState(() => Date.now())
+
   const refresh = useCallback(async () => {
     try {
       const next = await deskApi.seating(sessionId)
       setSeating(next)
+      setClockSyncedAt(Date.now())
       const status = (next.clock as { status?: string } | undefined)?.status
       if (status) onClockStatus?.(status)
     } catch (e) {
@@ -482,6 +487,13 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         </div>
       ) : null}
 
+      <ClockPanel
+        sessionId={sessionId}
+        clock={seating?.clock as Parameters<typeof ClockPanel>[0]["clock"]}
+        syncedAt={clockSyncedAt}
+        onChanged={() => void refresh()}
+      />
+
       <div className="host-desk__body host-desk__body--full">
         <section className="host-desk__tables">
           {seating?.unseated.length ? (
@@ -648,15 +660,30 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       {menu ? (
         <div className="host-menu" style={{ left: menu.x, top: menu.y }} role="menu">
           <p>{menu.player.display_name}</p>
-          <button type="button" onClick={() => void seatAction(
-            async () => {
-              await deskApi.act(sessionId, menu.player.npl_id, "rebuy")
-              return deskApi.seating(sessionId)
-            },
-            `Rebuy taken for ${menu.player.display_name}.`,
-          )}>
-            <RotateCcw size={14} /> Rebuy
-          </button>
+          {(seating?.rebuy_tiers ?? []).length > 1 ? (
+            // Two or more rebuy tiers: ask which one.
+            (seating?.rebuy_tiers ?? []).map((tier, index) => (
+              <button key={index} type="button" onClick={() => void seatAction(
+                async () => {
+                  await deskApi.act(sessionId, menu.player.npl_id, "rebuy", { tier: index })
+                  return deskApi.seating(sessionId)
+                },
+                `Rebuy ${tier.chips.toLocaleString()} (${money(tier.price_cents)}) — ${menu.player.display_name}.`,
+              )}>
+                <RotateCcw size={14} /> Rebuy {tier.chips.toLocaleString()} · {money(tier.price_cents)}
+              </button>
+            ))
+          ) : (
+            <button type="button" onClick={() => void seatAction(
+              async () => {
+                await deskApi.act(sessionId, menu.player.npl_id, "rebuy")
+                return deskApi.seating(sessionId)
+              },
+              `Rebuy taken for ${menu.player.display_name}.`,
+            )}>
+              <RotateCcw size={14} /> Rebuy
+            </button>
+          )}
           <button type="button" className="host-menu__danger" onClick={() => void seatAction(
             () => deskApi.eliminate(sessionId, menu.player.npl_id),
             `${menu.player.display_name} is out.`,
@@ -671,6 +698,54 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
               Unseat
             </button>
           ) : null}
+          <button
+            type="button"
+            className="host-menu__danger"
+            onClick={() => {
+              const player = menu.player
+              setMenu(null)
+              setRemoveCandidate(player)
+            }}
+          >
+            <X size={14} /> Remove player
+          </button>
+        </div>
+      ) : null}
+
+      {removeCandidate ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) setRemoveCandidate(null) }}>
+          <section className="host-scan-modal__panel" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+            <h3 className="host-finish__confirm-title">Remove {removeCandidate.display_name}?</h3>
+            <p className="host-finish__confirm-copy">
+              They leave this session completely — local entry gone, online registration cancelled,
+              seat freed for the wait list. Money already taken stays on the ledger.
+            </p>
+            <footer className="host-scan-modal__footer">
+              <span className="host-scan-modal__total" />
+              <button type="button" className="host-scan-modal__cancel" disabled={busy} onClick={() => setRemoveCandidate(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="host-scan-modal__submit"
+                disabled={busy}
+                onClick={() => {
+                  const player = removeCandidate
+                  setRemoveCandidate(null)
+                  void seatAction(
+                    async () => {
+                      const next = await deskApi.removePlayer(sessionId, player.npl_id)
+                      notify("registration", `${player.display_name} removed`, "Kicked from the session — online registration cancelled.", "warning")
+                      return next
+                    },
+                    `${player.display_name} removed from the session.`,
+                  )
+                }}
+              >
+                {busy ? "Removing…" : "Remove player"}
+              </button>
+            </footer>
+          </section>
         </div>
       ) : null}
     </div>

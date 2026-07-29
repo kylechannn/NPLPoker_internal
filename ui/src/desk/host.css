@@ -855,6 +855,127 @@
 .host-desk__new { margin: 0; font-size: 0.85rem; color: var(--host-text-dim); }
 
 /* Free-entry voucher prompt: appears on scan when the cloud confirms one. */
+/* The desk clock strip (minimised mode) + full-screen mode dock. */
+.clock-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 12px;
+  border: 1px solid var(--host-line);
+  border-radius: 12px;
+  padding: 9px 14px;
+  background: var(--host-surface, #0a1626);
+}
+
+.clock-panel__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--npl-faint, #7e93b4);
+}
+
+.clock-panel--running .clock-panel__dot {
+  background: #5fe5c0;
+  box-shadow: 0 0 8px #5fe5c0;
+  animation: backend-link-breathe 2.4s ease-in-out infinite;
+}
+
+.clock-panel--paused .clock-panel__dot {
+  background: var(--npl-gold, #ffc53d);
+  box-shadow: 0 0 8px rgba(255, 197, 61, 0.6);
+}
+
+.clock-panel__level {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.clock-panel__level strong {
+  font-size: 0.88rem;
+}
+
+.clock-panel__level small {
+  color: var(--npl-faint, #7e93b4);
+  font-size: 0.74rem;
+}
+
+.clock-panel__time {
+  flex: 1;
+  font-family: var(--npl-font-mono, monospace);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--npl-gold-hot, #ffe08a);
+  letter-spacing: 0.05em;
+}
+
+.clock-panel__controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.clock-panel__btn,
+.clock-panel__start {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 9px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.clock-panel__btn {
+  border: 1px solid var(--host-line);
+  color: var(--npl-text, #e9f2ff);
+  background: transparent;
+}
+
+.clock-panel__btn--pause {
+  border-color: rgba(255, 197, 61, 0.5);
+  color: var(--npl-gold-hot, #ffe08a);
+}
+
+.clock-panel__start {
+  border: 1px solid rgba(95, 229, 192, 0.55);
+  color: #06251c;
+  background: linear-gradient(160deg, #7cf1cf, #2fbf96);
+}
+
+.clock-panel__finished {
+  color: var(--npl-faint, #7e93b4);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.clock-max {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  background: #01030a;
+}
+
+.clock-max > :first-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.clock-max__dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-top: 1px solid rgba(143, 169, 207, 0.16);
+  padding: 12px 16px;
+  background: rgba(2, 9, 22, 0.85);
+}
+
 /* Sessions hub — the Tournament tab's front door. */
 .host-hub {
   display: flex;
