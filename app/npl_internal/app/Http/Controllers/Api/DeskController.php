@@ -120,21 +120,123 @@ final class DeskController
             ->orderBy('start_time')
             ->limit(20)
             ->get()
-            ->map(fn (object $row): array => [
-                'session_id' => (int) $row->session_id,
-                'title' => $row->title,
-                'category' => $row->category,
-                'source_type' => $row->source_type,
-                'venue_id' => $row->venue_id !== null ? (int) $row->venue_id : null,
-                'venue_name' => $row->venue_name,
-                'session_date' => $row->session_date,
-                'start_time' => $row->start_time,
-                'registrations_count' => (int) $row->registrations_count,
-                'max_players' => $row->max_players !== null ? (int) $row->max_players : null,
-            ])
+            ->map(function (object $row): array {
+                // Live table count from the mirror, kept fresh by the
+                // realtime pull — the sessions hub leans on this number.
+                $tablesCount = (int) DB::table('mirror_session_tables')
+                    ->where('session_id', $row->session_id)
+                    ->where(fn ($query) => $query->whereNull('table_status')->orWhere('table_status', '!=', 'cancelled'))
+                    ->distinct()
+                    ->count('table_number');
+
+                // An already-opened local tournament for this session means
+                // "resume the desk", not "prepare again".
+                $local = DB::table('tournament_sessions')
+                    ->where('game_session_id', $row->session_id)
+                    ->orderByDesc('id')
+                    ->first(['id', 'status']);
+
+                return [
+                    'session_id' => (int) $row->session_id,
+                    'title' => $row->title,
+                    'category' => $row->category,
+                    'source_type' => $row->source_type,
+                    'venue_id' => $row->venue_id !== null ? (int) $row->venue_id : null,
+                    'venue_name' => $row->venue_name,
+                    'session_date' => $row->session_date,
+                    'start_time' => $row->start_time,
+                    'registrations_count' => (int) $row->registrations_count,
+                    'max_players' => $row->max_players !== null ? (int) $row->max_players : null,
+                    'tables_count' => $tablesCount,
+                    'local_tournament_id' => $local !== null ? (int) $local->id : null,
+                    'local_tournament_status' => $local?->status,
+                ];
+            })
             ->all();
 
         return $this->ok(['venue_id' => $venueId, 'sessions' => $sessions]);
+    }
+
+    /**
+     * The online roster for one cloud session, straight from the live
+     * mirror: seated players, wait-lists, and the table shapes.
+     */
+    public function sessionRoster(int $gameSessionId): JsonResponse
+    {
+        $rows = DB::table('mirror_session_tables')
+            ->where('session_id', $gameSessionId)
+            ->orderBy('table_number')
+            ->orderBy('seat_number')
+            ->get();
+
+        $tables = $rows
+            ->groupBy('table_number')
+            ->map(fn ($seats, $tableNumber): array => [
+                'table_number' => (int) $tableNumber,
+                'status' => optional($seats->first())->table_status,
+                'max_seats' => (int) (optional($seats->first())->max_seats ?? 8),
+                'players' => $seats
+                    ->filter(fn (object $seat): bool => $seat->player_npl_id !== null)
+                    ->map(fn (object $seat): array => [
+                        'npl_id' => (string) $seat->player_npl_id,
+                        'display_name' => $seat->player_display_name,
+                        'seat_number' => $seat->seat_number !== null ? (int) $seat->seat_number : null,
+                        'status' => $seat->registration_status,
+                        'waitlist_position' => $seat->waitlist_position !== null ? (int) $seat->waitlist_position : null,
+                    ])
+                    ->values()
+                    ->all(),
+            ])
+            ->values()
+            ->all();
+
+        return $this->ok(['session_id' => $gameSessionId, 'tables' => $tables]);
+    }
+
+    /** Cancel a cloud table — synchronous, then refresh the mirror. */
+    public function cancelCloudTable(int $gameSessionId, int $tableNumber): JsonResponse
+    {
+        return $this->cloudDeskCall(sprintf(
+            '/api/v1/internal/sessions/%d/tables/%d',
+            $gameSessionId,
+            $tableNumber,
+        ));
+    }
+
+    /** Remove a player's online registration — synchronous, then refresh. */
+    public function removeCloudRegistration(int $gameSessionId, string $nplId): JsonResponse
+    {
+        return $this->cloudDeskCall(sprintf(
+            '/api/v1/internal/sessions/%d/registrations/%s',
+            $gameSessionId,
+            rawurlencode($nplId),
+        ));
+    }
+
+    private function cloudDeskCall(string $path): JsonResponse
+    {
+        try {
+            $result = $this->cloud->deleteJson($path);
+        } catch (\App\Services\Cloud\CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => [
+                    'code' => $e->errorCode,
+                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                        ? 'The NPL cloud could not be reached — this change needs a connection. Try again when the link is green.'
+                        : $e->getMessage(),
+                ],
+            ], 502);
+        }
+
+        try {
+            $this->sync->syncEntity('seating');
+            $this->sync->syncEntity('game_sessions');
+        } catch (\Throwable) {
+            // The realtime signal will bring the mirror up to date anyway.
+        }
+
+        return $this->ok(['result' => $result['data'] ?? $result]);
     }
 
     /**

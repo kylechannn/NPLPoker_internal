@@ -87,6 +87,9 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::get('venues', 'venues');
     Route::get('dashboard', 'dashboard');
     Route::get('upcoming-sessions', 'upcomingSessions');
+    Route::get('sessions/{gameSessionId}/roster', 'sessionRoster')->whereNumber('gameSessionId');
+    Route::delete('sessions/{gameSessionId}/tables/{tableNumber}', 'cancelCloudTable')->whereNumber('gameSessionId')->whereNumber('tableNumber');
+    Route::delete('sessions/{gameSessionId}/registrations/{nplId}', 'removeCloudRegistration')->whereNumber('gameSessionId');
     Route::post('structure-preview', 'previewStructure');
 
     Route::post('{id}/scan', 'scan')->whereNumber('id');

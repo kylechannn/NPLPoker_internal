@@ -95,6 +95,21 @@ final class CloudClient
         return is_array($body) ? (array) ($body['data'] ?? []) : [];
     }
 
+    public function deleteJson(string $path): array
+    {
+        try {
+            $response = $this->base()->delete($this->url($path));
+        } catch (ConnectionException $e) {
+            throw new CloudException(CloudException::UNREACHABLE, 'Could not reach the NPL cloud: '.$e->getMessage(), null, $e);
+        }
+
+        $this->assertOk($response, $path);
+
+        $body = $response->json();
+
+        return is_array($body) ? (array) ($body['data'] ?? []) : [];
+    }
+
     /**
      * Stream a media file to disk with conditional headers. Returns null
      * when the cloud answers 304, so unchanged images are never re-fetched

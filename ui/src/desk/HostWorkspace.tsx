@@ -2,14 +2,14 @@ import { useState } from "react"
 import FinishGame from "./FinishGame"
 import HostDesk from "./HostDesk"
 import HostPreset from "./HostPreset"
+import SessionsHub from "./SessionsHub"
 import type { Venue } from "./deskApi"
 import "./host.css"
 
 /**
- * The Host tab: one night, four steps, and the stepper never disappears —
- * Preparation → Host → Playing → Finishing. Preparation renders its own
- * (richer) header; the desk and finishing screens share the compact bar
- * below so the staff always knows where the night stands.
+ * The Tournament tab, staged: the Sessions hub is the front door (tonight's
+ * cloud sessions with live counts), then Preparation → Host → Playing →
+ * Finishing with the stepper always visible once a night is underway.
  */
 
 export const HOST_STEPS = [
@@ -21,21 +21,41 @@ export const HOST_STEPS = [
 
 export default function HostWorkspace({ venue }: { venue: Venue | null }) {
   // A second station at the same desk can be pointed straight at the running
-  // session rather than being walked back through the preset screen.
+  // session rather than being walked back through the hub.
   const [sessionId, setSessionId] = useState<number | null>(() => {
     const requested = Number(new URLSearchParams(window.location.search).get("session"))
     return Number.isInteger(requested) && requested > 0 ? requested : null
   })
+  const [view, setView] = useState<"hub" | "prep">("hub")
+  const [prepLink, setPrepLink] = useState<number | null>(null)
   const [stage, setStage] = useState<"desk" | "finish">("desk")
   const [clockStatus, setClockStatus] = useState<string>("draft")
 
   if (sessionId === null) {
+    if (view === "prep") {
+      return (
+        <HostPreset
+          venue={venue}
+          initialLinkedSessionId={prepLink}
+          onBack={() => setView("hub")}
+          onOpened={(id) => {
+            setSessionId(id)
+            setStage("desk")
+          }}
+        />
+      )
+    }
+
     return (
-      <HostPreset
+      <SessionsHub
         venue={venue}
-        onOpened={(id) => {
-          setSessionId(id)
+        onOpenLocal={(localTournamentId) => {
+          setSessionId(localTournamentId)
           setStage("desk")
+        }}
+        onPrepare={(gameSessionId) => {
+          setPrepLink(gameSessionId)
+          setView("prep")
         }}
       />
     )
@@ -56,8 +76,10 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
               type="button"
               className="prep-steps__item"
               onClick={() => {
-                if (step.id === "prepare") setSessionId(null)
-                else if (step.id === "finish") setStage("finish")
+                if (step.id === "prepare") {
+                  setSessionId(null)
+                  setView("hub")
+                } else if (step.id === "finish") setStage("finish")
                 else setStage("desk")
               }}
             >
@@ -92,12 +114,16 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
           onFinished={() => {
             setStage("desk")
             setSessionId(null)
+            setView("hub")
           }}
         />
       ) : (
         <HostDesk
           sessionId={sessionId}
-          onExit={() => setSessionId(null)}
+          onExit={() => {
+            setSessionId(null)
+            setView("hub")
+          }}
           onClockStatus={setClockStatus}
           onFinishGame={() => setStage("finish")}
         />

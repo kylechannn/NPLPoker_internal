@@ -147,6 +147,24 @@ export type UpcomingSession = {
   start_time: string | null
   registrations_count: number
   max_players: number | null
+  tables_count: number
+  local_tournament_id: number | null
+  local_tournament_status: string | null
+}
+
+export type RosterPlayer = {
+  npl_id: string
+  display_name: string | null
+  seat_number: number | null
+  status: string | null
+  waitlist_position: number | null
+}
+
+export type RosterTable = {
+  table_number: number
+  status: string | null
+  max_seats: number
+  players: RosterPlayer[]
 }
 
 export type DeskVoucher = {
@@ -204,6 +222,21 @@ export const deskApi = {
       method: 'POST',
       body: JSON.stringify({ player_npl_id: nplId }),
     }),
+
+  /** Online roster for one cloud session, from the live mirror. */
+  sessionRoster: (gameSessionId: number) =>
+    request<{ session_id: number, tables: RosterTable[] }>(`/api/v1/desk/sessions/${gameSessionId}/roster`),
+
+  /** Cancel a cloud table (players get inbox notices, wait-lists resolve). */
+  cancelCloudTable: (gameSessionId: number, tableNumber: number) =>
+    request<{ result: Record<string, unknown> }>(`/api/v1/desk/sessions/${gameSessionId}/tables/${tableNumber}`, { method: 'DELETE' }),
+
+  /** Remove a player's online registration for a cloud session. */
+  removeCloudRegistration: (gameSessionId: number, nplId: string) =>
+    request<{ result: Record<string, unknown> }>(
+      `/api/v1/desk/sessions/${gameSessionId}/registrations/${encodeURIComponent(nplId)}`,
+      { method: 'DELETE' },
+    ),
 
   /** Finish the game: record top placements and push standings to the cloud. */
   finalise: (sessionId: number, placements: Array<{ npl_id: string, position: number }>) =>

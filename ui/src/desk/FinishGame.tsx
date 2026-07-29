@@ -24,6 +24,7 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
   const [busyRow, setBusyRow] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pushing, setPushing] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const [done, setDone] = useState<{ name: string, venue: string | null, pushed: boolean } | null>(null)
   const rowRefs = useRef<Array<HTMLInputElement | null>>([])
 
@@ -150,11 +151,40 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
           type="button"
           className="host-finish__submit"
           disabled={placedCount === 0 || pushing}
-          onClick={() => void finishGame()}
+          onClick={() => setConfirming(true)}
         >
           {pushing ? "Pushing to the NPL cloud…" : "Finish game"}
         </button>
       </footer>
+
+      {confirming ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => setConfirming(false)}>
+          <section className="host-scan-modal__panel" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+            <h3 className="host-finish__confirm-title">Finish this game?</h3>
+            <p className="host-finish__confirm-copy">
+              The top {placedCount} placement{placedCount === 1 ? "" : "s"} will be recorded and pushed to the
+              NPL cloud, and the session will be marked <strong>finished</strong>. Once finished there is
+              <strong> no turning back</strong> — check the ranks one more time.
+            </p>
+            <footer className="host-scan-modal__footer">
+              <span className="host-scan-modal__total" />
+              <button type="button" className="host-scan-modal__cancel" onClick={() => setConfirming(false)}>
+                Not yet
+              </button>
+              <button
+                type="button"
+                className="host-scan-modal__submit"
+                onClick={() => {
+                  setConfirming(false)
+                  void finishGame()
+                }}
+              >
+                Finish — no turning back
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {pushing && !done ? (
         <div className="host-finish__overlay" role="alert" aria-busy="true">

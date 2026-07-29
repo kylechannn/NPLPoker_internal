@@ -14,6 +14,10 @@ export const CUT_OFF_META: Record<CutOffKind, { label: string, short: string }> 
 type Props = {
   venue: Venue | null
   onOpened: (sessionId: number) => void
+  /** Cloud session chosen on the Sessions hub — pre-links the tournament. */
+  initialLinkedSessionId?: number | null
+  /** Back to the Sessions hub. */
+  onBack?: () => void
 }
 
 type Optional = number | ""
@@ -86,7 +90,7 @@ const STEPS: { id: "prepare" | "host" | "play" | "finish", label: string }[] = [
  * changing the price of a rebuy once players are in the room is not a
  * conversation anyone wants to have.
  */
-export default function HostPreset({ venue, onOpened }: Props) {
+export default function HostPreset({ venue, onOpened, initialLinkedSessionId = null, onBack }: Props) {
   const remembered = useMemo(rememberedSetup, [])
   const [form, setForm] = useState(remembered?.form ?? DEFAULTS)
   const [pattern, setPattern] = useState(remembered?.pattern ?? PATTERN)
@@ -129,9 +133,14 @@ export default function HostPreset({ venue, onOpened }: Props) {
         const tournaments = result.sessions.filter((session) => session.category !== "cash_game")
         setCloudSessions(tournaments)
 
-        const today = new Date().toISOString().slice(0, 10)
-        const tonight = tournaments.filter((session) => session.session_date === today)
-        setLinkedSessionId(tonight.length === 1 ? tonight[0].session_id : "")
+        // A hub choice wins; otherwise auto-pick the single session today.
+        if (initialLinkedSessionId !== null && tournaments.some((s) => s.session_id === initialLinkedSessionId)) {
+          setLinkedSessionId(initialLinkedSessionId)
+        } else {
+          const today = new Date().toISOString().slice(0, 10)
+          const tonight = tournaments.filter((session) => session.session_date === today)
+          setLinkedSessionId(tonight.length === 1 ? tonight[0].session_id : "")
+        }
       })
       .catch(() => {
         if (!cancelled) setCloudSessions([])
@@ -140,7 +149,7 @@ export default function HostPreset({ venue, onOpened }: Props) {
     return () => {
       cancelled = true
     }
-  }, [venue])
+  }, [venue, initialLinkedSessionId])
 
   const progressPercent = ((currentStepIndex + 1) / STEPS.length) * 100
 
@@ -360,6 +369,9 @@ export default function HostPreset({ venue, onOpened }: Props) {
     <div className="prep">
       <div className="prep__container">
         <div className="prep__top">
+          {onBack ? (
+            <button type="button" className="prep-back" onClick={onBack}>‹ All sessions</button>
+          ) : null}
           <div className="prep-steps">
             {STEPS.map((step, index) => {
               const active = index === currentStepIndex
