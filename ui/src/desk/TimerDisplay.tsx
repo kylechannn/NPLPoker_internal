@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, X } from "lucide-react"
 import { countdown, deskApi, type Gates, type Seating } from "./deskApi"
 import "./timer.css"
 
@@ -33,6 +34,10 @@ type Summary = {
 const SYNC_MS = 5000
 const TICK_MS = 250
 
+/** The popup's native chrome is stripped by the Go host, keyed on this
+ *  exact title — keep them in sync with desktop_windows.go. */
+const WINDOW_TITLE = "NPL Room Clock"
+
 /** A short two-tone chime on level change; deeper pair for a break. */
 function chime(isBreak: boolean) {
   try {
@@ -60,12 +65,12 @@ function chime(isBreak: boolean) {
 /**
  * The room display: the clock as everyone at the tables reads it.
  *
- * Opened as its own window so it can live on a projector or a second screen
- * while the desk keeps working. The look mirrors the Sichuan room clock in
- * EdgeHost — a compact white card when minimised, the dark full-room panels
- * when maximised — but the time underneath is server-authoritative: every
- * window derives the same countdown from the same timestamps, so opening a
- * second display is free and a reload changes nothing.
+ * Opened with window.open so it owns a real window: minimise shrinks it
+ * into a mini clock widget, maximise takes the projector fullscreen.
+ * The Go host removes the system title bar, so the page draws its own —
+ * the strip at the top drags the window and the ✕ closes it. The clock
+ * itself is server-authoritative: every window derives the same
+ * countdown from the same timestamps, so a reload changes nothing.
  */
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
@@ -74,18 +79,17 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  // Two layouts, one clock: "max" is the full room display, "mini" a
-  // compact card. Maximising also takes the window fullscreen, the way
-  // the Sichuan clock claims the whole screen; minimising releases it.
   const [mode, setMode] = useState<"max" | "mini">("max")
-  // Sichuan's Zoom: hide everything but blind + time, oversized.
-  const [zoomed, setZoomed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   // Level-change cue, the way the mahjong room clock announces a new
   // round: a short flash and a two-tone chime.
   const [levelFlash, setLevelFlash] = useState(false)
   const prevLevelRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    document.title = WINDOW_TITLE
+  }, [])
 
   useEffect(() => {
     const levelNo = clock?.current_level?.level_no ?? null
@@ -104,10 +108,6 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   useEffect(() => {
     prevLevelRef.current = clock?.current_level?.level_no ?? prevLevelRef.current
   }, [clock?.current_level?.level_no])
-
-  useEffect(() => {
-    if (mode !== "max") setZoomed(false)
-  }, [mode])
 
   useEffect(() => {
     let cancelled = false
@@ -184,6 +184,31 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     }
   }
 
+  // The frameless window's drag handle. moveBy is permitted for
+  // script-opened popups; screen coordinates keep the deltas stable
+  // while the window itself is moving under the pointer.
+  function startTitleDrag(event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0) return
+    if ((event.target as HTMLElement).closest("button")) return
+    if (document.fullscreenElement) return
+
+    let lastX = event.screenX
+    let lastY = event.screenY
+
+    const move = (ev: PointerEvent) => {
+      window.moveBy(ev.screenX - lastX, ev.screenY - lastY)
+      lastX = ev.screenX
+      lastY = ev.screenY
+    }
+    const up = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+    }
+
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+  }
+
   // Ticks locally between syncs so the seconds move smoothly; every sync
   // re-bases against the server, so drift never accumulates.
   useEffect(() => {
@@ -199,10 +224,15 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const urgent = clock?.running === true && remaining <= 60_000
   const paused = clock?.status === "paused"
   const level = clock?.current_level ?? null
+  const isBreak = level?.is_break === true
 
-  const levelLabel = `Level ${level?.level_no ?? "—"} / ${clock?.level_count ?? "—"}`
-  const blindLabel = level?.is_break
-    ? (level.note || "Break")
+  const progress = useMemo(() => {
+    if (!clock || clock.level_duration_ms <= 0) return 0
+    return Math.min(100, Math.max(0, (1 - remaining / clock.level_duration_ms) * 100))
+  }, [clock, remaining])
+
+  const blindLabel = isBreak
+    ? (level?.note || "Break")
     : `${(level?.small_blind ?? 0).toLocaleString()} / ${(level?.big_blind ?? 0).toLocaleString()}`
   const nextLabel = clock?.next_level
     ? (clock.next_level.is_break
@@ -210,171 +240,168 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         : `${clock.next_level.small_blind.toLocaleString()} / ${clock.next_level.big_blind.toLocaleString()}`)
     : "Final level"
 
+  const tone = paused ? "paused" : isBreak ? "break" : clock?.running ? "live" : "idle"
+  const stateClasses = [
+    paused ? " rc--paused" : "",
+    urgent && !paused ? " rc--urgent" : "",
+    isBreak ? " rc--break" : "",
+    levelFlash ? " rc--flash" : "",
+  ].join("")
+
   if (error && !clock) {
     return (
-      <div className="spkt-errorpage">
-        <p>{error}</p>
+      <div className="rc rc--mini rc--error">
+        <header className="rc-titlebar" onPointerDown={startTitleDrag}>
+          <span className="rc-dot rc-dot--idle" />
+          <span className="rc-titlebar__label">Room Clock</span>
+          <span className="rc-titlebar__spacer" />
+          <button type="button" className="rc-winbtn rc-winbtn--close" title="Close" onClick={() => window.close()}>
+            <X size={15} strokeWidth={2.2} />
+          </button>
+        </header>
+        <div className="rc-errorbody">
+          <p>{error}</p>
+        </div>
       </div>
     )
   }
 
-  const startPause = clock?.status === "draft" || !clock ? (
-    <button type="button" className="spkt-runbtn spkt-runbtn--start" disabled={busy || !clock} onClick={() => void control("start")}>
-      Start
-    </button>
-  ) : clock.status === "finished" ? (
-    <span className="spkt-chip spkt-chip--done">Finished</span>
-  ) : clock.running ? (
-    <button type="button" className="spkt-runbtn spkt-runbtn--pause" disabled={busy} onClick={() => void control("pause")}>
-      Pause
-    </button>
-  ) : (
-    <button type="button" className="spkt-runbtn spkt-runbtn--start" disabled={busy} onClick={() => void control("resume")}>
-      Resume
-    </button>
+  const titlebar = (
+    <header className="rc-titlebar" onPointerDown={startTitleDrag} onDoubleClick={() => void toggleMode()}>
+      <span className={`rc-dot rc-dot--${tone}`} />
+      <span className="rc-titlebar__label">
+        {mode === "max" ? (clock?.name ?? "Room Clock") : "Room Clock"}
+      </span>
+      {mode === "max" && clock?.venue_name ? (
+        <span className="rc-titlebar__venue">{clock.venue_name}</span>
+      ) : null}
+      <span className="rc-titlebar__spacer" />
+      <button
+        type="button"
+        className="rc-winbtn"
+        title={mode === "max" ? "Minimise into a mini clock" : "Maximise to fullscreen"}
+        onClick={() => void toggleMode()}
+      >
+        {mode === "max" ? <Minimize2 size={14} strokeWidth={2} /> : <Maximize2 size={14} strokeWidth={2} />}
+      </button>
+      <button type="button" className="rc-winbtn rc-winbtn--close" title="Close the display" onClick={() => window.close()}>
+        <X size={15} strokeWidth={2.2} />
+      </button>
+    </header>
   )
 
-  const canStep = !!clock && clock.status !== "draft" && clock.status !== "finished"
+  const dock = (
+    <div className="rc-dock" role="group" aria-label="Clock controls">
+      {clock?.status === "draft" || !clock ? (
+        <button type="button" className="rc-btn rc-btn--run rc-btn--go" disabled={busy || !clock} onClick={() => void control("start")}>
+          <Play size={15} strokeWidth={2.4} /> Start
+        </button>
+      ) : clock.status === "finished" ? (
+        <span className="rc-done">Finished</span>
+      ) : (
+        <>
+          <button type="button" className="rc-btn" disabled={busy} title="Previous level" onClick={() => void control("prev")}>
+            <ChevronLeft size={17} strokeWidth={2.2} />
+          </button>
+          {clock.running ? (
+            <button type="button" className="rc-btn rc-btn--run rc-btn--hold" disabled={busy} onClick={() => void control("pause")}>
+              <Pause size={15} strokeWidth={2.4} /> Pause
+            </button>
+          ) : (
+            <button type="button" className="rc-btn rc-btn--run rc-btn--go" disabled={busy} onClick={() => void control("resume")}>
+              <Play size={15} strokeWidth={2.4} /> Resume
+            </button>
+          )}
+          <button type="button" className="rc-btn" disabled={busy} title="Next level" onClick={() => void control("next")}>
+            <ChevronRight size={17} strokeWidth={2.2} />
+          </button>
+        </>
+      )}
+    </div>
+  )
+
+  const statusChip = paused ? (
+    <span className="rc-chip rc-chip--paused">Paused</span>
+  ) : clock?.status === "draft" ? (
+    <span className="rc-chip rc-chip--idle">Ready</span>
+  ) : clock?.status === "finished" ? (
+    <span className="rc-chip rc-chip--idle">Finished</span>
+  ) : isBreak ? (
+    <span className="rc-chip rc-chip--break">Break</span>
+  ) : (
+    <span className="rc-chip">Level {level?.level_no ?? "—"} <em>/ {clock?.level_count ?? "—"}</em></span>
+  )
 
   if (mode === "mini") {
     return (
-      <div className="spkt-mini">
-        <div className={`spkt-card${levelFlash ? " spkt-flash" : ""}`}>
-          <div className="spkt-card__top">
-            <button
-              type="button"
-              className="spkt-modebtn spkt-modebtn--light"
-              title="Maximise the display — the clock keeps running"
-              onClick={toggleMode}
-            >
-              Maximise
-            </button>
-          </div>
+      <div className={`rc rc--mini${stateClasses}`}>
+        {titlebar}
 
-          <div className="spkt-card__body">
-            <span className="spkt-label">Current Blind</span>
-            <span className="spkt-levelchip">
-              <strong>Level</strong> {level?.level_no ?? "—"} <em>/ {clock?.level_count ?? "—"}</em>
-            </span>
-            <span className={`spkt-card__blind${level?.is_break ? " spkt-break" : ""}`}>
-              {blindLabel}
-              {!level?.is_break && level && level.bb_ante > 0 ? ` (${level.bb_ante.toLocaleString()})` : ""}
-            </span>
-            <span className="spkt-label spkt-label--gap">Time Remaining</span>
-            <span className="spkt-card__clock">{countdown(remaining)}</span>
-            {paused ? <span className="spkt-warnchip">Paused</span> : null}
-          </div>
-
-          <div className="spkt-card__foot">
-            {canStep ? (
-              <>
-                <button type="button" className="spkt-stepbtn" disabled={busy} title="Previous level" onClick={() => void control("prev")}>‹</button>
-                <button type="button" className="spkt-stepbtn" disabled={busy} title="Next level" onClick={() => void control("next")}>›</button>
-              </>
-            ) : null}
-            {startPause}
-          </div>
-
-          {error ? <p className="spkt-stale">{error}</p> : null}
+        <div className="rc-mini__body">
+          {statusChip}
+          <span className="rc-count rc-count--mini">{countdown(remaining)}</span>
+          <span className="rc-blinds rc-blinds--mini">{blindLabel}</span>
+          {!isBreak && level && level.bb_ante > 0 ? (
+            <span className="rc-ante">ante {level.bb_ante.toLocaleString()}</span>
+          ) : null}
+          <span className="rc-next">Next · {nextLabel}</span>
         </div>
+
+        {dock}
+
+        {error ? <p className="rc-stale">{error}</p> : null}
       </div>
     )
   }
 
   return (
-    <div className={`spkt-full${levelFlash ? " spkt-flash" : ""}`}>
-      <div className="spkt-full__inner">
-        <div className="spkt-full__top">
-          <button
-            type="button"
-            className="spkt-modebtn spkt-modebtn--dark"
-            title="Minimise the display — the clock keeps running"
-            onClick={toggleMode}
-          >
-            Minimise
-          </button>
+    <div className={`rc rc--max${stateClasses}`}>
+      {titlebar}
+
+      <main className="rc-max__main">
+        {statusChip}
+        <span className="rc-count rc-count--max">{countdown(remaining)}</span>
+        <div className="rc-progress" aria-hidden="true">
+          <span style={{ width: `${progress}%` }} />
         </div>
+        <span className="rc-blinds rc-blinds--max">{blindLabel}</span>
+        {!isBreak && level && level.bb_ante > 0 ? (
+          <span className="rc-ante rc-ante--max">ante {level.bb_ante.toLocaleString()}</span>
+        ) : null}
+      </main>
 
-        <div className="spkt-full__bar">
-          <div className="spkt-full__bar-side">
-            <span className="spkt-full__title">{clock?.name ?? "Tournament"}</span>
-            {clock?.venue_name ? <span className="spkt-chip">{clock.venue_name}</span> : null}
-            <span className="spkt-chip">{level?.is_break ? "Break" : levelLabel}</span>
-          </div>
-          <div className="spkt-full__bar-side spkt-full__bar-side--end">
-            <span className="spkt-chip">Next: {nextLabel}</span>
-            {startPause}
-          </div>
+      {dock}
+
+      <footer className="rc-max__stats">
+        <div className="rc-stat">
+          <span>Next</span>
+          <strong>{nextLabel}</strong>
         </div>
-
-        <div className="spkt-full__center">
-          <div className={`spkt-panel spkt-panel--main${zoomed ? " spkt-panel--zoomed" : ""}`}>
-            <button
-              type="button"
-              className="spkt-zoombtn"
-              title={zoomed ? "Back to the normal full timer" : "Zoom blind and timer"}
-              onClick={() => setZoomed((z) => !z)}
-            >
-              {zoomed ? "Unzoom" : "Zoom"}
-            </button>
-
-            <span className="spkt-label spkt-label--dark">Current Blind</span>
-            <span className={`spkt-panel__blind${level?.is_break ? " spkt-break" : ""}`}>{blindLabel}</span>
-            <span className="spkt-panel__meta">
-              {levelLabel}
-              {!level?.is_break && level && level.bb_ante > 0 ? ` · Ante ${level.bb_ante.toLocaleString()}` : ""}
-            </span>
-            <span className="spkt-label spkt-label--dark spkt-label--gap">Time Remaining</span>
-            <span className="spkt-panel__clock">{countdown(remaining)}</span>
-            {paused ? (
-              <span className="spkt-warnchip"><i />Paused — the clock is stopped</span>
-            ) : urgent ? (
-              <span className="spkt-warnchip"><i />Less than 60 seconds</span>
-            ) : null}
-          </div>
-
-          {!zoomed ? (
-            <div className="spkt-panel spkt-panel--next">
-              <span className="spkt-label spkt-label--dark">Next</span>
-              <span className="spkt-panel__next">{nextLabel}</span>
-              {canStep ? (
-                <div className="spkt-panel__nav">
-                  <button type="button" className="spkt-navbtn" disabled={busy} onClick={() => void control("prev")}>Prev</button>
-                  <button type="button" className="spkt-navbtn" disabled={busy} onClick={() => void control("next")}>Next</button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+        <div className="rc-stat">
+          <span>Players</span>
+          <strong>
+            {summary.active_players ?? "—"}
+            {summary.total_players ? <em> / {summary.total_players}</em> : null}
+          </strong>
         </div>
-
-        <div className="spkt-stats">
-          <div className="spkt-stat">
-            <span>Total Players</span>
-            <strong>{summary.total_players?.toLocaleString() ?? "—"}</strong>
-          </div>
-          <div className="spkt-stat">
-            <span>Active Players</span>
-            <strong>{summary.active_players?.toLocaleString() ?? "—"}</strong>
-          </div>
-          <div className="spkt-stat">
-            <span>Avg Stack</span>
-            <strong>{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</strong>
-          </div>
-          {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
-            <div className="spkt-stat">
-              <span>Reg Closes</span>
-              <strong>{countdown(Math.max(0, gates.registration.closes_in_ms - elapsed))}</strong>
-            </div>
-          ) : gates && !gates.registration.open ? (
-            <div className="spkt-stat spkt-stat--shut">
-              <span>Registration</span>
-              <strong>Closed</strong>
-            </div>
-          ) : null}
+        <div className="rc-stat">
+          <span>Avg stack</span>
+          <strong>{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</strong>
         </div>
+        {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
+          <div className="rc-stat rc-stat--gate">
+            <span>Reg closes</span>
+            <strong>{countdown(Math.max(0, gates.registration.closes_in_ms - elapsed))}</strong>
+          </div>
+        ) : gates && !gates.registration.open ? (
+          <div className="rc-stat rc-stat--shut">
+            <span>Registration</span>
+            <strong>Closed</strong>
+          </div>
+        ) : null}
+      </footer>
 
-        {error ? <p className="spkt-stale spkt-stale--dark">{error}</p> : null}
-      </div>
+      {error ? <p className="rc-stale">{error}</p> : null}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 	"unsafe"
 
 	wv "github.com/jchv/go-webview2"
@@ -26,6 +27,7 @@ var (
 	isZoomed              = user32.NewProc("IsZoomed")
 	releaseCapture        = user32.NewProc("ReleaseCapture")
 	sendMessageW          = user32.NewProc("SendMessageW")
+	findWindowExW         = user32.NewProc("FindWindowExW")
 )
 
 const (
@@ -84,8 +86,43 @@ func runDesktopWindow(target string) error {
 
 	window.Init("window.__NPL_DESKTOP__ = true;")
 	window.Navigate(target)
+	watchRoomClockWindows()
 	window.Run()
 	return nil
+}
+
+// The room-clock page titles itself exactly this — keep in sync with
+// TimerDisplay.tsx.
+const roomClockWindowTitle = "NPL Room Clock"
+
+// watchRoomClockWindows re-frames room-clock popups. WebView2 opens
+// window.open windows with the stock system caption; the page draws its
+// own title bar, so the system one comes off — same treatment as the
+// main window, found by the popup's fixed title.
+func watchRoomClockWindows() {
+	titlePtr, err := syscall.UTF16PtrFromString(roomClockWindowTitle)
+	if err != nil {
+		return
+	}
+
+	go func() {
+		for {
+			var hwnd uintptr
+			for {
+				found, _, _ := findWindowExW.Call(0, hwnd, 0, uintptr(unsafe.Pointer(titlePtr)))
+				if found == 0 {
+					break
+				}
+				hwnd = found
+
+				style, _, _ := getWindowLongPtrW.Call(hwnd, windowStyleIndex)
+				if style&windowStyleCaption != 0 {
+					applyDesktopWindowStyle(hwnd)
+				}
+			}
+			time.Sleep(700 * time.Millisecond)
+		}
+	}()
 }
 
 func bindDesktopWindowControls(window wv.WebView, hwnd uintptr) error {
