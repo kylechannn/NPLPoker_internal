@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Copy, Minus, Pause, Play, Square, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Copy, Minus, Square, X } from "lucide-react"
 import { countdown, deskApi, type Gates, type Seating } from "./deskApi"
 import "./timer.css"
 
@@ -65,12 +65,12 @@ function chime(isBreak: boolean) {
 /**
  * The room display: the clock as everyone at the tables reads it.
  *
- * Opened with window.open so it owns a real window: minimise shrinks it
- * into a mini clock widget, maximise takes the projector fullscreen.
- * The Go host removes the system title bar, so the page draws its own —
- * the strip at the top drags the window and the ✕ closes it. The clock
- * itself is server-authoritative: every window derives the same
- * countdown from the same timestamps, so a reload changes nothing.
+ * The window is built by the Go host (chrome-less, movable by the strip
+ * at the top); the face below the title bar is the Sichuan clock from
+ * EdgeHost, poker data in its slots: the compact white card when
+ * minimised, the photo-backed slate panels when maximised. The clock is
+ * server-authoritative — every window derives the same countdown from
+ * the same timestamps, so a reload changes nothing.
  */
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
@@ -80,6 +80,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [now, setNow] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<"max" | "mini">("max")
+  // Sichuan's Zoom: hide everything but blind + time, oversized.
+  const [zoomed, setZoomed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   // Level-change cue, the way the mahjong room clock announces a new
@@ -90,6 +92,10 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   useEffect(() => {
     document.title = WINDOW_TITLE
   }, [])
+
+  useEffect(() => {
+    if (mode !== "max") setZoomed(false)
+  }, [mode])
 
   useEffect(() => {
     const levelNo = clock?.current_level?.level_no ?? null
@@ -243,11 +249,6 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const level = clock?.current_level ?? null
   const isBreak = level?.is_break === true
 
-  const progress = useMemo(() => {
-    if (!clock || clock.level_duration_ms <= 0) return 0
-    return Math.min(100, Math.max(0, (1 - remaining / clock.level_duration_ms) * 100))
-  }, [clock, remaining])
-
   const blindLabel = isBreak
     ? (level?.note || "Break")
     : `${(level?.small_blind ?? 0).toLocaleString()} / ${(level?.big_blind ?? 0).toLocaleString()}`
@@ -258,45 +259,19 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     : "Final level"
 
   const tone = paused ? "paused" : isBreak ? "break" : clock?.running ? "live" : "idle"
-  const stateClasses = [
-    paused ? " rc--paused" : "",
-    urgent && !paused ? " rc--urgent" : "",
-    isBreak ? " rc--break" : "",
-    levelFlash ? " rc--flash" : "",
-  ].join("")
 
-  if (error && !clock) {
-    return (
-      <div className="rc rc--mini rc--error">
-        <header className="rc-titlebar" onPointerDown={startTitleDrag}>
-          <span className="rc-dot rc-dot--idle" />
-          <span className="rc-titlebar__label">Room Clock</span>
-          <span className="rc-titlebar__spacer" />
-          {window.nplWindowMinimize ? (
-            <button
-              type="button"
-              className="rc-winbtn"
-              title="Hide the clock"
-              aria-label="Minimize window"
-              onClick={() => void window.nplWindowMinimize?.()}
-            >
-              <Minus size={15} strokeWidth={1.7} />
-            </button>
-          ) : null}
-          <button type="button" className="rc-winbtn rc-winbtn--close" title="Close" aria-label="Close window" onClick={closeWindow}>
-            <span><X size={16} strokeWidth={2.2} /></span>
-          </button>
-        </header>
-        <div className="rc-errorbody">
-          <p>{error}</p>
-        </div>
-      </div>
-    )
-  }
+  // Sichuan's one run button, with poker's third state: Start when the
+  // clock has never run, Pause while it runs, Resume after a pause.
+  const run = clock?.status === "finished"
+    ? null
+    : !clock || clock.status === "draft"
+      ? { label: "Start", action: "start" as const, go: true }
+      : clock.running
+        ? { label: "Pause", action: "pause" as const, go: false }
+        : { label: "Resume", action: "resume" as const, go: true }
 
-  // The window's real title bar: — hides the window, the square drives
-  // the layout (restore = mini clock, maximise = fullscreen display),
-  // the red cross closes. Same glyphs and styling as the OS shell.
+  const canStep = !!clock && clock.status !== "draft" && clock.status !== "finished"
+
   const titlebar = (
     <header className="rc-titlebar" onPointerDown={startTitleDrag} onDoubleClick={() => void toggleMode()}>
       <span className={`rc-dot rc-dot--${tone}`} />
@@ -333,116 +308,171 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     </header>
   )
 
-  const dock = (
-    <div className="rc-dock" role="group" aria-label="Clock controls">
-      {clock?.status === "draft" || !clock ? (
-        <button type="button" className="rc-btn rc-btn--run rc-btn--go" disabled={busy || !clock} onClick={() => void control("start")}>
-          <Play size={15} strokeWidth={2.4} /> Start
-        </button>
-      ) : clock.status === "finished" ? (
-        <span className="rc-done">Finished</span>
-      ) : (
-        <>
-          <button type="button" className="rc-btn" disabled={busy} title="Previous level" onClick={() => void control("prev")}>
-            <ChevronLeft size={17} strokeWidth={2.2} />
-          </button>
-          {clock.running ? (
-            <button type="button" className="rc-btn rc-btn--run rc-btn--hold" disabled={busy} onClick={() => void control("pause")}>
-              <Pause size={15} strokeWidth={2.4} /> Pause
-            </button>
-          ) : (
-            <button type="button" className="rc-btn rc-btn--run rc-btn--go" disabled={busy} onClick={() => void control("resume")}>
-              <Play size={15} strokeWidth={2.4} /> Resume
-            </button>
-          )}
-          <button type="button" className="rc-btn" disabled={busy} title="Next level" onClick={() => void control("next")}>
-            <ChevronRight size={17} strokeWidth={2.2} />
-          </button>
-        </>
-      )}
-    </div>
-  )
-
-  const statusChip = paused ? (
-    <span className="rc-chip rc-chip--paused">Paused</span>
-  ) : clock?.status === "draft" ? (
-    <span className="rc-chip rc-chip--idle">Ready</span>
-  ) : clock?.status === "finished" ? (
-    <span className="rc-chip rc-chip--idle">Finished</span>
-  ) : isBreak ? (
-    <span className="rc-chip rc-chip--break">Break</span>
-  ) : (
-    <span className="rc-chip">Level {level?.level_no ?? "—"} <em>/ {clock?.level_count ?? "—"}</em></span>
-  )
+  if (error && !clock) {
+    return (
+      <div className="rc rc--error">
+        {titlebar}
+        <div className="rc-errorbody">
+          <p>{error}</p>
+        </div>
+      </div>
+    )
+  }
 
   if (mode === "mini") {
     return (
-      <div className={`rc rc--mini${stateClasses}`}>
+      <div className={`rc rc--sichuan${levelFlash ? " rc--flash" : ""}`}>
         {titlebar}
 
-        <div className="rc-mini__body">
-          {statusChip}
-          <span className="rc-count rc-count--mini">{countdown(remaining)}</span>
-          <span className="rc-blinds rc-blinds--mini">{blindLabel}</span>
-          {!isBreak && level && level.bb_ante > 0 ? (
-            <span className="rc-ante">ante {level.bb_ante.toLocaleString()}</span>
-          ) : null}
-          <span className="rc-next">Next · {nextLabel}</span>
+        <div className="scm-page">
+          <div className="scm-card">
+            <div className="scm-body">
+              <div className="scm-label">Current Blind</div>
+
+              <div className="scm-levelpill">
+                <strong>Level</strong>
+                <span className="scm-levelpill__num">{level?.level_no ?? "—"}</span>
+                <em>/</em>
+                <span className="scm-levelpill__total">{clock?.level_count ?? "—"}</span>
+              </div>
+
+              <div className="scm-blind">
+                {blindLabel}
+                {!isBreak && level && level.bb_ante > 0 ? ` (${level.bb_ante.toLocaleString()})` : ""}
+              </div>
+
+              <div className="scm-label scm-label--gap">Time Remaining</div>
+              <div className="scm-clock">{countdown(remaining)}</div>
+            </div>
+
+            <div className="scm-foot">
+              {canStep ? (
+                <>
+                  <button type="button" className="scm-pill scm-pill--ghost" disabled={busy} title="Previous level" onClick={() => void control("prev")}>‹</button>
+                  <button type="button" className="scm-pill scm-pill--ghost" disabled={busy} title="Next level" onClick={() => void control("next")}>›</button>
+                </>
+              ) : null}
+              {run ? (
+                <button
+                  type="button"
+                  className={`scm-pill${run.go ? " scm-pill--go" : ""}`}
+                  disabled={busy || !clock}
+                  onClick={() => void control(run.action)}
+                >
+                  {run.label}
+                </button>
+              ) : (
+                <span className="scm-finished">Finished</span>
+              )}
+            </div>
+          </div>
         </div>
 
-        {dock}
-
-        {error ? <p className="rc-stale">{error}</p> : null}
+        {error ? <p className="rc-stale rc-stale--light">{error}</p> : null}
       </div>
     )
   }
 
   return (
-    <div className={`rc rc--max${stateClasses}`}>
+    <div className={`rc rc--sichuan${levelFlash ? " rc--flash" : ""}`}>
       {titlebar}
 
-      <main className="rc-max__main">
-        {statusChip}
-        <span className="rc-count rc-count--max">{countdown(remaining)}</span>
-        <div className="rc-progress" aria-hidden="true">
-          <span style={{ width: `${progress}%` }} />
-        </div>
-        <span className="rc-blinds rc-blinds--max">{blindLabel}</span>
-        {!isBreak && level && level.bb_ante > 0 ? (
-          <span className="rc-ante rc-ante--max">ante {level.bb_ante.toLocaleString()}</span>
-        ) : null}
-      </main>
+      <div className="scx-page">
+        <div className="scx-stage">
+          <div className="scx-bg" aria-hidden="true" />
+          <div className="scx-scrim" aria-hidden="true" />
 
-      {dock}
+          <div className="scx-content">
+            <div className="scx-head">
+              <div className="scx-head__side">
+                <div className="scx-title">{clock?.name ?? "Tournament"}</div>
+                <span className="scx-chip">Level {level?.level_no ?? "—"} / {clock?.level_count ?? "—"}</span>
+              </div>
+              <div className="scx-head__side scx-head__side--end">
+                <span className="scx-chip">Next: {nextLabel}</span>
+                {run ? (
+                  <button
+                    type="button"
+                    className={`scx-run${run.go ? " scx-run--go" : ""}`}
+                    disabled={busy || !clock}
+                    onClick={() => void control(run.action)}
+                  >
+                    {run.label}
+                  </button>
+                ) : (
+                  <span className="scx-chip">Finished</span>
+                )}
+              </div>
+            </div>
 
-      <footer className="rc-max__stats">
-        <div className="rc-stat">
-          <span>Next</span>
-          <strong>{nextLabel}</strong>
-        </div>
-        <div className="rc-stat">
-          <span>Players</span>
-          <strong>
-            {summary.active_players ?? "—"}
-            {summary.total_players ? <em> / {summary.total_players}</em> : null}
-          </strong>
-        </div>
-        <div className="rc-stat">
-          <span>Avg stack</span>
-          <strong>{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</strong>
-        </div>
-        {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
-          <div className="rc-stat rc-stat--gate">
-            <span>Reg closes</span>
-            <strong>{countdown(Math.max(0, gates.registration.closes_in_ms - elapsed))}</strong>
+            <div className="scx-center">
+              <div className={`scx-panel${zoomed ? " scx-panel--zoomed" : ""}`}>
+                <button
+                  type="button"
+                  className="scx-zoom"
+                  title={zoomed ? "Back to the normal full timer" : "Zoom blind and timer"}
+                  onClick={() => setZoomed((z) => !z)}
+                >
+                  {zoomed ? "Unzoom" : "Zoom"}
+                </button>
+
+                <div className="scx-plabel">Current Blind</div>
+                <div className="scx-blind">{blindLabel}</div>
+                <div className="scx-meta">
+                  Level {level?.level_no ?? "—"} / {clock?.level_count ?? "—"}
+                  {!isBreak && level && level.bb_ante > 0 ? ` · Ante ${level.bb_ante.toLocaleString()}` : ""}
+                </div>
+                <div className="scx-plabel scx-plabel--gap">Time Remaining</div>
+                <div className="scx-clock">{countdown(remaining)}</div>
+                {paused ? (
+                  <div className="scx-warn"><i />Paused</div>
+                ) : urgent ? (
+                  <div className="scx-warn"><i />Less than 60 seconds</div>
+                ) : null}
+              </div>
+
+              {!zoomed ? (
+                <div className="scx-panel scx-panel--next">
+                  <div className="scx-plabel">Next</div>
+                  <div className="scx-next">{nextLabel}</div>
+                  {canStep ? (
+                    <div className="scx-nav">
+                      <button type="button" disabled={busy} onClick={() => void control("prev")}>Prev</button>
+                      <button type="button" disabled={busy} onClick={() => void control("next")}>Next</button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="scx-stats">
+              <div className="scx-stat">
+                <div className="scx-stat__label">Total Players</div>
+                <div className="scx-stat__value">{summary.total_players?.toLocaleString() ?? "—"}</div>
+              </div>
+              <div className="scx-stat">
+                <div className="scx-stat__label">Active Players</div>
+                <div className="scx-stat__value">{summary.active_players?.toLocaleString() ?? "—"}</div>
+              </div>
+              <div className="scx-stat">
+                <div className="scx-stat__label">Avg Stack</div>
+                <div className="scx-stat__value">{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</div>
+              </div>
+              {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
+                <div className="scx-stat">
+                  <div className="scx-stat__label">Reg Closes</div>
+                  <div className="scx-stat__value">{countdown(Math.max(0, gates.registration.closes_in_ms - elapsed))}</div>
+                </div>
+              ) : gates && !gates.registration.open ? (
+                <div className="scx-stat">
+                  <div className="scx-stat__label">Registration</div>
+                  <div className="scx-stat__value">Closed</div>
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : gates && !gates.registration.open ? (
-          <div className="rc-stat rc-stat--shut">
-            <span>Registration</span>
-            <strong>Closed</strong>
-          </div>
-        ) : null}
-      </footer>
+        </div>
+      </div>
 
       {error ? <p className="rc-stale">{error}</p> : null}
     </div>

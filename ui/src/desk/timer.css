@@ -1,7 +1,11 @@
-/* Room clock, in the NPL OS design language. Two faces of one window:
-   a mini clock widget (420×560, custom title bar, draggable) and the
-   fullscreen room display. The Go host strips the system chrome, so
-   the .rc-titlebar strip is the window's real title bar. */
+/* Room clock. The title bar strip is NPL OS chrome (the Go host builds
+   the window with no system frame); everything below it is the Sichuan
+   clock design from EdgeHost, translated from its Tailwind classes to
+   plain CSS with poker data in the slots. Values are in px so the look
+   matches EdgeHost exactly despite this app's 18px root font.
+
+   scm-* = the minimised compact white card (Sichuan compactView)
+   scx-* = the maximised photo-backed display (Sichuan fullView) */
 
 .rc {
   --rc-ease: cubic-bezier(0.23, 1, 0.32, 1);
@@ -10,6 +14,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: #020617;
   color: var(--npl-text);
   font-variant-numeric: tabular-nums;
   opacity: 1;
@@ -18,27 +23,6 @@
   @starting-style {
     opacity: 0;
   }
-}
-
-.rc--mini {
-  border: 1px solid var(--npl-border);
-  background:
-    radial-gradient(120% 70% at 50% -20%, rgba(61, 123, 255, 0.14), transparent 65%),
-    linear-gradient(180deg, #071021, #040a16 55%, #030711);
-}
-
-.rc--max {
-  background:
-    radial-gradient(120% 80% at 50% -10%, rgba(56, 229, 255, 0.15), transparent 60%),
-    #030711;
-}
-
-/* Breaks read differently across a room: the felt goes teal. */
-.rc--break.rc--mini,
-.rc--break.rc--max {
-  background:
-    radial-gradient(120% 80% at 50% -10%, rgba(95, 229, 192, 0.18), transparent 60%),
-    #03110d;
 }
 
 /* Level-change announcement: a brief gold wash with the chime. */
@@ -51,7 +35,7 @@
   100% { box-shadow: inset 0 0 0 100vmax rgba(255, 197, 61, 0); }
 }
 
-/* ---- title bar: the window's drag handle ---- */
+/* ---- title bar: NPL OS chrome, the window's drag handle ---- */
 
 .rc-titlebar {
   display: flex;
@@ -153,268 +137,428 @@
   50% { opacity: 0.45; }
 }
 
-/* ---- chips ---- */
+/* ---- minimised: the Sichuan compact card ---- */
 
-.rc-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.35em;
-  border: 1px solid var(--npl-border);
-  border-radius: 999px;
-  padding: 0.34em 1.1em;
-  font-family: var(--npl-font-display);
-  font-size: 0.68rem;
-  font-weight: 750;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #9db8dd;
-  background: rgba(7, 20, 43, 0.6);
-}
-
-.rc-chip em {
-  font-style: normal;
-  color: var(--npl-faint);
-}
-
-.rc-chip--paused {
-  border-color: rgba(255, 197, 61, 0.5);
-  color: var(--npl-gold-hot);
-  background: rgba(255, 197, 61, 0.08);
-}
-
-.rc-chip--break {
-  border-color: rgba(95, 229, 192, 0.5);
-  color: #a9f2dd;
-  background: rgba(95, 229, 192, 0.08);
-}
-
-.rc-chip--idle { color: var(--npl-muted); }
-
-/* ---- the countdown itself ---- */
-
-.rc-count {
-  font-family: var(--npl-font-mono);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.03em;
-  color: #ffffff;
-  text-shadow: 0 0 44px rgba(56, 229, 255, 0.25);
-  transition: color 300ms ease, text-shadow 300ms ease;
-}
-
-.rc--urgent .rc-count {
-  color: #ff9b9b;
-  text-shadow: 0 0 44px rgba(248, 113, 113, 0.4);
-}
-
-.rc--paused .rc-count {
-  color: var(--npl-gold-hot);
-  text-shadow: 0 0 44px rgba(255, 197, 61, 0.3);
-}
-
-.rc-count--mini {
-  font-size: clamp(3rem, 21vh, 5rem);
-}
-
-.rc-count--max {
-  font-size: clamp(5rem, 34vh, 21rem);
-  letter-spacing: -0.04em;
-  text-shadow: 0 0 9vw rgba(56, 229, 255, 0.26);
-}
-
-/* Blinds are the money line: gold, always. */
-.rc-blinds {
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--npl-gold);
-}
-
-.rc--break .rc-blinds { color: #7ceccb; }
-
-.rc-blinds--mini { font-size: clamp(1.15rem, 6.2vh, 1.55rem); }
-.rc-blinds--max { font-size: clamp(2rem, 8.5vh, 4.6rem); }
-
-.rc-ante {
-  font-size: 0.78rem;
-  letter-spacing: 0.06em;
-  color: var(--npl-muted);
-}
-
-.rc-ante--max { font-size: clamp(0.85rem, 2.4vh, 1.25rem); }
-
-.rc-next {
-  margin-top: 1vh;
-  font-size: 0.72rem;
-  letter-spacing: 0.05em;
-  color: var(--npl-faint);
-}
-
-/* ---- mini layout ---- */
-
-.rc-mini__body {
+.scm-page {
   display: flex;
   flex: 1;
   min-height: 0;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1.2vh;
-  padding: 0 18px;
-  text-align: center;
+  padding: 8px;
+  background: #f1f5f9;
 }
 
-/* ---- max layout ---- */
-
-.rc-max__main {
+.scm-card {
   display: flex;
-  flex: 1;
-  min-height: 0;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1.6vh;
-  padding: 0 4vw;
-  text-align: center;
-}
-
-.rc-progress {
-  width: min(62vw, 960px);
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(148, 180, 220, 0.14);
+  width: 100%;
+  max-width: 384px;
+  margin: 0 auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 12px;
+  color: #0f172a;
+  background: #ffffff;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
   overflow: hidden;
 }
 
-.rc-progress span {
-  display: block;
+.scm-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.scm-label {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.scm-label--gap { margin-top: 12px; }
+
+.scm-levelpill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 4px 16px;
+  font-size: 11px;
+  color: #334155;
+  background: #f8fafc;
+}
+
+.scm-levelpill strong {
+  margin-right: 4px;
+  font-weight: 600;
+}
+
+.scm-levelpill__num { font-family: var(--npl-font-mono); }
+
+.scm-levelpill em {
+  margin: 0 4px;
+  font-style: normal;
+  color: #94a3b8;
+}
+
+.scm-levelpill__total { color: #64748b; }
+
+.scm-blind {
+  margin-top: 4px;
+  font-size: 30px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.scm-clock {
+  margin-top: 4px;
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  color: #0f172a;
+}
+
+.scm-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 4px 8px 0;
+}
+
+.scm-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #f1f5f9;
+  transition: background-color 140ms ease, transform 120ms var(--rc-ease);
+}
+
+.scm-pill--go {
+  border-color: #10b981;
+  color: #022c22;
+  background: #10b981;
+}
+
+.scm-pill--ghost {
+  min-width: 34px;
+  padding: 6px 0;
+  color: #334155;
+  background: #f8fafc;
+}
+
+.scm-pill:active:not(:disabled) { transform: scale(0.96); }
+
+.scm-pill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.scm-finished {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* ---- maximised: the Sichuan full view ---- */
+
+.scx-page {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 24px;
+  background: #020617;
+}
+
+.scx-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+/* The Sichuan backdrop: a photo dimmed to nearly black. Offline the
+   image never arrives and the slate base carries the look. */
+.scx-bg {
+  position: absolute;
+  inset: 0;
+  background: #020617 url("https://images.unsplash.com/photo-1511882150382-421056c89033?auto=format&fit=crop&w=1600&q=80") center / cover no-repeat;
+}
+
+.scx-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.scx-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
   height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, rgba(56, 229, 255, 0.45), var(--npl-cyan));
-  transition: width 300ms linear;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 32px;
 }
 
-.rc--urgent .rc-progress span {
-  background: linear-gradient(90deg, rgba(248, 113, 113, 0.5), #ff8a8a);
+.scx-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.rc-max__stats {
+.scx-head__side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.scx-head__side--end { justify-content: flex-end; }
+
+.scx-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: #f8fafc;
+}
+
+.scx-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(100, 116, 139, 0.7);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.7);
+  white-space: nowrap;
+}
+
+.scx-run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  border: 1px solid #34d399;
+  border-radius: 999px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #022c22;
+  background: #10b981;
+  transition: background-color 140ms ease, transform 120ms var(--rc-ease);
+}
+
+.scx-run--go {
+  border-color: #10b981;
+  color: #020617;
+  background: linear-gradient(to bottom right, #34d399, #059669);
+}
+
+.scx-run:active:not(:disabled) { transform: scale(0.96); }
+
+.scx-run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.scx-center {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.scx-panel {
+  position: relative;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 24px;
+  padding: 20px 24px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.scx-panel--zoomed {
+  min-height: 62vh;
+  flex: 1;
+  justify-content: center;
+}
+
+.scx-panel--next { padding: 16px 24px; gap: 8px; }
+
+.scx-zoom {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  border: 1px solid #34d399;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #d1fae5;
+  background: rgba(16, 185, 129, 0.15);
+  transition: background-color 140ms ease, transform 120ms var(--rc-ease);
+}
+
+.scx-zoom:active { transform: scale(0.96); }
+
+.scx-plabel {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+
+.scx-plabel--gap { margin-top: 12px; }
+
+.scx-panel--zoomed .scx-plabel {
+  font-size: 14px;
+  letter-spacing: 0.24em;
+}
+
+.scx-panel--zoomed .scx-plabel--gap { margin-top: 20px; }
+
+.scx-blind {
+  font-size: 60px;
+  font-weight: 800;
+  line-height: 1;
+  color: #f8fafc;
+}
+
+.scx-panel--zoomed .scx-blind {
+  font-size: clamp(72px, 11vw, 120px);
+}
+
+.scx-meta {
+  font-size: 14px;
+  color: #cbd5e1;
+}
+
+.scx-panel--zoomed .scx-meta { font-size: 18px; }
+
+.scx-clock {
+  font-size: 72px;
+  font-weight: 800;
+  line-height: 1;
+  color: #f8fafc;
+}
+
+.scx-panel--zoomed .scx-clock {
+  font-size: clamp(84px, 13vw, 140px);
+}
+
+.scx-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 10px;
+  color: #fef3c7;
+  background: rgba(251, 191, 36, 0.2);
+}
+
+.scx-warn i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #fcd34d;
+  animation: rc-dot-pulse 1.6s ease-in-out infinite;
+}
+
+.scx-next {
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  color: #f8fafc;
+}
+
+.scx-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.scx-nav button {
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.8);
+  transition: background-color 140ms ease, transform 120ms var(--rc-ease);
+}
+
+.scx-nav button:active:not(:disabled) { transform: scale(0.96); }
+
+.scx-nav button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.scx-stats {
   display: flex;
   flex-shrink: 0;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 1.6vh 5vw;
-  border-top: 1px solid var(--npl-hairline);
-  padding: 1.8vh 4vw 2.2vh;
+  gap: 16px 48px;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 16px;
+  padding: 16px 24px;
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.rc-stat {
-  min-width: 8.5rem;
+.scx-stat {
+  min-width: 170px;
   text-align: center;
 }
 
-.rc-stat span {
-  display: block;
-  font-family: var(--npl-font-display);
-  font-size: clamp(0.58rem, 1.4vh, 0.72rem);
-  font-weight: 750;
+.scx-stat__label {
+  font-size: 13px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--npl-faint);
+  color: #6ee7b7;
 }
 
-.rc-stat strong {
-  display: block;
-  margin-top: 0.5vh;
-  font-size: clamp(1rem, 3vh, 1.6rem);
-  font-weight: 750;
-  color: var(--npl-text);
-}
-
-.rc-stat strong em {
-  font-style: normal;
-  font-size: 0.7em;
-  color: var(--npl-muted);
-}
-
-.rc-stat--gate strong { color: #8af2c5; }
-.rc-stat--shut strong { color: var(--npl-faint); }
-
-/* ---- control dock ---- */
-
-.rc-dock {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 1.2vh 16px 1.8vh;
-}
-
-.rc-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 42px;
-  min-width: 42px;
-  border: 1px solid var(--npl-border);
-  border-radius: 12px;
-  padding: 0;
-  color: #cfe0f7;
-  background: rgba(7, 20, 43, 0.66);
-  transition:
-    color 140ms ease,
-    border-color 140ms ease,
-    background-color 140ms ease,
-    transform 140ms var(--rc-ease);
-}
-
-.rc-btn:active:not(:disabled) { transform: scale(0.96); }
-
-.rc-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.rc-btn--run {
-  min-width: 128px;
-  padding: 0 20px;
-  font-family: var(--npl-font-display);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.rc-btn--go {
-  border-color: rgba(61, 255, 160, 0.42);
-  color: #baffdd;
-  background:
-    linear-gradient(110deg, rgba(61, 255, 160, 0.12), rgba(56, 229, 255, 0.05)),
-    rgba(7, 26, 24, 0.66);
-}
-
-.rc-btn--hold {
-  border-color: rgba(255, 197, 61, 0.42);
-  color: var(--npl-gold-hot);
-  background:
-    linear-gradient(110deg, rgba(255, 197, 61, 0.1), rgba(255, 197, 61, 0.03)),
-    rgba(26, 20, 7, 0.6);
-}
-
-.rc-done {
-  font-family: var(--npl-font-display);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--npl-muted);
+.scx-stat__value {
+  margin-top: 4px;
+  font-size: 30px;
+  font-weight: 800;
 }
 
 /* ---- errors ---- */
 
-.rc--error { justify-content: flex-start; }
+.rc--error { background: #020617; }
 
 .rc-errorbody {
   display: grid;
@@ -427,15 +571,17 @@
 
 .rc-stale {
   position: absolute;
-  bottom: 0.8vh;
+  bottom: 6px;
   left: 0;
   right: 0;
   margin: 0;
   text-align: center;
-  font-size: 0.7rem;
+  font-size: 12px;
   color: #ff98a8;
   pointer-events: none;
 }
+
+.rc-stale--light { color: #e11d48; }
 
 /* ---- hover, only where hover exists ---- */
 
@@ -450,13 +596,19 @@
     box-shadow: 0 0 16px rgba(255, 70, 103, 0.5);
   }
 
-  .rc-btn:hover:not(:disabled) {
-    border-color: var(--npl-border-strong);
-    color: #fff;
+  .scm-pill:hover:not(:disabled) { background: #e2e8f0; }
+  .scm-pill--go:hover:not(:disabled) { background: #34d399; }
+  .scm-pill--ghost:hover:not(:disabled) { background: #f1f5f9; }
+
+  .scx-run:hover:not(:disabled) { background: #34d399; }
+
+  .scx-run--go:hover:not(:disabled) {
+    background: linear-gradient(to bottom right, #6ee7b7, #10b981);
   }
 
-  .rc-btn--go:hover:not(:disabled) { border-color: rgba(61, 255, 160, 0.7); }
-  .rc-btn--hold:hover:not(:disabled) { border-color: rgba(255, 197, 61, 0.7); }
+  .scx-zoom:hover { background: rgba(16, 185, 129, 0.25); }
+
+  .scx-nav button:hover:not(:disabled) { background: #1e293b; }
 }
 
 /* ---- reduced motion ---- */
@@ -465,8 +617,6 @@
   .rc { transition: none; }
   .rc--flash { animation: none; }
   .rc-dot--live,
-  .rc-dot--break { animation: none; }
-  .rc-progress span { transition: none; }
-  .rc-winbtn,
-  .rc-btn { transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease; }
+  .rc-dot--break,
+  .scx-warn i { animation: none; }
 }
