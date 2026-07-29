@@ -213,6 +213,19 @@ export const deskApi = {
       { method: 'POST', body: JSON.stringify(options) },
     ),
 
+  /** Full tournament detail — config, levels, clock. */
+  tournament: (sessionId: number) =>
+    request<{ session: Record<string, unknown>, levels: GeneratedLevel[], clock: Record<string, unknown> }>(
+      `/api/v1/tournaments/${sessionId}`,
+    ),
+
+  /** Draft-only settings edit: the prep screen re-opened before Start. */
+  updateTournament: (sessionId: number, payload: Record<string, unknown>) =>
+    request<{ session: { id: number, name: string, status: string } }>(`/api/v1/tournaments/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
   createTournament: (payload: Record<string, unknown>) =>
     request<{ session: { id: number, name: string, status: string } }>('/api/v1/tournaments', {
       method: 'POST',

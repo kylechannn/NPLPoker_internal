@@ -77,7 +77,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [summary, setSummary] = useState<Summary>({})
   const [gates, setGates] = useState<Gates | null>(null)
   const [syncedAt, setSyncedAt] = useState(0)
-  const [now, setNow] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
   const [error, setError] = useState<string | null>(null)
   // The window opens as the mini widget (the Go host sizes it to match)
   // and grows to the projector display on demand.
@@ -482,7 +482,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
                 <div className="scx-stat">
                   <div className="scx-stat__label">Reg Closes</div>
-                  <div className="scx-stat__value">{countdown(Math.max(0, gates.registration.closes_in_ms - elapsed))}</div>
+                  <div className="scx-stat__value">{countdown(Math.max(0, gates.registration.closes_in_ms - (clock?.running ? elapsed : 0)))}</div>
                 </div>
               ) : gates && !gates.registration.open ? (
                 <div className="scx-stat">

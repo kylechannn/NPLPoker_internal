@@ -30,6 +30,22 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
   const [prepLink, setPrepLink] = useState<number | null>(null)
   const [stage, setStage] = useState<"desk" | "finish">("desk")
   const [clockStatus, setClockStatus] = useState<string>("draft")
+  // Back-to-prep for an open draft: everything stays editable until Start.
+  const [editingSession, setEditingSession] = useState<number | null>(null)
+
+  if (editingSession !== null) {
+    return (
+      <HostPreset
+        venue={venue}
+        editSessionId={editingSession}
+        onBack={() => setEditingSession(null)}
+        onOpened={() => {
+          setEditingSession(null)
+          setStage("desk")
+        }}
+      />
+    )
+  }
 
   if (sessionId === null) {
     if (view === "prep") {
@@ -77,8 +93,15 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
               className="prep-steps__item"
               onClick={() => {
                 if (step.id === "prepare") {
-                  setSessionId(null)
-                  setView("hub")
+                  // A draft goes BACK to preparation with everything
+                  // editable; once Start has been pressed the night is
+                  // committed and Preparation exits to the sessions hub.
+                  if (clockStatus === "draft") {
+                    setEditingSession(sessionId)
+                  } else {
+                    setSessionId(null)
+                    setView("hub")
+                  }
                 } else if (step.id === "finish") setStage("finish")
                 else setStage("desk")
               }}

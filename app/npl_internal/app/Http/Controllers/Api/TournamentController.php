@@ -95,6 +95,41 @@ final class TournamentController
         return $this->ok($this->tournaments->show($id));
     }
 
+    /** Draft-only settings edit — the prep screen re-opened. */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['sometimes', 'nullable', 'string', 'max:160'],
+            'game_session_id' => ['sometimes', 'nullable', 'integer'],
+            'starting_stack' => ['sometimes', 'integer', 'min:1'],
+            'rebuy_tiers' => ['sometimes', 'array', 'max:4'],
+            'rebuy_tiers.*.price_cents' => ['required_with:rebuy_tiers', 'integer', 'min:0'],
+            'rebuy_tiers.*.chips' => ['required_with:rebuy_tiers', 'integer', 'min:1'],
+            'max_rebuys_per_player' => ['sometimes', 'integer', 'min:0', 'max:255'],
+            'addon_tiers' => ['sometimes', 'array', 'max:4'],
+            'addon_tiers.*.price_cents' => ['required_with:addon_tiers', 'integer', 'min:0'],
+            'addon_tiers.*.chips' => ['required_with:addon_tiers', 'integer', 'min:1'],
+            'max_addons_per_player' => ['sometimes', 'integer', 'min:0', 'max:255'],
+            'buy_in_price_cents' => ['sometimes', 'integer', 'min:0'],
+            'ko_bounty_cents' => ['sometimes', 'integer', 'min:0'],
+            'registration_closes_at_level' => ['sometimes', 'integer', 'min:1'],
+            'addon_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'rebuy_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'jackpot_enabled' => ['sometimes', 'boolean'],
+            'jackpot_price_cents' => ['sometimes', 'integer', 'min:0'],
+            'jackpot_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'seats_per_table' => ['sometimes', 'integer', 'min:2', 'max:10'],
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+            'levels' => ['sometimes', 'array', 'min:1'],
+            'levels.*.type' => ['sometimes', Rule::in(['blind', 'break'])],
+            'levels.*.small_blind' => ['sometimes', 'integer', 'min:0'],
+            'levels.*.big_blind' => ['sometimes', 'integer', 'min:0'],
+            'levels.*.duration_min' => ['sometimes', 'integer', 'min:1', 'max:600'],
+        ]);
+
+        return $this->ok($this->tournaments->updateDraft($id, $validated));
+    }
+
     public function updateStructure(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([

@@ -170,6 +170,85 @@ final class TournamentService
         }
     }
 
+    /**
+     * Re-open the preparation screen for a draft: every setting stays
+     * editable right up until Start is pressed — after that, prices and
+     * structure are locked and the ledger speaks.
+     */
+    public function updateDraft(int $sessionId, array $data): array
+    {
+        $session = $this->clock->session($sessionId);
+
+        if ($session->status !== TournamentClockService::STATUS_DRAFT) {
+            throw ValidationException::withMessages([
+                'session' => ['Settings are locked once the tournament has started.'],
+            ]);
+        }
+
+        $levels = isset($data['levels']) && is_array($data['levels']) && $data['levels'] !== []
+            ? $data['levels']
+            : null;
+
+        if (isset($data['registration_closes_at_level'])) {
+            $ladder = $levels ?? $this->clock->levels($sessionId);
+            $this->assertCutOffWithinStructure('registration_closes_at_level', (int) $data['registration_closes_at_level'], (array) $ladder);
+        }
+
+        $tiers = collect($data['addon_tiers'] ?? [])
+            ->map(fn (array $tier): array => ['price_cents' => (int) $tier['price_cents'], 'chips' => (int) $tier['chips']])
+            ->values();
+        $rebuyTiers = collect($data['rebuy_tiers'] ?? [])
+            ->map(fn (array $tier): array => ['price_cents' => (int) $tier['price_cents'], 'chips' => (int) $tier['chips']])
+            ->values();
+
+        $name = trim((string) ($data['name'] ?? ''));
+
+        DB::transaction(function () use ($sessionId, $data, $levels, $tiers, $rebuyTiers, $name): void {
+            $update = [
+                'updated_at' => now(),
+            ];
+
+            if ($name !== '') {
+                $update['name'] = $name;
+            }
+
+            foreach ([
+                'game_session_id', 'starting_stack', 'max_rebuys_per_player', 'max_addons_per_player',
+                'buy_in_price_cents', 'ko_bounty_cents', 'registration_closes_at_level',
+                'addon_closes_at_level', 'rebuy_closes_at_level', 'jackpot_closes_at_level',
+                'jackpot_price_cents', 'seats_per_table', 'venue_id',
+            ] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $update[$field] = $data[$field];
+                }
+            }
+
+            if (array_key_exists('jackpot_enabled', $data)) {
+                $update['jackpot_enabled'] = (bool) $data['jackpot_enabled'];
+            }
+
+            if ($rebuyTiers->isNotEmpty()) {
+                $update['rebuy_tiers'] = $rebuyTiers->toJson();
+                $update['rebuy_price_cents'] = (int) $rebuyTiers->first()['price_cents'];
+                $update['rebuy_chips'] = (int) $rebuyTiers->first()['chips'];
+            }
+
+            if ($tiers->isNotEmpty()) {
+                $update['addon_tiers'] = $tiers->toJson();
+                $update['addon_price_cents'] = (int) $tiers->first()['price_cents'];
+                $update['addon_chips'] = (int) $tiers->first()['chips'];
+            }
+
+            DB::table('tournament_sessions')->where('id', $sessionId)->update($update);
+
+            if ($levels !== null) {
+                $this->replaceLevels($sessionId, $levels);
+            }
+        }, 3);
+
+        return $this->show($sessionId);
+    }
+
     /** Structure edits are refused once play has started. */
     public function updateStructure(int $sessionId, array $levels): array
     {
@@ -210,6 +289,12 @@ final class TournamentService
                 'buy_in_price_cents' => (int) $session->buy_in_price_cents,
                 'ko_bounty_cents' => (int) $session->ko_bounty_cents,
                 'registration_closes_at_level' => $session->registration_closes_at_level,
+                'addon_closes_at_level' => $session->addon_closes_at_level,
+                'rebuy_closes_at_level' => $session->rebuy_closes_at_level,
+                'jackpot_closes_at_level' => $session->jackpot_closes_at_level,
+                'jackpot_enabled' => (bool) $session->jackpot_enabled,
+                'jackpot_price_cents' => (int) $session->jackpot_price_cents,
+                'seats_per_table' => (int) $session->seats_per_table,
             ],
             'clock' => $this->clock->state($sessionId),
             'levels' => array_map(

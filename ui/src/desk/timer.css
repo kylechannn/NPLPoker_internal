@@ -347,12 +347,13 @@
   overflow: hidden;
 }
 
-/* The Sichuan backdrop: a photo dimmed to nearly black. Offline the
-   image never arrives and the slate base carries the look. */
+/* The backdrop: the NPL clock artwork, bundled with the app so it is
+   there offline (an external URL would also be blocked by the desk's
+   CSP). The scrim above keeps the countdown readable over the logo. */
 .scx-bg {
   position: absolute;
   inset: 0;
-  background: #020617 url("https://images.unsplash.com/photo-1511882150382-421056c89033?auto=format&fit=crop&w=1600&q=80") center / cover no-repeat;
+  background: #020617 url("../assets/clock-bg.png") center / cover no-repeat;
 }
 
 .scx-scrim {

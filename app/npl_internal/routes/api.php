@@ -47,6 +47,7 @@ Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\Tournament
     Route::get('/', 'index');
     Route::post('/', 'store');
     Route::get('{id}', 'show')->whereNumber('id');
+    Route::put('{id}', 'update')->whereNumber('id');
     Route::put('{id}/structure', 'updateStructure')->whereNumber('id');
 
     Route::get('{id}/clock', 'clock')->whereNumber('id');

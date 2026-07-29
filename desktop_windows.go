@@ -29,6 +29,9 @@ var (
 	releaseCapture        = user32.NewProc("ReleaseCapture")
 	sendMessageW          = user32.NewProc("SendMessageW")
 	setForegroundWindow   = user32.NewProc("SetForegroundWindow")
+	loadIconW             = user32.NewProc("LoadIconW")
+	kernel32Icon          = syscall.NewLazyDLL("kernel32.dll")
+	getModuleHandleW      = kernel32Icon.NewProc("GetModuleHandleW")
 	monitorFromWindow     = user32.NewProc("MonitorFromWindow")
 	getMonitorInfoW       = user32.NewProc("GetMonitorInfoW")
 	getDpiForWindow       = user32.NewProc("GetDpiForWindow")
@@ -293,7 +296,28 @@ func windowIsMaximized(hwnd uintptr) bool {
 	return zoomed != 0
 }
 
+// applyWindowIcon stamps the exe's embedded NPL icon (winres group "APP")
+// onto a window, so host-built windows — the room clock included — carry
+// the same logo as the executable in the taskbar and switcher.
+func applyWindowIcon(hwnd uintptr) {
+	hInstance, _, _ := getModuleHandleW.Call(0)
+	name, err := syscall.UTF16PtrFromString("APP")
+	if err != nil {
+		return
+	}
+
+	icon, _, _ := loadIconW.Call(hInstance, uintptr(unsafe.Pointer(name)))
+	if icon == 0 {
+		return
+	}
+
+	const windowMessageSetIcon = 0x0080
+	_, _, _ = sendMessageW.Call(hwnd, windowMessageSetIcon, 0, icon) // ICON_SMALL
+	_, _, _ = sendMessageW.Call(hwnd, windowMessageSetIcon, 1, icon) // ICON_BIG
+}
+
 func applyDesktopWindowStyle(hwnd uintptr) {
+	applyWindowIcon(hwnd)
 	currentStyle, _, _ := getWindowLongPtrW.Call(hwnd, windowStyleIndex)
 	_, _, _ = setWindowLongPtrW.Call(hwnd, windowStyleIndex, currentStyle&^windowStyleCaption)
 	_, _, _ = setWindowPos.Call(

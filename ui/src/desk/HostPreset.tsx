@@ -18,6 +18,12 @@ type Props = {
   initialLinkedSessionId?: number | null
   /** Back to the Sessions hub. */
   onBack?: () => void
+  /**
+   * Re-open the prep screen for an existing DRAFT tournament: settings
+   * load in, and saving updates in place instead of creating. Available
+   * right up until Start is pressed.
+   */
+  editSessionId?: number | null
 }
 
 type Optional = number | ""
@@ -89,7 +95,7 @@ const STEPS: { id: "prepare" | "host" | "play" | "finish", label: string }[] = [
  * changing the price of a rebuy once players are in the room is not a
  * conversation anyone wants to have.
  */
-export default function HostPreset({ venue, onOpened, initialLinkedSessionId = null, onBack }: Props) {
+export default function HostPreset({ venue, onOpened, initialLinkedSessionId = null, onBack, editSessionId = null }: Props) {
   const remembered = useMemo(rememberedSetup, [])
   const [form, setForm] = useState(remembered?.form ?? DEFAULTS)
   const [pattern, setPattern] = useState(remembered?.pattern ?? PATTERN)
@@ -177,12 +183,48 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
   }, [pattern])
 
   // Fill the ladder once on arrival so the screen is never empty; after that
-  // generating is an explicit act.
+  // generating is an explicit act. In edit mode the existing tournament
+  // loads instead — settings, tiers, cut-offs and the tuned ladder.
   useEffect(() => {
     if (loadedOnce.current) return
     loadedOnce.current = true
-    void generate()
-  }, [generate])
+
+    if (editSessionId === null) {
+      void generate()
+      return
+    }
+
+    void deskApi.tournament(editSessionId)
+      .then((result) => {
+        const s = result.session as Record<string, unknown>
+        setForm((current) => ({
+          ...current,
+          name: (s.name as string) ?? "",
+          seats_per_table: (s.seats_per_table as number) ?? current.seats_per_table,
+          starting_stack: (s.starting_stack as number) ?? current.starting_stack,
+          buy_in_price_cents: (s.buy_in_price_cents as number) ?? current.buy_in_price_cents,
+          rebuy_tiers: Array.isArray(s.rebuy_tiers) && s.rebuy_tiers.length ? s.rebuy_tiers as AddonTier[] : current.rebuy_tiers,
+          max_rebuys_per_player: (s.max_rebuys_per_player as number) ?? current.max_rebuys_per_player,
+          addon_tiers: Array.isArray(s.addon_tiers) && s.addon_tiers.length ? s.addon_tiers as AddonTier[] : current.addon_tiers,
+          max_addons_per_player: (s.max_addons_per_player as number) ?? current.max_addons_per_player,
+          jackpot_enabled: (s.jackpot_enabled as boolean) ?? current.jackpot_enabled,
+          jackpot_price_cents: (s.jackpot_price_cents as number) ?? current.jackpot_price_cents,
+        }))
+        setCutOffs({
+          registration: (s.registration_closes_at_level as number | null) ?? "",
+          rebuy: (s.rebuy_closes_at_level as number | null) ?? "",
+          addon: (s.addon_closes_at_level as number | null) ?? "",
+          jackpot: (s.jackpot_closes_at_level as number | null) ?? "",
+        })
+        setLinkedSessionId((s.game_session_id as number | null) ?? "")
+        setLevels(result.levels)
+        setHandEdited(true)
+      })
+      .catch(() => {
+        setError("The tournament settings could not be loaded — showing defaults.")
+        void generate()
+      })
+  }, [generate, editSessionId])
 
   const numericCutOffs = useMemo(() => ({
     registration: cutOffs.registration === "" ? undefined : Number(cutOffs.registration),
@@ -293,6 +335,32 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
       const optional = (value: Optional) => (value === "" ? null : Number(value))
       const tiers = form.addon_tiers.filter((tier) => tier.chips > 0)
       const rebuyTiers = form.rebuy_tiers.filter((tier) => tier.chips > 0)
+
+      // Editing a draft saves in place; a new night creates.
+      if (editSessionId !== null) {
+        await deskApi.updateTournament(editSessionId, {
+          name: form.name.trim() || defaultName,
+          game_session_id: linkedSessionId === "" ? null : linkedSessionId,
+          starting_stack: form.starting_stack,
+          buy_in_price_cents: form.buy_in_price_cents,
+          seats_per_table: form.seats_per_table,
+          jackpot_enabled: form.jackpot_enabled,
+          jackpot_price_cents: form.jackpot_price_cents,
+          max_rebuys_per_player: form.max_rebuys_per_player,
+          max_addons_per_player: form.max_addons_per_player,
+          addon_tiers: tiers,
+          rebuy_tiers: rebuyTiers,
+          registration_closes_at_level: Number(cutOffs.registration),
+          rebuy_closes_at_level: optional(cutOffs.rebuy),
+          addon_closes_at_level: optional(cutOffs.addon),
+          jackpot_closes_at_level: optional(cutOffs.jackpot),
+          venue_id: venue?.id ?? null,
+          levels,
+        })
+
+        onOpened(editSessionId)
+        return
+      }
 
       const created = await deskApi.createTournament({
         ...form,
