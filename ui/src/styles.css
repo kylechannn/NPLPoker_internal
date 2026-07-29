@@ -716,9 +716,6 @@ a:focus-visible {
   display: grid;
   width: calc(100% - 28px);
   min-height: 34px;
-  height: auto;
-  overflow: visible;
-  clip-path: none;
   margin: 6px 14px 0;
   grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
@@ -729,6 +726,7 @@ a:focus-visible {
   background:
     linear-gradient(110deg, var(--link-soft), transparent 75%),
     rgba(5, 17, 36, 0.7);
+  clip-path: var(--npl-clip-sm);
   cursor: pointer;
   text-align: left;
   transition: border-color 160ms ease, background 160ms ease;
@@ -806,16 +804,16 @@ a:focus-visible {
 }
 
 /* The live diagnosis line — which step the connect sequence is stuck on.
-   Deliberately oversized while we chase the connection issue; shrink back
-   to a one-line ellipsis once the link is stable. */
+   One quiet line; the full text lives in the tooltip. */
 .backend-link__detail {
   flex-basis: 100%;
-  color: var(--npl-gold-hot, #ffe08a);
-  font-size: 0.72rem;
+  overflow: hidden;
+  color: var(--npl-faint);
+  font-size: 0.58rem;
   font-style: normal;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .backend-link__copy small {

@@ -58,10 +58,7 @@ func runDesktopWindow(target string) error {
 	}
 
 	window := wv.NewWithOptions(wv.WebViewOptions{
-		// TEMPORARY while chasing the realtime link: DevTools on so the
-		// venue machine can F12 and read the real network error. Flip back
-		// to false once the backend link is green.
-		Debug:     true,
+		Debug:     false,
 		DataPath:  dataPath,
 		AutoFocus: true,
 		WindowOptions: wv.WindowOptions{
