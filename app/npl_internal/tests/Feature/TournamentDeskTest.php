@@ -164,12 +164,16 @@ class TournamentDeskTest extends TestCase
         $this->assertNull($gates['addon']['closes_at_level']);
     }
 
-    public function test_rebuys_default_to_the_registration_cut_off_when_unset(): void
+    public function test_every_cut_off_is_independent_and_blank_means_open_until_the_end(): void
     {
         $id = $this->tournament(['registration_closes_at_level' => 2]);
         $gates = app(TournamentGateService::class)->gates($id);
 
-        $this->assertSame(2, $gates['rebuy']['closes_at_level']);
+        // Rebuy and jackpot no longer inherit the registration cut-off —
+        // blank means open until the tournament finishes.
+        $this->assertNull($gates['rebuy']['closes_at_level']);
+        $this->assertNull($gates['jackpot']['closes_at_level']);
+        $this->assertTrue($gates['rebuy']['open']);
     }
 
     public function test_a_cut_off_beyond_the_structure_is_rejected(): void
@@ -336,10 +340,56 @@ class TournamentDeskTest extends TestCase
         $seating = $desk->seating($id);
         $this->assertSame(8, $seating['seats_per_table']);
         $this->assertCount(8, $seating['tables'][0]['seats']);
-        $this->assertCount(1, $seating['unseated']);
+
+        // Buy-in auto-seats now: the second player landed in a free seat
+        // instead of the unseated pool.
+        $this->assertCount(0, $seating['unseated']);
+        $second = collect($seating['tables'][0]['seats'])
+            ->first(fn (array $seat): bool => ($seat['player']['npl_id'] ?? null) === 'NPL8002');
+        $this->assertNotNull($second);
 
         $this->expectException(ValidationException::class);
         $desk->seat($id, 'NPL8002', 1, 4);
+    }
+
+    public function test_buy_in_auto_seat_keeps_blocked_players_on_different_tables(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL8201');
+        $this->mirrorPlayer('NPL8202');
+
+        DB::table('mirror_player_relationships')->insert([
+            'cloud_id' => 1,
+            'player_id' => crc32('NPL8201'),
+            'related_player_id' => crc32('NPL8202'),
+            'type' => 'blocked',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $desk = app(TournamentDeskService::class);
+        $desk->apply($id, 'NPL8201', 'buy_in');
+        $desk->apply($id, 'NPL8202', 'buy_in');
+
+        $tableOf = function (array $seating, string $nplId): ?int {
+            foreach ($seating['tables'] as $table) {
+                foreach ($table['seats'] as $seat) {
+                    if (($seat['player']['npl_id'] ?? null) === $nplId) {
+                        return (int) $table['table_number'];
+                    }
+                }
+            }
+
+            return null;
+        };
+
+        $seating = $desk->seating($id);
+        $first = $tableOf($seating, 'NPL8201');
+        $second = $tableOf($seating, 'NPL8202');
+
+        $this->assertNotNull($first);
+        $this->assertNotNull($second);
+        $this->assertNotSame($first, $second, 'Blocked players must not be auto-seated at the same table.');
     }
 
     public function test_a_seat_outside_the_table_size_is_refused(): void

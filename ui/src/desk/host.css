@@ -810,6 +810,139 @@
 .host-desk__new { margin: 0; font-size: 0.85rem; color: var(--host-text-dim); }
 
 /* Free-entry voucher prompt: appears on scan when the cloud confirms one. */
+/* Scan popup: the operator takes control of one scan, ticks the actions,
+   submits once. */
+.host-scan-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(1, 4, 12, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.host-scan-modal__panel {
+  width: min(520px, 100%);
+  max-height: min(86vh, 720px);
+  overflow-y: auto;
+  border: 1px solid var(--host-line);
+  border-radius: 16px;
+  padding: 18px;
+  background: var(--host-surface, #0a1626);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.host-scan-modal__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.host-tick {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--host-line);
+  border-radius: 12px;
+  padding: 11px 13px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.host-tick input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--npl-gold, #ffc53d);
+  cursor: pointer;
+}
+
+.host-tick strong {
+  font-size: 0.88rem;
+}
+
+.host-tick span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--npl-gold-hot, #ffe08a);
+}
+
+.host-tick em {
+  grid-column: 2 / -1;
+  font-size: 0.68rem;
+  font-style: normal;
+  color: var(--npl-faint, #7e93b4);
+}
+
+.host-tick--on {
+  border-color: rgba(255, 197, 61, 0.55);
+  background: rgba(255, 197, 61, 0.07);
+}
+
+.host-tick--blocked {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.host-scan-modal__footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.host-scan-modal__total {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--npl-faint, #7e93b4);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.host-scan-modal__total strong {
+  font-size: 1.15rem;
+  color: var(--npl-gold-hot, #ffe08a);
+  letter-spacing: 0;
+}
+
+.host-scan-modal__cancel,
+.host-scan-modal__submit {
+  border-radius: 10px;
+  padding: 11px 18px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 140ms ease;
+}
+
+.host-scan-modal__cancel {
+  border: 1px solid var(--host-line);
+  background: transparent;
+  color: var(--npl-faint, #7e93b4);
+}
+
+.host-scan-modal__submit {
+  border: 1px solid rgba(255, 197, 61, 0.6);
+  background: linear-gradient(160deg, #ffd766, #eab308);
+  color: #241a02;
+}
+
+.host-scan-modal__submit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.host-scan-modal__submit:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
 .host-booking-banner {
   margin: 0 0 10px;
   border: 1px solid rgba(95, 229, 192, 0.45);

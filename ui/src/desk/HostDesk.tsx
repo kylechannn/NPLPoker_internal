@@ -42,6 +42,10 @@ const GATE_LABELS: Array<{ key: keyof Gates, label: string }> = [
  * and an operator should never have to click into a field first. Every other
  * control returns focus to it once it is done.
  */
+function optionKey(option: DeskOption): string {
+  return `${option.action}:${option.tier ?? "-"}`
+}
+
 export default function HostDesk({ sessionId, onExit }: Props) {
   const scanRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState("")
@@ -54,6 +58,9 @@ export default function HostDesk({ sessionId, onExit }: Props) {
   const [voucher, setVoucher] = useState<DeskVoucher | null>(null)
   // The redeem reference survives a failed attempt so retrying is safe.
   const voucherRefRef = useRef<string | null>(null)
+  // The scan popup's ticked actions, keyed action:tier. One submit fires
+  // them all, buy-in always first.
+  const [picked, setPicked] = useState<Set<string>>(new Set())
 
   const focusScan = useCallback(() => {
     window.setTimeout(() => scanRef.current?.focus(), 0)
@@ -105,6 +112,11 @@ export default function HostDesk({ sessionId, onExit }: Props) {
       const result = await deskApi.scan(sessionId, id)
       setScan(result)
       setValue("")
+
+      // Buy-in is the essential first action for a player not in yet —
+      // pre-ticked so the common case is scan → Submit.
+      const buyIn = result.options.find((option) => option.action === "buy_in" && option.allowed)
+      setPicked(!result.entry && buyIn ? new Set([optionKey(buyIn)]) : new Set())
 
       // Free-entry check happens after the scan lands, without blocking it:
       // the prompt appears a beat later only for unregistered players.
@@ -158,25 +170,80 @@ export default function HostDesk({ sessionId, onExit }: Props) {
     }
   }
 
-  async function runAction(option: DeskOption) {
+  function toggleOption(option: DeskOption) {
     if (!scan || !option.allowed) return
+
+    const key = optionKey(option)
+    const registered = scan.entry !== null
+
+    setPicked((current) => {
+      const next = new Set(current)
+
+      if (next.has(key)) {
+        next.delete(key)
+        // Buy-in is the foundation: unticking it drops everything that
+        // depends on the player actually being in the game.
+        if (option.action === "buy_in") {
+          next.clear()
+        }
+      } else {
+        next.add(key)
+        // Ticking anything for an unregistered player implies the buy-in.
+        if (!registered && option.action !== "buy_in") {
+          const buyIn = scan.options.find((o) => o.action === "buy_in" && o.allowed)
+          if (buyIn) next.add(optionKey(buyIn))
+        }
+      }
+
+      return next
+    })
+  }
+
+  /** Fire every ticked action in dependency order — buy-in always first. */
+  async function submitActions() {
+    if (!scan || picked.size === 0 || busy) return
+
+    const order: Record<string, number> = { buy_in: 0, rebuy: 1, addon: 2, jackpot: 3 }
+    const chosen = scan.options
+      .filter((option) => option.allowed && picked.has(optionKey(option)))
+      .sort((a, b) => (order[a.action] ?? 9) - (order[b.action] ?? 9))
+
+    if (chosen.length === 0) return
 
     setBusy(true)
     setError(null)
 
+    const applied: string[] = []
+    let total = 0
+
     try {
-      const result = await deskApi.act(
-        sessionId,
-        scan.player.npl_id,
-        option.action,
-        option.tier !== undefined ? { tier: option.tier } : {},
-      )
-      setSeating(result.seating)
-      setFlash(`${option.label} taken for ${scan.player.display_name}${option.price_cents ? ` — ${money(option.price_cents)}` : ""}`)
-      // Re-scan so the buttons reflect what is left (caps, jackpot already in).
-      setScan(await deskApi.scan(sessionId, scan.player.npl_id))
+      for (const option of chosen) {
+        const result = await deskApi.act(
+          sessionId,
+          scan.player.npl_id,
+          option.action,
+          option.tier !== undefined ? { tier: option.tier } : {},
+        )
+        setSeating(result.seating)
+        applied.push(option.label)
+        total += option.price_cents
+      }
+
+      setFlash(`${scan.player.display_name}: ${applied.join(" + ")} — ${money(total)} collected.`)
+      setScan(null)
+      setPicked(new Set())
+      setVoucher(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That action could not be applied.")
+      // Whatever landed before the failure is real: re-scan so the popup
+      // shows the true remaining state, and name what got through.
+      setError(`${e instanceof Error ? e.message : "An action failed."}${applied.length ? ` (Already applied: ${applied.join(", ")}.)` : ""}`)
+      try {
+        const fresh = await deskApi.scan(sessionId, scan.player.npl_id)
+        setScan(fresh)
+        setPicked(new Set())
+      } catch {
+        // Keep the stale popup rather than losing the error message.
+      }
     } finally {
       setBusy(false)
       focusScan()
@@ -262,84 +329,130 @@ export default function HostDesk({ sessionId, onExit }: Props) {
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
       {flash ? <p className="host-desk__flash" role="status">{flash}</p> : null}
 
-      <div className="host-desk__body">
-        <section className="host-desk__player">
-          {scan ? (
-            <>
-              <div className="host-desk__identity">
-                {scan.player.avatar_url
-                  ? <img src={scan.player.avatar_url} alt="" />
-                  : <span>{scan.player.display_name.slice(0, 2).toUpperCase()}</span>}
-                <div>
-                  <strong>{scan.player.display_name}</strong>
-                  <small>{scan.player.npl_id}{scan.player.state_code ? ` · ${scan.player.state_code}` : ""}</small>
-                </div>
+      {scan ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); focusScan() } }}>
+          <section
+            className="host-scan-modal__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Actions for ${scan.player.display_name}`}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="host-desk__identity">
+              {scan.player.avatar_url
+                ? <img src={scan.player.avatar_url} alt="" />
+                : <span>{scan.player.display_name.slice(0, 2).toUpperCase()}</span>}
+              <div>
+                <strong>{scan.player.display_name}</strong>
+                <small>{scan.player.npl_id}{scan.player.state_code ? ` · ${scan.player.state_code}` : ""}</small>
               </div>
+            </div>
 
-              {scan.entry ? (
-                <dl className="host-desk__entrystats">
-                  <div><dt>Seat</dt><dd>{scan.entry.table_number ? `T${scan.entry.table_number} S${scan.entry.seat_number}` : "Unseated"}</dd></div>
-                  <div><dt>Rebuys</dt><dd>{scan.entry.rebuys}{scan.entry.max_rebuys ? ` / ${scan.entry.max_rebuys}` : ""}</dd></div>
-                  <div><dt>Add-ons</dt><dd>{scan.entry.addons} / {scan.entry.max_addons}</dd></div>
-                  <div><dt>Spent</dt><dd>{money(scan.entry.spend_cents)}</dd></div>
-                </dl>
-              ) : (
-                <p className="host-desk__new">Not in this tournament yet.</p>
-              )}
+            {scan.entry ? (
+              <dl className="host-desk__entrystats">
+                <div><dt>Seat</dt><dd>{scan.entry.table_number ? `T${scan.entry.table_number} S${scan.entry.seat_number}` : "Unseated"}</dd></div>
+                <div><dt>Rebuys</dt><dd>{scan.entry.rebuys}{scan.entry.max_rebuys ? ` / ${scan.entry.max_rebuys}` : ""}</dd></div>
+                <div><dt>Add-ons</dt><dd>{scan.entry.addons} / {scan.entry.max_addons}</dd></div>
+                <div><dt>Spent</dt><dd>{money(scan.entry.spend_cents)}</dd></div>
+              </dl>
+            ) : (
+              <p className="host-desk__new">Not in this tournament yet — buy-in seats them automatically.</p>
+            )}
 
-              {scan.booking && !scan.entry ? (
-                <p className="host-booking-banner">
-                  {scan.booking.status === "waitlisted"
-                    ? `Booked online — wait list #${scan.booking.waitlist_position ?? "?"} on table ${scan.booking.table_number}. Buy-in confirms their entry.`
-                    : scan.booking.seat_number !== null
-                      ? `Booked online — table ${scan.booking.table_number}, seat ${scan.booking.seat_number}. Buy-in confirms their entry.`
-                      : `Booked online — table ${scan.booking.table_number}. Buy-in confirms their entry.`}
-                </p>
-              ) : null}
+            {scan.booking && !scan.entry ? (
+              <p className="host-booking-banner">
+                {scan.booking.status === "waitlisted"
+                  ? `Booked online — wait list #${scan.booking.waitlist_position ?? "?"} on table ${scan.booking.table_number}. Buy-in confirms their entry.`
+                  : scan.booking.seat_number !== null
+                    ? `Booked online — table ${scan.booking.table_number}, seat ${scan.booking.seat_number}. Buy-in confirms their entry.`
+                    : `Booked online — table ${scan.booking.table_number}. Buy-in confirms their entry.`}
+              </p>
+            ) : null}
 
-              {voucher && !scan.entry && scan.options.some((option) => option.action === "buy_in" && option.allowed) ? (
-                <button
-                  className="host-voucher-banner"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void applyVoucher()}
-                >
-                  <Ticket size={18} />
-                  <span>
-                    <strong>FREE ENTRY — {voucher.title || "entry voucher"}</strong>
-                    <small>
-                      {voucher.code}
-                      {voucher.unlimited_uses
-                        ? " · pass active"
-                        : voucher.uses_remaining !== null
-                          ? ` · ${voucher.uses_remaining} use${voucher.uses_remaining === 1 ? "" : "s"} left`
-                          : ""}
-                      {" — tap to apply to Buy-in"}
-                    </small>
-                  </span>
-                </button>
-              ) : null}
+            {voucher && !scan.entry && scan.options.some((option) => option.action === "buy_in" && option.allowed) ? (
+              <button
+                className="host-voucher-banner"
+                type="button"
+                disabled={busy}
+                onClick={() => void applyVoucher()}
+              >
+                <Ticket size={18} />
+                <span>
+                  <strong>FREE ENTRY — {voucher.title || "entry voucher"}</strong>
+                  <small>
+                    {voucher.code}
+                    {voucher.unlimited_uses
+                      ? " · pass active"
+                      : voucher.uses_remaining !== null
+                        ? ` · ${voucher.uses_remaining} use${voucher.uses_remaining === 1 ? "" : "s"} left`
+                        : ""}
+                    {" — tap to apply the free Buy-in now"}
+                  </small>
+                </span>
+              </button>
+            ) : null}
 
-              <div className="host-desk__actions">
-                {scan.options.map((option) => (
-                  <button
-                    key={option.action}
-                    type="button"
-                    className={option.allowed ? "host-action" : "host-action host-action--blocked"}
-                    disabled={!option.allowed || busy}
+            <div className="host-scan-modal__options" role="group" aria-label="Tick the actions to take">
+              {scan.options.map((option) => {
+                const key = optionKey(option)
+                const ticked = picked.has(key)
+                return (
+                  <label
+                    key={key}
+                    className={
+                      option.allowed
+                        ? ticked ? "host-tick host-tick--on" : "host-tick"
+                        : "host-tick host-tick--blocked"
+                    }
                     title={option.reason ?? undefined}
-                    onClick={() => void runAction(option)}
                   >
+                    <input
+                      type="checkbox"
+                      checked={ticked}
+                      disabled={!option.allowed || busy}
+                      onChange={() => toggleOption(option)}
+                    />
                     <strong>{option.label}</strong>
                     <span>{option.price_cents ? money(option.price_cents) : "Free"}</span>
                     {option.reason ? <em>{option.reason}</em> : null}
-                  </button>
-                ))}
+                  </label>
+                )
+              })}
+            </div>
+
+            <footer className="host-scan-modal__footer">
+              <div className="host-scan-modal__total">
+                Total
+                <strong>
+                  {money(scan.options
+                    .filter((option) => option.allowed && picked.has(optionKey(option)))
+                    .reduce((sum, option) => sum + option.price_cents, 0))}
+                </strong>
               </div>
-            </>
-          ) : (
-            <p className="host-desk__idle">Scan a card to begin.</p>
-          )}
+              <button
+                type="button"
+                className="host-scan-modal__cancel"
+                disabled={busy}
+                onClick={() => { setScan(null); setVoucher(null); focusScan() }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="host-scan-modal__submit"
+                disabled={busy || picked.size === 0}
+                onClick={() => void submitActions()}
+              >
+                {busy ? "Applying…" : `Submit${picked.size ? ` (${picked.size})` : ""}`}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+
+      <div className="host-desk__body">
+        <section className="host-desk__player">
+          <p className="host-desk__idle">Scan a card to begin.</p>
 
           {seating ? (
             <dl className="host-desk__counts">

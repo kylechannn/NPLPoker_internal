@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { deskApi, money, type AddonTier, type GeneratedLevel, type Venue } from "./deskApi"
+import { deskApi, money, type AddonTier, type GeneratedLevel, type UpcomingSession, type Venue } from "./deskApi"
 import "./preparation.css"
 
 export type CutOffKind = "registration" | "rebuy" | "addon" | "jackpot"
@@ -108,6 +108,39 @@ export default function HostPreset({ venue, onOpened }: Props) {
   const [handEdited, setHandEdited] = useState(false)
   const loadedOnce = useRef(false)
 
+  // Linking to tonight's cloud session is what turns on the live layer:
+  // online bookings on scan, cloud-managed tables, instant public seat
+  // maps. Auto-picked when exactly one non-cash session runs today.
+  const [cloudSessions, setCloudSessions] = useState<UpcomingSession[]>([])
+  const [linkedSessionId, setLinkedSessionId] = useState<number | "">("")
+
+  useEffect(() => {
+    if (!venue) {
+      setCloudSessions([])
+      setLinkedSessionId("")
+      return
+    }
+
+    let cancelled = false
+    void deskApi.upcomingSessions(venue.id)
+      .then((result) => {
+        if (cancelled) return
+        const tournaments = result.sessions.filter((session) => session.category !== "cash_game")
+        setCloudSessions(tournaments)
+
+        const today = new Date().toISOString().slice(0, 10)
+        const tonight = tournaments.filter((session) => session.session_date === today)
+        setLinkedSessionId(tonight.length === 1 ? tonight[0].session_id : "")
+      })
+      .catch(() => {
+        if (!cancelled) setCloudSessions([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [venue])
+
   const progressPercent = ((currentStepIndex + 1) / STEPS.length) * 100
 
   const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
@@ -156,7 +189,7 @@ export default function HostPreset({ venue, onOpened }: Props) {
 
   function describeCutOff(kind: CutOffKind): string {
     const position = numericCutOffs[kind]
-    if (!position) return kind === "addon" ? "No cut-off" : "Same as registration"
+    if (!position) return "No cut-off — open until the game finishes"
 
     const row = levels[position - 1]
     if (!row) return `Row ${position}`
@@ -254,6 +287,7 @@ export default function HostPreset({ venue, onOpened }: Props) {
       const created = await deskApi.createTournament({
         ...form,
         name: form.name.trim() || defaultName,
+        game_session_id: linkedSessionId === "" ? null : linkedSessionId,
         addon_tiers: tiers,
         // Legacy pair mirrors tier one for older readers of the session.
         addon_price_cents: tiers[0]?.price_cents ?? 0,
@@ -430,6 +464,25 @@ export default function HostPreset({ venue, onOpened }: Props) {
                     onChange={(e) => update("name", e.target.value)}
                   />
                   <small>Leave empty to use the date and venue automatically.</small>
+                </div>
+
+                <div className="prep-field">
+                  <label>Linked online session</label>
+                  <select
+                    value={linkedSessionId === "" ? "" : String(linkedSessionId)}
+                    onChange={(e) => setLinkedSessionId(e.target.value === "" ? "" : Number(e.target.value))}
+                  >
+                    <option value="">Not linked — local-only tournament</option>
+                    {cloudSessions.map((session) => (
+                      <option key={session.session_id} value={session.session_id}>
+                        {session.session_date}{session.start_time ? ` ${session.start_time.slice(0, 5)}` : ""} — {session.title ?? `Session #${session.session_id}`} ({session.registrations_count} booked)
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    Linking turns on the live layer: online bookings appear on scan, tables come from the
+                    cloud with "+ Add table", and seat changes show online instantly.
+                  </small>
                 </div>
 
                 <div className="prep-field-grid">
@@ -622,7 +675,7 @@ export default function HostPreset({ venue, onOpened }: Props) {
                           <input
                             type="number" min={1} max={maxPosition}
                             value={cutOffs[kind]}
-                            placeholder={kind === "addon" ? "None" : "Same"}
+                            placeholder="None"
                             onChange={(e) => setCutOffs((current) => ({
                               ...current,
                               [kind]: e.target.value === "" ? "" : Number(e.target.value),

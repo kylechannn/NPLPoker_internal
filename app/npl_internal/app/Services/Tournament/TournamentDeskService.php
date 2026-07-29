@@ -278,7 +278,7 @@ final class TournamentDeskService
         }
 
         $result = match ($action) {
-            'buy_in' => $this->buyIn($sessionId, $nplId, $options),
+            'buy_in' => $this->buyIn($sessionId, $session, $nplId, $options),
             'rebuy' => $this->rebuy($sessionId, $nplId, $options),
             'addon' => $this->tournaments->act($sessionId, $nplId, 'addon', $options),
             'jackpot' => $this->joinJackpot($sessionId, $session, $nplId, $state),
@@ -289,15 +289,21 @@ final class TournamentDeskService
 
         // A paid buy-in is the venue confirming (or creating) the cloud
         // registration — online bookings are only bookings until this
-        // happens, and walk-ins must appear online too.
+        // happens, and walk-ins must appear online too. The seat comes from
+        // the entry row, because buy-in may have auto-assigned one.
         if ($action === 'buy_in' && $session->game_session_id !== null) {
+            $entry = DB::table('tournament_entries')
+                ->where('tournament_session_id', $sessionId)
+                ->where('player_npl_id', $nplId)
+                ->first();
+
             $this->outbox->enqueue('session_checkin', 'create', [
                 'reference' => (string) Str::uuid(),
                 'game_session_id' => (int) $session->game_session_id,
                 'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
                 'player_npl_id' => $nplId,
-                'table_number' => isset($options['table_number']) ? (int) $options['table_number'] : null,
-                'seat_number' => isset($options['seat_number']) ? (int) $options['seat_number'] : null,
+                'table_number' => $entry?->table_number !== null ? (int) $entry->table_number : null,
+                'seat_number' => $entry?->seat_number !== null ? (int) $entry->seat_number : null,
                 'entered_at' => now()->toIso8601String(),
             ]);
             $this->drainSoon();
@@ -306,7 +312,7 @@ final class TournamentDeskService
         return $result;
     }
 
-    private function buyIn(int $sessionId, string $nplId, array $options): array
+    private function buyIn(int $sessionId, object $session, string $nplId, array $options): array
     {
         $player = DB::table('mirror_players')->where('npl_id', $nplId)->first();
 
@@ -316,16 +322,150 @@ final class TournamentDeskService
             ? (string) $options['voucher_code']
             : null;
 
+        $tableNumber = isset($options['table_number']) ? (int) $options['table_number'] : null;
+        $seatNumber = isset($options['seat_number']) ? (int) $options['seat_number'] : null;
+
+        // First buy-in seats the player automatically — honouring an online
+        // seat pick, dodging blocked players, balancing tables. ONLY the
+        // buy-in does this: rebuys and add-ons never touch a seat, the
+        // player already has one.
+        if ($tableNumber === null || $seatNumber === null) {
+            [$tableNumber, $seatNumber] = $this->autoAssignSeat($sessionId, $session, $nplId);
+        }
+
         return $this->tournaments->register(
             $sessionId,
             $nplId,
             $player->display_name ?? null,
-            isset($options['table_number']) ? (int) $options['table_number'] : null,
-            isset($options['seat_number']) ? (int) $options['seat_number'] : null,
+            $tableNumber,
+            $seatNumber,
             $voucherCode !== null
                 ? ['price_cents' => 0, 'meta' => ['voucher_code' => $voucherCode]]
                 : [],
         );
+    }
+
+    /**
+     * Pick a seat the way a good floor manager would: the seat the player
+     * booked online if it is still free, otherwise the emptiest table that
+     * does not contain anyone who blocked them (or whom they blocked) —
+     * friends are fine — falling back to a blocked table only when there is
+     * nowhere else, and opening a fresh table when everything is full.
+     *
+     * @return array{0: ?int, 1: ?int}
+     */
+    private function autoAssignSeat(int $sessionId, object $session, string $nplId): array
+    {
+        $perTable = max(1, (int) $session->seats_per_table);
+
+        $seated = DB::table('tournament_entries')
+            ->where('tournament_session_id', $sessionId)
+            ->where('status', 'active')
+            ->whereNotNull('table_number')
+            ->whereNotNull('seat_number')
+            ->get(['player_npl_id', 'table_number', 'seat_number']);
+
+        $occupied = [];
+        foreach ($seated as $row) {
+            $occupied[(int) $row->table_number][(int) $row->seat_number] = (string) $row->player_npl_id;
+        }
+
+        // The same table universe the seating map shows.
+        $highestTable = $seated->max('table_number') ?? 0;
+        $cloudTableCount = 0;
+        if ($session->game_session_id !== null) {
+            $cloudTableCount = (int) DB::table('mirror_session_tables')
+                ->where('session_id', $session->game_session_id)
+                ->where(fn ($query) => $query->whereNull('table_status')->orWhere('table_status', '!=', 'cancelled'))
+                ->max('table_number');
+        }
+        $tableCount = max((int) $highestTable, $cloudTableCount, 1);
+
+        // Their online pick first — the player expects the seat they chose.
+        $booking = $this->onlineBooking($session, $nplId);
+        if ($booking !== null
+            && $booking['seat_number'] !== null
+            && $booking['table_number'] >= 1
+            && $booking['seat_number'] <= $perTable
+            && ! isset($occupied[$booking['table_number']][$booking['seat_number']])) {
+            return [$booking['table_number'], $booking['seat_number']];
+        }
+
+        // Tables holding someone in a blocked relationship with this player.
+        $badTables = [];
+        foreach ($this->blockedNplIds($nplId) as $blockedId) {
+            foreach ($occupied as $tableNumber => $seats) {
+                if (in_array($blockedId, $seats, true)) {
+                    $badTables[$tableNumber] = true;
+                }
+            }
+        }
+
+        // Emptiest friendly table first; blocked tables only as a last
+        // resort; a brand-new table before a blocked one.
+        $candidates = [];
+        for ($tableNumber = 1; $tableNumber <= $tableCount + 1; $tableNumber++) {
+            $used = count($occupied[$tableNumber] ?? []);
+            if ($used >= $perTable) {
+                continue;
+            }
+
+            $candidates[] = [
+                'table' => $tableNumber,
+                'bad' => isset($badTables[$tableNumber]) ? 1 : 0,
+                'overflow' => $tableNumber > $tableCount ? 1 : 0,
+                'used' => $used,
+            ];
+        }
+
+        usort($candidates, fn (array $a, array $b): int => [$a['bad'], $a['overflow'], $a['used'], $a['table']]
+            <=> [$b['bad'], $b['overflow'], $b['used'], $b['table']]);
+
+        foreach ($candidates as $candidate) {
+            for ($seat = 1; $seat <= $perTable; $seat++) {
+                if (! isset($occupied[$candidate['table']][$seat])) {
+                    return [$candidate['table'], $seat];
+                }
+            }
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * NPL ids in a blocked relationship with this player, either direction,
+     * resolved through the synced relationship mirror.
+     *
+     * @return list<string>
+     */
+    private function blockedNplIds(string $nplId): array
+    {
+        $playerId = DB::table('mirror_players')->whereRaw('UPPER(npl_id) = ?', [Str::upper($nplId)])->value('cloud_id');
+
+        if ($playerId === null) {
+            return [];
+        }
+
+        $otherIds = DB::table('mirror_player_relationships')
+            ->where('type', 'blocked')
+            ->where(fn ($query) => $query->where('player_id', $playerId)->orWhere('related_player_id', $playerId))
+            ->get(['player_id', 'related_player_id'])
+            ->flatMap(fn (object $row): array => [(int) $row->player_id, (int) $row->related_player_id])
+            ->filter(fn (int $id): bool => $id !== (int) $playerId)
+            ->unique()
+            ->values();
+
+        if ($otherIds->isEmpty()) {
+            return [];
+        }
+
+        return DB::table('mirror_players')
+            ->whereIn('cloud_id', $otherIds)
+            ->pluck('npl_id')
+            ->filter()
+            ->map(fn ($id): string => (string) $id)
+            ->values()
+            ->all();
     }
 
     /** Shared card-or-NPL-ID resolution — see PlayerResolver. */

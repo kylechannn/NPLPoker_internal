@@ -314,11 +314,10 @@ class TournamentClockTest extends TestCase
         } catch (ValidationException) {
         }
 
-        try {
-            $service->act($id, 'ACE2026', 'rebuy');
-            $this->fail('Rebuys must be refused once registration closes.');
-        } catch (ValidationException) {
-        }
+        // Cut-offs are independent: no rebuy cut-off was set, so rebuys
+        // stay open even though registration has closed.
+        $service->act($id, 'ACE2026', 'rebuy');
+        $this->assertSame(1, $service->players($id)[0]['rebuys']);
     }
 
     public function test_a_repeated_action_with_the_same_idempotency_key_applies_once(): void

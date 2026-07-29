@@ -44,8 +44,10 @@ final class TournamentGateService
 
         $finished = $session->status === TournamentClockService::STATUS_FINISHED;
 
-        // Registration is the mandatory one; the rest fall back to it so a
-        // desk that only sets the required field still gets sane behaviour.
+        // Every cut-off stands alone — the desk fills each one itself, and a
+        // blank means that action stays open until the tournament finishes.
+        // (Rebuy/jackpot used to inherit the registration cut-off; venues
+        // run them independently, so that surprise is gone.)
         $registrationLevel = $session->registration_closes_at_level !== null
             ? (int) $session->registration_closes_at_level
             : null;
@@ -53,7 +55,7 @@ final class TournamentGateService
         return [
             self::REGISTRATION => $this->gate($registrationLevel, $state, $levels, $finished, 'Registration'),
             self::REBUY => $this->gate(
-                $session->rebuy_closes_at_level !== null ? (int) $session->rebuy_closes_at_level : $registrationLevel,
+                $session->rebuy_closes_at_level !== null ? (int) $session->rebuy_closes_at_level : null,
                 $state,
                 $levels,
                 $finished,
@@ -67,7 +69,7 @@ final class TournamentGateService
                 'Add-ons',
             ),
             self::JACKPOT => $this->gate(
-                $session->jackpot_closes_at_level !== null ? (int) $session->jackpot_closes_at_level : $registrationLevel,
+                $session->jackpot_closes_at_level !== null ? (int) $session->jackpot_closes_at_level : null,
                 $state,
                 $levels,
                 $finished,
