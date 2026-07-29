@@ -341,10 +341,17 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           title="Open the room clock in its own window"
           onClick={() => {
             // A real window, not a tab: it gets dragged onto the projector and
-            // left there. The clock is server-authoritative, so opening two of
-            // these can never make them disagree.
+            // left there. In the desktop shell the Go host builds the window
+            // itself — a window.open popup would carry the browser process's
+            // stock chrome, which no styling here can remove. The clock is
+            // server-authoritative, so opening two can never make them disagree.
+            const query = `?display=timer&session=${sessionId}`
+            if (window.nplOpenRoomClock) {
+              void window.nplOpenRoomClock(`${window.location.origin}${window.location.pathname}${query}`)
+              return
+            }
             window.open(
-              `${window.location.pathname}?display=timer&session=${sessionId}`,
+              `${window.location.pathname}${query}`,
               `npl-timer-${sessionId}`,
               "width=1280,height=720,menubar=no,toolbar=no,location=no,status=no",
             )

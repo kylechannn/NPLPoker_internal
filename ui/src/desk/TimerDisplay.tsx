@@ -34,8 +34,8 @@ type Summary = {
 const SYNC_MS = 5000
 const TICK_MS = 250
 
-/** The popup's native chrome is stripped by the Go host, keyed on this
- *  exact title — keep them in sync with desktop_windows.go. */
+/** Matches the native window title in desktop_windows.go; also names
+ *  the tab when the page runs in a plain browser during development. */
 const WINDOW_TITLE = "NPL Room Clock"
 
 /** A short two-tone chime on level change; deeper pair for a break. */
@@ -162,12 +162,16 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   }
 
   // One button, two jobs: the layout switch and the window itself move
-  // together. Minimise shrinks the real window into a mini clock;
-  // Maximise goes fullscreen. resizeTo is allowed here because the desk
-  // opened this window with window.open.
+  // together. In the desktop shell the Go host resizes its own window
+  // ("mini" = small centred widget, "max" = edge-to-edge on the
+  // monitor); the fallbacks cover the page running in a plain browser.
   async function toggleMode() {
     if (mode === "max") {
       setMode("mini")
+      if (window.nplClockLayout) {
+        void window.nplClockLayout("mini")
+        return
+      }
       try {
         if (document.fullscreenElement) await document.exitFullscreen()
       } catch {
@@ -176,21 +180,26 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       window.resizeTo(420, 560)
     } else {
       setMode("max")
+      if (window.nplClockLayout) {
+        void window.nplClockLayout("max")
+        return
+      }
       document.documentElement.requestFullscreen().catch(() => {
-        // Fullscreen refused (rare in the desk shell): at least give the
-        // room a projector-sized window again.
         window.resizeTo(1280, 720)
       })
     }
   }
 
-  // The frameless window's drag handle. moveBy is permitted for
-  // script-opened popups; screen coordinates keep the deltas stable
-  // while the window itself is moving under the pointer.
+  // The frameless window's drag handle: the native hit-test drag in the
+  // desktop shell, moveBy deltas as the browser fallback.
   function startTitleDrag(event: React.PointerEvent<HTMLElement>) {
     if (event.button !== 0) return
     if ((event.target as HTMLElement).closest("button")) return
-    if (document.fullscreenElement) return
+
+    if (window.nplWindowStartDrag) {
+      void window.nplWindowStartDrag()
+      return
+    }
 
     let lastX = event.screenX
     let lastY = event.screenY
@@ -207,6 +216,14 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
 
     window.addEventListener("pointermove", move)
     window.addEventListener("pointerup", up)
+  }
+
+  function closeWindow() {
+    if (window.nplWindowClose) {
+      void window.nplWindowClose()
+      return
+    }
+    window.close()
   }
 
   // Ticks locally between syncs so the seconds move smoothly; every sync
@@ -255,16 +272,18 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           <span className="rc-dot rc-dot--idle" />
           <span className="rc-titlebar__label">Room Clock</span>
           <span className="rc-titlebar__spacer" />
-          <button
-            type="button"
-            className="rc-winbtn"
-            title="Hide the clock"
-            aria-label="Minimize window"
-            onClick={() => void fetch("/api/window/room-clock/minimize", { method: "POST" }).catch(() => {})}
-          >
-            <Minus size={15} strokeWidth={1.7} />
-          </button>
-          <button type="button" className="rc-winbtn rc-winbtn--close" title="Close" aria-label="Close window" onClick={() => window.close()}>
+          {window.nplWindowMinimize ? (
+            <button
+              type="button"
+              className="rc-winbtn"
+              title="Hide the clock"
+              aria-label="Minimize window"
+              onClick={() => void window.nplWindowMinimize?.()}
+            >
+              <Minus size={15} strokeWidth={1.7} />
+            </button>
+          ) : null}
+          <button type="button" className="rc-winbtn rc-winbtn--close" title="Close" aria-label="Close window" onClick={closeWindow}>
             <span><X size={16} strokeWidth={2.2} /></span>
           </button>
         </header>
@@ -288,15 +307,17 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         <span className="rc-titlebar__venue">{clock.venue_name}</span>
       ) : null}
       <span className="rc-titlebar__spacer" />
-      <button
-        type="button"
-        className="rc-winbtn"
-        title="Hide the clock"
-        aria-label="Minimize window"
-        onClick={() => void fetch("/api/window/room-clock/minimize", { method: "POST" }).catch(() => {})}
-      >
-        <Minus size={15} strokeWidth={1.7} />
-      </button>
+      {window.nplWindowMinimize ? (
+        <button
+          type="button"
+          className="rc-winbtn"
+          title="Hide the clock"
+          aria-label="Minimize window"
+          onClick={() => void window.nplWindowMinimize?.()}
+        >
+          <Minus size={15} strokeWidth={1.7} />
+        </button>
+      ) : null}
       <button
         type="button"
         className="rc-winbtn"
@@ -306,7 +327,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       >
         {mode === "max" ? <Copy size={13} strokeWidth={1.6} /> : <Square size={12} strokeWidth={1.6} />}
       </button>
-      <button type="button" className="rc-winbtn rc-winbtn--close" title="Close the display" aria-label="Close window" onClick={() => window.close()}>
+      <button type="button" className="rc-winbtn rc-winbtn--close" title="Close the display" aria-label="Close window" onClick={closeWindow}>
         <span><X size={16} strokeWidth={2.2} /></span>
       </button>
     </header>

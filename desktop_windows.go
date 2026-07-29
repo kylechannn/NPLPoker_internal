@@ -6,8 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 
 	wv "github.com/jchv/go-webview2"
@@ -27,7 +28,12 @@ var (
 	isZoomed              = user32.NewProc("IsZoomed")
 	releaseCapture        = user32.NewProc("ReleaseCapture")
 	sendMessageW          = user32.NewProc("SendMessageW")
-	findWindowExW         = user32.NewProc("FindWindowExW")
+	setForegroundWindow   = user32.NewProc("SetForegroundWindow")
+	monitorFromWindow     = user32.NewProc("MonitorFromWindow")
+	getMonitorInfoW       = user32.NewProc("GetMonitorInfoW")
+	getDpiForWindow       = user32.NewProc("GetDpiForWindow")
+	ole32                 = syscall.NewLazyDLL("ole32.dll")
+	coInitializeEx        = ole32.NewProc("CoInitializeEx")
 )
 
 const (
@@ -86,62 +92,144 @@ func runDesktopWindow(target string) error {
 
 	window.Init("window.__NPL_DESKTOP__ = true;")
 	window.Navigate(target)
-	watchRoomClockWindows()
 	window.Run()
 	return nil
 }
 
-// The room-clock page titles itself exactly this — keep in sync with
-// TimerDisplay.tsx.
 const roomClockWindowTitle = "NPL Room Clock"
 
-// minimizeRoomClockWindow sends every room-clock popup to the taskbar.
-// The popup's own "—" button calls this through the local API.
-func minimizeRoomClockWindow() {
-	titlePtr, err := syscall.UTF16PtrFromString(roomClockWindowTitle)
-	if err != nil {
-		return
-	}
+const monitorDefaultToNearest = 2
 
-	var hwnd uintptr
-	for {
-		found, _, _ := findWindowExW.Call(0, hwnd, 0, uintptr(unsafe.Pointer(titlePtr)))
-		if found == 0 {
-			break
-		}
-		hwnd = found
-		_, _, _ = showWindow.Call(hwnd, showMinimized)
-	}
+type winRect struct {
+	left, top, right, bottom int32
 }
 
-// watchRoomClockWindows re-frames room-clock popups. WebView2 opens
-// window.open windows with the stock system caption; the page draws its
-// own title bar, so the system one comes off — same treatment as the
-// main window, found by the popup's fixed title.
-func watchRoomClockWindows() {
-	titlePtr, err := syscall.UTF16PtrFromString(roomClockWindowTitle)
-	if err != nil {
+type winMonitorInfo struct {
+	cbSize    uint32
+	rcMonitor winRect
+	rcWork    winRect
+	dwFlags   uint32
+}
+
+var (
+	roomClockMu   sync.Mutex
+	roomClockOpen = map[string]uintptr{}
+)
+
+// openRoomClockWindow hosts the room clock in a window this process
+// owns. A window.open popup belongs to the WebView2 browser process —
+// its system caption and URL strip cannot be restyled from here — so
+// the desk asks the host, and the host builds a chrome-less window
+// instead. Each clock runs its own message loop on its own locked
+// thread; asking for a clock that is already open just refocuses it.
+func openRoomClockWindow(target string) {
+	roomClockMu.Lock()
+	if hwnd, ok := roomClockOpen[target]; ok {
+		roomClockMu.Unlock()
+		_, _, _ = showWindow.Call(hwnd, showRestored)
+		_, _, _ = setForegroundWindow.Call(hwnd)
 		return
 	}
+	roomClockMu.Unlock()
 
 	go func() {
-		for {
-			var hwnd uintptr
-			for {
-				found, _, _ := findWindowExW.Call(0, hwnd, 0, uintptr(unsafe.Pointer(titlePtr)))
-				if found == 0 {
-					break
-				}
-				hwnd = found
+		runtime.LockOSThread()
+		// The webview library initialises COM for the main thread only;
+		// this thread hosts its own window and message loop.
+		_, _, _ = coInitializeEx.Call(0, 2)
 
-				style, _, _ := getWindowLongPtrW.Call(hwnd, windowStyleIndex)
-				if style&windowStyleCaption != 0 {
-					applyDesktopWindowStyle(hwnd)
-				}
-			}
-			time.Sleep(700 * time.Millisecond)
+		clock := wv.NewWithOptions(wv.WebViewOptions{
+			Debug:     false,
+			DataPath:  filepath.Join(os.Getenv("LOCALAPPDATA"), "NPLPoker", "OperationalSystem", "WebView2"),
+			AutoFocus: true,
+			WindowOptions: wv.WindowOptions{
+				Title:  roomClockWindowTitle,
+				Width:  1280,
+				Height: 720,
+				Center: true,
+			},
+		})
+		if clock == nil {
+			return
 		}
+
+		hwnd := uintptr(clock.Window())
+		applyDesktopWindowStyle(hwnd)
+		clock.SetSize(320, 400, wv.HintMin)
+		bindRoomClockWindow(clock, hwnd)
+
+		roomClockMu.Lock()
+		roomClockOpen[target] = hwnd
+		roomClockMu.Unlock()
+
+		clock.Navigate(target)
+		clock.Run()
+
+		roomClockMu.Lock()
+		delete(roomClockOpen, target)
+		roomClockMu.Unlock()
 	}()
+}
+
+func bindRoomClockWindow(window wv.WebView, hwnd uintptr) {
+	_ = window.Bind("nplWindowMinimize", func() {
+		_, _, _ = showWindow.Call(hwnd, showMinimized)
+	})
+
+	_ = window.Bind("nplWindowClose", func() {
+		_, _, _ = sendMessageW.Call(hwnd, windowMessageClose, 0, 0)
+	})
+
+	_ = window.Bind("nplWindowStartDrag", func() {
+		_, _, _ = releaseCapture.Call()
+		_, _, _ = sendMessageW.Call(hwnd, windowMessageNCLButton, hitTestCaption, 0)
+	})
+
+	// The square button drives the window with the layout: "max" covers
+	// the monitor edge to edge, "mini" is the small clock widget centred
+	// on whichever monitor the window lives on.
+	_ = window.Bind("nplClockLayout", func(mode string) {
+		var info winMonitorInfo
+		info.cbSize = uint32(unsafe.Sizeof(info))
+		haveMonitor := false
+		if monitor, _, _ := monitorFromWindow.Call(hwnd, monitorDefaultToNearest); monitor != 0 {
+			ok, _, _ := getMonitorInfoW.Call(monitor, uintptr(unsafe.Pointer(&info)))
+			haveMonitor = ok != 0
+		}
+
+		if mode == "max" {
+			if !haveMonitor {
+				_, _, _ = showWindow.Call(hwnd, showMaximized)
+				return
+			}
+			_, _, _ = setWindowPos.Call(
+				hwnd,
+				0,
+				uintptr(int(info.rcMonitor.left)),
+				uintptr(int(info.rcMonitor.top)),
+				uintptr(int(info.rcMonitor.right-info.rcMonitor.left)),
+				uintptr(int(info.rcMonitor.bottom-info.rcMonitor.top)),
+				setPositionNoZOrder|setPositionFrameChanged,
+			)
+			return
+		}
+
+		dpi, _, _ := getDpiForWindow.Call(hwnd)
+		if dpi == 0 {
+			dpi = 96
+		}
+		width := int(420 * dpi / 96)
+		height := int(560 * dpi / 96)
+
+		if !haveMonitor {
+			_, _, _ = setWindowPos.Call(hwnd, 0, 0, 0, uintptr(width), uintptr(height), setPositionNoMove|setPositionNoZOrder|setPositionFrameChanged)
+			return
+		}
+
+		left := int(info.rcWork.left) + (int(info.rcWork.right-info.rcWork.left)-width)/2
+		top := int(info.rcWork.top) + (int(info.rcWork.bottom-info.rcWork.top)-height)/2
+		_, _, _ = setWindowPos.Call(hwnd, 0, uintptr(left), uintptr(top), uintptr(width), uintptr(height), setPositionNoZOrder|setPositionFrameChanged)
+	})
 }
 
 func bindDesktopWindowControls(window wv.WebView, hwnd uintptr) error {
@@ -177,6 +265,14 @@ func bindDesktopWindowControls(window wv.WebView, hwnd uintptr) error {
 
 	if err := window.Bind("nplWindowClose", func() {
 		_, _, _ = sendMessageW.Call(hwnd, windowMessageClose, 0, 0)
+	}); err != nil {
+		return err
+	}
+
+	// The desk cannot use window.open for the room clock — that popup
+	// would belong to the browser process, stock chrome and all.
+	if err := window.Bind("nplOpenRoomClock", func(target string) {
+		openRoomClockWindow(target)
 	}); err != nil {
 		return err
 	}

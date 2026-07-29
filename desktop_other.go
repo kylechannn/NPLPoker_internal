@@ -9,5 +9,3 @@ func runDesktopWindow(_ string) error {
 }
 
 func showNativeError(_, _ string) {}
-
-func minimizeRoomClockWindow() {}

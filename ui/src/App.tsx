@@ -62,6 +62,8 @@ declare global {
     nplWindowIsMaximized?: () => Promise<boolean>
     nplWindowStartDrag?: () => Promise<void>
     nplWindowClose?: () => Promise<void>
+    nplOpenRoomClock?: (target: string) => Promise<void>
+    nplClockLayout?: (mode: "mini" | "max") => Promise<void>
   }
 }
 
