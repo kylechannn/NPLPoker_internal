@@ -153,7 +153,17 @@ export function useBackendLink(venueId: number | null) {
       socketRef.current = socket
       lastFrameRef.current = Date.now()
 
+      // A socket that sits in CONNECTING must not hang the light forever —
+      // force it closed so the close code surfaces and the retry runs.
+      const connectDeadline = window.setTimeout(() => {
+        if (socket.readyState === WebSocket.CONNECTING) {
+          setLastError("Socket open timed out after 15s — the connection is being silently dropped (proxy/AV/firewall on this machine).")
+          socket.close()
+        }
+      }, 15_000)
+
       socket.onopen = () => {
+        window.clearTimeout(connectDeadline)
         lastFrameRef.current = Date.now()
         setPhase("Socket open — waiting for the server handshake…")
       }
