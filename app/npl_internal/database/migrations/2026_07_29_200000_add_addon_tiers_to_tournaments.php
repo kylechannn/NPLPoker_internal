@@ -15,6 +15,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('tournament_sessions', 'addon_tiers')) {
+            return;
+        }
+
         Schema::table('tournament_sessions', function (Blueprint $table): void {
             $table->json('addon_tiers')->nullable()->after('max_addons_per_player');
         });

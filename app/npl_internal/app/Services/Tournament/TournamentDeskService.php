@@ -33,6 +33,7 @@ final class TournamentDeskService
         private readonly TournamentService $tournaments,
         private readonly TournamentBroadcaster $broadcaster,
         private readonly OutboxService $outbox,
+        private readonly \App\Services\Cloud\CloudClient $cloud,
     ) {}
 
     /**
@@ -56,16 +57,23 @@ final class TournamentDeskService
         $session = $this->clock->session($sessionId);
         $state = $this->clock->state($sessionId);
 
-        $player = DB::table('mirror_players')->where('npl_id', $nplId)->first();
+        // One box, two identifier spaces: NL####### card scans and typed
+        // NPL IDs. The cloud roster is the authority — the mirror only
+        // answers first because it is faster, and a miss goes straight to
+        // the cloud (a player who registered a minute ago must scan clean).
+        $player = $this->resolvePlayer($nplId);
 
         if ($player === null) {
             throw ValidationException::withMessages([
                 'player_npl_id' => [sprintf(
-                    'No player found for %s. Run a sync if they registered online recently.',
+                    'No player found for %s — card number or NPL ID. If they registered seconds ago, scan again.',
                     $nplId,
                 )],
             ]);
         }
+
+        // Everything downstream keys on the NPL ID, whichever was scanned.
+        $nplId = (string) $player->npl_id;
 
         $entry = DB::table('tournament_entries')
             ->where('tournament_session_id', $sessionId)
@@ -319,6 +327,56 @@ final class TournamentDeskService
                 ? ['price_cents' => 0, 'meta' => ['voucher_code' => $voucherCode]]
                 : [],
         );
+    }
+
+    /**
+     * Resolve a scan input against the mirror, then the cloud. A cloud hit
+     * is cached back into the mirror so the next scan of the same player
+     * is local even before the delta sync catches up.
+     */
+    private function resolvePlayer(string $id): ?object
+    {
+        // Case-insensitive on purpose: the scan input is normalised to
+        // uppercase but a chosen NPL ID may be stored mixed-case, and the
+        // local SQLite compares case-sensitively.
+        $player = DB::table('mirror_players')
+            ->where(fn ($query) => $query
+                ->whereRaw('UPPER(npl_id) = ?', [$id])
+                ->orWhereRaw('UPPER(public_player_code) = ?', [$id]))
+            ->first();
+
+        if ($player !== null) {
+            return $player;
+        }
+
+        try {
+            $result = $this->cloud->getJson('/api/v1/internal/players/resolve', ['id' => $id]);
+        } catch (Throwable) {
+            return null;
+        }
+
+        $resolved = $result['data']['player'] ?? null;
+
+        if (! is_array($resolved) || ! isset($resolved['id'], $resolved['npl_id'])) {
+            return null;
+        }
+
+        DB::table('mirror_players')->updateOrInsert(
+            ['cloud_id' => (int) $resolved['id']],
+            [
+                'npl_id' => (string) $resolved['npl_id'],
+                'public_player_code' => $resolved['public_player_code'] ?? null,
+                'display_name' => $resolved['display_name'] ?? null,
+                'first_name' => $resolved['first_name'] ?? null,
+                'last_name' => $resolved['last_name'] ?? null,
+                'state_code' => $resolved['state_code'] ?? null,
+                'status' => $resolved['status'] ?? 'active',
+                'updated_at' => now(),
+                'created_at' => now(),
+            ],
+        );
+
+        return DB::table('mirror_players')->where('cloud_id', (int) $resolved['id'])->first();
     }
 
     /**

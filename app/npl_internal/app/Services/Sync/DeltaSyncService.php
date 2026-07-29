@@ -173,6 +173,7 @@ final class DeltaSyncService
                 'players' => [
                     'cloud_id' => (int) $row['id'],
                     'npl_id' => $this->str($row['npl_id'] ?? null, 32),
+                    'public_player_code' => $this->str($row['public_player_code'] ?? null, 16),
                     'display_name' => $this->str($row['display_name'] ?? null, 120),
                     'first_name' => $this->str($row['first_name'] ?? null, 80),
                     'last_name' => $this->str($row['last_name'] ?? null, 80),
