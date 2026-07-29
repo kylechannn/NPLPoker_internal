@@ -682,7 +682,21 @@ a:focus-visible {
   width: 22px;
   height: 13px;
   gap: 2px;
+  overflow: hidden;
 }
+
+/* The staircase heights are sized for the old large widget — scale them
+   down to fit the 13px sliver. */
+.connection-signal--compact .signal-bar {
+  width: 3px;
+  border-radius: 1px;
+}
+
+.connection-signal--compact .signal-bar:nth-child(1) { height: 4px; }
+.connection-signal--compact .signal-bar:nth-child(2) { height: 6px; }
+.connection-signal--compact .signal-bar:nth-child(3) { height: 8px; }
+.connection-signal--compact .signal-bar:nth-child(4) { height: 10px; }
+.connection-signal--compact .signal-bar:nth-child(5) { height: 13px; }
 
 .connection-signal--compact .connection-signal__copy {
   display: flex;
