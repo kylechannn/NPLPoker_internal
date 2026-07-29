@@ -160,6 +160,14 @@
   background: #ffffff;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
   overflow: hidden;
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 240ms var(--rc-ease), transform 240ms var(--rc-ease);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.97);
+  }
 }
 
 .scm-body {
@@ -215,12 +223,62 @@
   color: #0f172a;
 }
 
+.scm-ante {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+/* The dedicated widget's one job is the time — it gets the largest
+   type in the card, and the last minute turns it red. */
 .scm-clock {
   margin-top: 4px;
-  font-size: 48px;
+  font-size: 56px;
   font-weight: 800;
   line-height: 1;
   color: #0f172a;
+  transition: color 300ms ease;
+}
+
+.scm-clock--urgent { color: #dc2626; }
+
+.scm-progress {
+  width: 100%;
+  max-width: 240px;
+  height: 4px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.scm-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #10b981;
+  transition: width 300ms linear, background-color 300ms ease;
+}
+
+.scm-progress span.scm-progress--urgent { background: #ef4444; }
+
+.scm-paused {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 6px;
+  border: 1px solid #fbbf24;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fffbeb;
+}
+
+.scm-next {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 .scm-foot {
@@ -397,6 +455,14 @@
   background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 240ms var(--rc-ease), transform 240ms var(--rc-ease);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .scx-panel--zoomed {
@@ -462,10 +528,34 @@
   font-weight: 800;
   line-height: 1;
   color: #f8fafc;
+  transition: color 300ms ease;
 }
 
 .scx-panel--zoomed .scx-clock {
   font-size: clamp(84px, 13vw, 140px);
+}
+
+.scx-clock--urgent { color: #fecaca; }
+
+.scx-progress {
+  width: min(100%, 560px);
+  height: 6px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+
+.scx-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.55), #34d399);
+  transition: width 300ms linear, background-color 300ms ease;
+}
+
+.scx-progress span.scx-progress--urgent {
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.55), #f87171);
 }
 
 .scx-warn {
@@ -536,6 +626,14 @@
   background: rgba(15, 23, 42, 0.9);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 240ms var(--rc-ease) 60ms, transform 240ms var(--rc-ease) 60ms;
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .scx-stat {
@@ -619,4 +717,18 @@
   .rc-dot--live,
   .rc-dot--break,
   .scx-warn i { animation: none; }
+
+  .scm-card,
+  .scx-panel,
+  .scx-stats {
+    transition: opacity 200ms ease;
+    transform: none;
+
+    @starting-style {
+      transform: none;
+    }
+  }
+
+  .scm-progress span,
+  .scx-progress span { transition: none; }
 }

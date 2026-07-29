@@ -144,8 +144,8 @@ func openRoomClockWindow(target string) {
 			AutoFocus: true,
 			WindowOptions: wv.WindowOptions{
 				Title:  roomClockWindowTitle,
-				Width:  1280,
-				Height: 720,
+				Width:  420,
+				Height: 560,
 				Center: true,
 			},
 		})
@@ -156,6 +156,9 @@ func openRoomClockWindow(target string) {
 		hwnd := uintptr(clock.Window())
 		applyDesktopWindowStyle(hwnd)
 		clock.SetSize(320, 400, wv.HintMin)
+		// The clock arrives as the mini widget — the page defaults to the
+		// mini layout to match — and grows to the projector on demand.
+		layoutRoomClockWindow(hwnd, "mini")
 		bindRoomClockWindow(clock, hwnd)
 
 		roomClockMu.Lock()
@@ -185,51 +188,56 @@ func bindRoomClockWindow(window wv.WebView, hwnd uintptr) {
 		_, _, _ = sendMessageW.Call(hwnd, windowMessageNCLButton, hitTestCaption, 0)
 	})
 
-	// The square button drives the window with the layout: "max" covers
-	// the monitor edge to edge, "mini" is the small clock widget centred
-	// on whichever monitor the window lives on.
+	// The square button drives the window with the layout.
 	_ = window.Bind("nplClockLayout", func(mode string) {
-		var info winMonitorInfo
-		info.cbSize = uint32(unsafe.Sizeof(info))
-		haveMonitor := false
-		if monitor, _, _ := monitorFromWindow.Call(hwnd, monitorDefaultToNearest); monitor != 0 {
-			ok, _, _ := getMonitorInfoW.Call(monitor, uintptr(unsafe.Pointer(&info)))
-			haveMonitor = ok != 0
-		}
-
-		if mode == "max" {
-			if !haveMonitor {
-				_, _, _ = showWindow.Call(hwnd, showMaximized)
-				return
-			}
-			_, _, _ = setWindowPos.Call(
-				hwnd,
-				0,
-				uintptr(int(info.rcMonitor.left)),
-				uintptr(int(info.rcMonitor.top)),
-				uintptr(int(info.rcMonitor.right-info.rcMonitor.left)),
-				uintptr(int(info.rcMonitor.bottom-info.rcMonitor.top)),
-				setPositionNoZOrder|setPositionFrameChanged,
-			)
-			return
-		}
-
-		dpi, _, _ := getDpiForWindow.Call(hwnd)
-		if dpi == 0 {
-			dpi = 96
-		}
-		width := int(420 * dpi / 96)
-		height := int(560 * dpi / 96)
-
-		if !haveMonitor {
-			_, _, _ = setWindowPos.Call(hwnd, 0, 0, 0, uintptr(width), uintptr(height), setPositionNoMove|setPositionNoZOrder|setPositionFrameChanged)
-			return
-		}
-
-		left := int(info.rcWork.left) + (int(info.rcWork.right-info.rcWork.left)-width)/2
-		top := int(info.rcWork.top) + (int(info.rcWork.bottom-info.rcWork.top)-height)/2
-		_, _, _ = setWindowPos.Call(hwnd, 0, uintptr(left), uintptr(top), uintptr(width), uintptr(height), setPositionNoZOrder|setPositionFrameChanged)
+		layoutRoomClockWindow(hwnd, mode)
 	})
+}
+
+// layoutRoomClockWindow sizes the clock window for a layout: "max"
+// covers the monitor edge to edge, "mini" is the small clock widget
+// centred on whichever monitor the window lives on.
+func layoutRoomClockWindow(hwnd uintptr, mode string) {
+	var info winMonitorInfo
+	info.cbSize = uint32(unsafe.Sizeof(info))
+	haveMonitor := false
+	if monitor, _, _ := monitorFromWindow.Call(hwnd, monitorDefaultToNearest); monitor != 0 {
+		ok, _, _ := getMonitorInfoW.Call(monitor, uintptr(unsafe.Pointer(&info)))
+		haveMonitor = ok != 0
+	}
+
+	if mode == "max" {
+		if !haveMonitor {
+			_, _, _ = showWindow.Call(hwnd, showMaximized)
+			return
+		}
+		_, _, _ = setWindowPos.Call(
+			hwnd,
+			0,
+			uintptr(int(info.rcMonitor.left)),
+			uintptr(int(info.rcMonitor.top)),
+			uintptr(int(info.rcMonitor.right-info.rcMonitor.left)),
+			uintptr(int(info.rcMonitor.bottom-info.rcMonitor.top)),
+			setPositionNoZOrder|setPositionFrameChanged,
+		)
+		return
+	}
+
+	dpi, _, _ := getDpiForWindow.Call(hwnd)
+	if dpi == 0 {
+		dpi = 96
+	}
+	width := int(420 * dpi / 96)
+	height := int(560 * dpi / 96)
+
+	if !haveMonitor {
+		_, _, _ = setWindowPos.Call(hwnd, 0, 0, 0, uintptr(width), uintptr(height), setPositionNoMove|setPositionNoZOrder|setPositionFrameChanged)
+		return
+	}
+
+	left := int(info.rcWork.left) + (int(info.rcWork.right-info.rcWork.left)-width)/2
+	top := int(info.rcWork.top) + (int(info.rcWork.bottom-info.rcWork.top)-height)/2
+	_, _, _ = setWindowPos.Call(hwnd, 0, uintptr(left), uintptr(top), uintptr(width), uintptr(height), setPositionNoZOrder|setPositionFrameChanged)
 }
 
 func bindDesktopWindowControls(window wv.WebView, hwnd uintptr) error {

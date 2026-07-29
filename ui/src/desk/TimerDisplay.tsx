@@ -79,7 +79,9 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [mode, setMode] = useState<"max" | "mini">("max")
+  // The window opens as the mini widget (the Go host sizes it to match)
+  // and grows to the projector display on demand.
+  const [mode, setMode] = useState<"max" | "mini">("mini")
   // Sichuan's Zoom: hide everything but blind + time, oversized.
   const [zoomed, setZoomed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -249,6 +251,13 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const level = clock?.current_level ?? null
   const isBreak = level?.is_break === true
 
+  const progress = clock && clock.level_duration_ms > 0
+    ? Math.min(100, Math.max(0, (1 - remaining / clock.level_duration_ms) * 100))
+    : 0
+  const wallTime = now > 0
+    ? new Date(now).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    : "—"
+
   const blindLabel = isBreak
     ? (level?.note || "Break")
     : `${(level?.small_blind ?? 0).toLocaleString()} / ${(level?.big_blind ?? 0).toLocaleString()}`
@@ -336,13 +345,18 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 <span className="scm-levelpill__total">{clock?.level_count ?? "—"}</span>
               </div>
 
-              <div className="scm-blind">
-                {blindLabel}
-                {!isBreak && level && level.bb_ante > 0 ? ` (${level.bb_ante.toLocaleString()})` : ""}
-              </div>
+              <div className="scm-blind">{blindLabel}</div>
+              {!isBreak && level && level.bb_ante > 0 ? (
+                <div className="scm-ante">Ante {level.bb_ante.toLocaleString()}</div>
+              ) : null}
 
               <div className="scm-label scm-label--gap">Time Remaining</div>
-              <div className="scm-clock">{countdown(remaining)}</div>
+              <div className={`scm-clock${urgent ? " scm-clock--urgent" : ""}`}>{countdown(remaining)}</div>
+              <div className="scm-progress" aria-hidden="true">
+                <span className={urgent ? "scm-progress--urgent" : undefined} style={{ width: `${progress}%` }} />
+              </div>
+              {paused ? <div className="scm-paused">Paused</div> : null}
+              <div className="scm-next">Next · {nextLabel}</div>
             </div>
 
             <div className="scm-foot">
@@ -423,7 +437,10 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   {!isBreak && level && level.bb_ante > 0 ? ` · Ante ${level.bb_ante.toLocaleString()}` : ""}
                 </div>
                 <div className="scx-plabel scx-plabel--gap">Time Remaining</div>
-                <div className="scx-clock">{countdown(remaining)}</div>
+                <div className={`scx-clock${urgent ? " scx-clock--urgent" : ""}`}>{countdown(remaining)}</div>
+                <div className="scx-progress" aria-hidden="true">
+                  <span className={urgent ? "scx-progress--urgent" : undefined} style={{ width: `${progress}%` }} />
+                </div>
                 {paused ? (
                   <div className="scx-warn"><i />Paused</div>
                 ) : urgent ? (
@@ -446,6 +463,10 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
             </div>
 
             <div className="scx-stats">
+              <div className="scx-stat">
+                <div className="scx-stat__label">Local Time</div>
+                <div className="scx-stat__value">{wallTime}</div>
+              </div>
               <div className="scx-stat">
                 <div className="scx-stat__label">Total Players</div>
                 <div className="scx-stat__value">{summary.total_players?.toLocaleString() ?? "—"}</div>
