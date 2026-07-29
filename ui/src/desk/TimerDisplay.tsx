@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { countdown, deskApi, type Gates, type Seating } from "./deskApi"
 import "./timer.css"
 
@@ -61,9 +61,9 @@ function chime(isBreak: boolean) {
  * The room display: the clock as everyone at the tables reads it.
  *
  * Opened as its own window so it can live on a projector or a second screen
- * while the desk keeps working. EdgeHost ran this as a browser-side timer,
- * which meant two open windows drifted apart and a reload restarted the
- * tournament at level one. Here the clock is server-authoritative — every
+ * while the desk keeps working. The look mirrors the Sichuan room clock in
+ * EdgeHost — a compact white card when minimised, the dark full-room panels
+ * when maximised — but the time underneath is server-authoritative: every
  * window derives the same countdown from the same timestamps, so opening a
  * second display is free and a reload changes nothing.
  */
@@ -75,9 +75,11 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [now, setNow] = useState(0)
   const [error, setError] = useState<string | null>(null)
   // Two layouts, one clock: "max" is the full room display, "mini" a
-  // compact card. Switching (or closing the window) never touches the
-  // time — the clock is server-authoritative; only Pause stops it.
+  // compact card. Maximising also takes the window fullscreen, the way
+  // the Sichuan clock claims the whole screen; minimising releases it.
   const [mode, setMode] = useState<"max" | "mini">("max")
+  // Sichuan's Zoom: hide everything but blind + time, oversized.
+  const [zoomed, setZoomed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   // Level-change cue, the way the mahjong room clock announces a new
@@ -102,6 +104,10 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   useEffect(() => {
     prevLevelRef.current = clock?.current_level?.level_no ?? prevLevelRef.current
   }, [clock?.current_level?.level_no])
+
+  useEffect(() => {
+    if (mode !== "max") setZoomed(false)
+  }, [mode])
 
   useEffect(() => {
     let cancelled = false
@@ -155,6 +161,18 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     }
   }
 
+  // One button, two jobs: the layout switch and the fullscreen switch move
+  // together, so "Maximise" always means "fill the projector".
+  function toggleMode() {
+    if (mode === "max") {
+      if (document.fullscreenElement) void document.exitFullscreen()
+      setMode("mini")
+    } else {
+      void document.documentElement.requestFullscreen().catch(() => {})
+      setMode("max")
+    }
+  }
+
   // Ticks locally between syncs so the seconds move smoothly; every sync
   // re-bases against the server, so drift never accumulates.
   useEffect(() => {
@@ -168,173 +186,184 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     : 0
 
   const urgent = clock?.running === true && remaining <= 60_000
+  const paused = clock?.status === "paused"
   const level = clock?.current_level ?? null
 
-  const progress = useMemo(() => {
-    if (!clock || clock.level_duration_ms <= 0) return 0
-    return Math.min(100, Math.max(0, (1 - remaining / clock.level_duration_ms) * 100))
-  }, [clock, remaining])
+  const levelLabel = `Level ${level?.level_no ?? "—"} / ${clock?.level_count ?? "—"}`
+  const blindLabel = level?.is_break
+    ? (level.note || "Break")
+    : `${(level?.small_blind ?? 0).toLocaleString()} / ${(level?.big_blind ?? 0).toLocaleString()}`
+  const nextLabel = clock?.next_level
+    ? (clock.next_level.is_break
+        ? (clock.next_level.note || "Break")
+        : `${clock.next_level.small_blind.toLocaleString()} / ${clock.next_level.big_blind.toLocaleString()}`)
+    : "Final level"
 
   if (error && !clock) {
     return (
-      <div className="timer timer--error">
+      <div className="spkt-errorpage">
         <p>{error}</p>
       </div>
     )
   }
 
-  const dock = (
-    <div className="timer__dock" role="group" aria-label="Clock controls">
-      {clock?.status === "draft" || !clock ? (
-        <button type="button" className="timer__btn timer__btn--start" disabled={busy || !clock} onClick={() => void control("start")}>
-          ▶ Start
-        </button>
-      ) : clock.status === "finished" ? (
-        <span className="timer__done">Finished</span>
-      ) : (
-        <>
-          <button type="button" className="timer__btn" disabled={busy} title="Previous level" onClick={() => void control("prev")}>‹</button>
-          {clock.running ? (
-            <button type="button" className="timer__btn timer__btn--pause" disabled={busy} onClick={() => void control("pause")}>
-              ⏸ Pause
-            </button>
-          ) : (
-            <button type="button" className="timer__btn timer__btn--start" disabled={busy} onClick={() => void control("resume")}>
-              ▶ Resume
-            </button>
-          )}
-          <button type="button" className="timer__btn" disabled={busy} title="Next level" onClick={() => void control("next")}>›</button>
-        </>
-      )}
-      <button
-        type="button"
-        className="timer__btn timer__btn--mode"
-        title={mode === "max" ? "Minimise the display — the clock keeps running" : "Maximise the display"}
-        onClick={() => setMode((current) => (current === "max" ? "mini" : "max"))}
-      >
-        {mode === "max" ? "▣ Minimise" : "⛶ Maximise"}
-      </button>
-      <button
-        type="button"
-        className="timer__btn timer__btn--mode"
-        title="Toggle fullscreen — the clock keeps running either way"
-        onClick={() => {
-          if (document.fullscreenElement) void document.exitFullscreen()
-          else void document.documentElement.requestFullscreen().catch(() => {})
-        }}
-      >
-        ⛶ Fullscreen
-      </button>
-    </div>
+  const startPause = clock?.status === "draft" || !clock ? (
+    <button type="button" className="spkt-runbtn spkt-runbtn--start" disabled={busy || !clock} onClick={() => void control("start")}>
+      Start
+    </button>
+  ) : clock.status === "finished" ? (
+    <span className="spkt-chip spkt-chip--done">Finished</span>
+  ) : clock.running ? (
+    <button type="button" className="spkt-runbtn spkt-runbtn--pause" disabled={busy} onClick={() => void control("pause")}>
+      Pause
+    </button>
+  ) : (
+    <button type="button" className="spkt-runbtn spkt-runbtn--start" disabled={busy} onClick={() => void control("resume")}>
+      Resume
+    </button>
   )
+
+  const canStep = !!clock && clock.status !== "draft" && clock.status !== "finished"
 
   if (mode === "mini") {
     return (
-      <div className={`timer timer--mini${clock?.status === "paused" ? " timer--paused" : ""}${levelFlash ? " timer--flash" : ""}${level?.is_break ? " timer--break" : ""}`}>
-        <header className="timer__mini-head">
-          <strong>{clock?.name ?? "Tournament"}</strong>
-          <span>
-            {level?.is_break ? "Break" : `Level ${level?.level_no ?? "—"}`}
-          </span>
-        </header>
+      <div className="spkt-mini">
+        <div className={`spkt-card${levelFlash ? " spkt-flash" : ""}`}>
+          <div className="spkt-card__top">
+            <button
+              type="button"
+              className="spkt-modebtn spkt-modebtn--light"
+              title="Maximise the display — the clock keeps running"
+              onClick={toggleMode}
+            >
+              Maximise
+            </button>
+          </div>
 
-        <span className={`timer__count timer__count--mini${urgent ? " timer__count--urgent" : ""}`}>
-          {clock?.status === "paused" ? "PAUSED" : clock?.status === "draft" ? "READY" : countdown(remaining)}
-        </span>
+          <div className="spkt-card__body">
+            <span className="spkt-label">Current Blind</span>
+            <span className="spkt-levelchip">
+              <strong>Level</strong> {level?.level_no ?? "—"} <em>/ {clock?.level_count ?? "—"}</em>
+            </span>
+            <span className={`spkt-card__blind${level?.is_break ? " spkt-break" : ""}`}>
+              {blindLabel}
+              {!level?.is_break && level && level.bb_ante > 0 ? ` (${level.bb_ante.toLocaleString()})` : ""}
+            </span>
+            <span className="spkt-label spkt-label--gap">Time Remaining</span>
+            <span className="spkt-card__clock">{countdown(remaining)}</span>
+            {paused ? <span className="spkt-warnchip">Paused</span> : null}
+          </div>
 
-        <div className="timer__blinds timer__blinds--mini">
-          {level?.is_break ? (
-            <strong className="timer__break">{level.note || "Break"}</strong>
-          ) : (
-            <strong>
-              {(level?.small_blind ?? 0).toLocaleString()} / {(level?.big_blind ?? 0).toLocaleString()}
-              {level && level.bb_ante > 0 ? ` (${level.bb_ante.toLocaleString()})` : ""}
-            </strong>
-          )}
+          <div className="spkt-card__foot">
+            {canStep ? (
+              <>
+                <button type="button" className="spkt-stepbtn" disabled={busy} title="Previous level" onClick={() => void control("prev")}>‹</button>
+                <button type="button" className="spkt-stepbtn" disabled={busy} title="Next level" onClick={() => void control("next")}>›</button>
+              </>
+            ) : null}
+            {startPause}
+          </div>
+
+          {error ? <p className="spkt-stale">{error}</p> : null}
         </div>
-
-        {dock}
       </div>
     )
   }
 
   return (
-    <div className={`timer${clock?.status === "paused" ? " timer--paused" : ""}${levelFlash ? " timer--flash" : ""}${level?.is_break ? " timer--break" : ""}`}>
-      <header className="timer__head">
-        <div>
-          <h1>{clock?.name ?? "Tournament"}</h1>
-          {clock?.venue_name ? <p>{clock.venue_name}</p> : null}
-        </div>
-        <div className="timer__head-right">
-          <span className="timer__wall">{new Date(now).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>
-          <span className="timer__level">
-            {level?.is_break
-              ? "Break"
-              : `Level ${level?.level_no ?? "—"}`}
-            <em>of {clock?.level_count ?? "—"}</em>
-          </span>
-        </div>
-      </header>
-
-      <div className="timer__clock">
-        <span className={`timer__count${urgent ? " timer__count--urgent" : ""}`}>
-          {clock?.status === "paused" ? "PAUSED" : countdown(remaining)}
-        </span>
-        <div className="timer__progress" aria-hidden="true">
-          <span style={{ width: `${progress}%` }} />
-        </div>
-      </div>
-
-      <div className="timer__blinds">
-        {level?.is_break ? (
-          <strong className="timer__break">{level.note || "Break"}</strong>
-        ) : (
-          <>
-            <strong>
-              {(level?.small_blind ?? 0).toLocaleString()} / {(level?.big_blind ?? 0).toLocaleString()}
-            </strong>
-            {level && level.bb_ante > 0 ? <span>ante {level.bb_ante.toLocaleString()}</span> : null}
-          </>
-        )}
-      </div>
-
-      <footer className="timer__foot">
-        <div className="timer__next">
-          <small>Next</small>
-          {clock?.next_level
-            ? (clock.next_level.is_break
-                ? (clock.next_level.note || "Break")
-                : `${clock.next_level.small_blind.toLocaleString()} / ${clock.next_level.big_blind.toLocaleString()}`)
-            : "Final level"}
+    <div className={`spkt-full${levelFlash ? " spkt-flash" : ""}`}>
+      <div className="spkt-full__inner">
+        <div className="spkt-full__top">
+          <button
+            type="button"
+            className="spkt-modebtn spkt-modebtn--dark"
+            title="Minimise the display — the clock keeps running"
+            onClick={toggleMode}
+          >
+            Minimise
+          </button>
         </div>
 
-        <div className="timer__stat">
-          <small>Players</small>
-          {summary.active_players ?? "—"}
-          {summary.total_players ? <em>/ {summary.total_players}</em> : null}
-        </div>
-
-        <div className="timer__stat">
-          <small>Avg stack</small>
-          {summary.average_stack ? summary.average_stack.toLocaleString() : "—"}
-        </div>
-
-        {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
-          <div className="timer__stat timer__stat--gate">
-            <small>Reg closes</small>
-            {countdown(Math.max(0, gates.registration.closes_in_ms - elapsed))}
+        <div className="spkt-full__bar">
+          <div className="spkt-full__bar-side">
+            <span className="spkt-full__title">{clock?.name ?? "Tournament"}</span>
+            {clock?.venue_name ? <span className="spkt-chip">{clock.venue_name}</span> : null}
+            <span className="spkt-chip">{level?.is_break ? "Break" : levelLabel}</span>
           </div>
-        ) : gates && !gates.registration.open ? (
-          <div className="timer__stat timer__stat--shut">
-            <small>Registration</small>
-            Closed
+          <div className="spkt-full__bar-side spkt-full__bar-side--end">
+            <span className="spkt-chip">Next: {nextLabel}</span>
+            {startPause}
           </div>
-        ) : null}
-      </footer>
+        </div>
 
-      {dock}
+        <div className="spkt-full__center">
+          <div className={`spkt-panel spkt-panel--main${zoomed ? " spkt-panel--zoomed" : ""}`}>
+            <button
+              type="button"
+              className="spkt-zoombtn"
+              title={zoomed ? "Back to the normal full timer" : "Zoom blind and timer"}
+              onClick={() => setZoomed((z) => !z)}
+            >
+              {zoomed ? "Unzoom" : "Zoom"}
+            </button>
 
-      {error ? <p className="timer__stale">{error}</p> : null}
+            <span className="spkt-label spkt-label--dark">Current Blind</span>
+            <span className={`spkt-panel__blind${level?.is_break ? " spkt-break" : ""}`}>{blindLabel}</span>
+            <span className="spkt-panel__meta">
+              {levelLabel}
+              {!level?.is_break && level && level.bb_ante > 0 ? ` · Ante ${level.bb_ante.toLocaleString()}` : ""}
+            </span>
+            <span className="spkt-label spkt-label--dark spkt-label--gap">Time Remaining</span>
+            <span className="spkt-panel__clock">{countdown(remaining)}</span>
+            {paused ? (
+              <span className="spkt-warnchip"><i />Paused — the clock is stopped</span>
+            ) : urgent ? (
+              <span className="spkt-warnchip"><i />Less than 60 seconds</span>
+            ) : null}
+          </div>
+
+          {!zoomed ? (
+            <div className="spkt-panel spkt-panel--next">
+              <span className="spkt-label spkt-label--dark">Next</span>
+              <span className="spkt-panel__next">{nextLabel}</span>
+              {canStep ? (
+                <div className="spkt-panel__nav">
+                  <button type="button" className="spkt-navbtn" disabled={busy} onClick={() => void control("prev")}>Prev</button>
+                  <button type="button" className="spkt-navbtn" disabled={busy} onClick={() => void control("next")}>Next</button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="spkt-stats">
+          <div className="spkt-stat">
+            <span>Total Players</span>
+            <strong>{summary.total_players?.toLocaleString() ?? "—"}</strong>
+          </div>
+          <div className="spkt-stat">
+            <span>Active Players</span>
+            <strong>{summary.active_players?.toLocaleString() ?? "—"}</strong>
+          </div>
+          <div className="spkt-stat">
+            <span>Avg Stack</span>
+            <strong>{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</strong>
+          </div>
+          {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
+            <div className="spkt-stat">
+              <span>Reg Closes</span>
+              <strong>{countdown(Math.max(0, gates.registration.closes_in_ms - elapsed))}</strong>
+            </div>
+          ) : gates && !gates.registration.open ? (
+            <div className="spkt-stat spkt-stat--shut">
+              <span>Registration</span>
+              <strong>Closed</strong>
+            </div>
+          ) : null}
+        </div>
+
+        {error ? <p className="spkt-stale spkt-stale--dark">{error}</p> : null}
+      </div>
     </div>
   )
 }

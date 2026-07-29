@@ -1,315 +1,497 @@
-/* Room display. Everything here is sized to be read from across a poker
-   room, so it scales with the viewport rather than sitting at fixed px. */
+/* Room display, restyled to mirror the Sichuan clock in EdgeHost:
+   minimised is the compact white card, maximised is the dark full-room
+   layout — glassy slate panels over a dimmed backdrop, emerald accents.
+   Sizes lean on vh clamps so the maximised view reads from across a
+   poker room on any projector. */
 
-.timer {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  grid-template-rows: auto 1fr auto auto;
-  gap: 2vh;
-  padding: 3vh 4vw;
-  background:
-    radial-gradient(120% 80% at 50% -10%, rgba(56, 189, 248, 0.16), transparent 60%),
-    #04101f;
-  color: #eaf4ff;
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-}
+/* ---- shared ---- */
 
-.timer--error {
-  place-content: center;
-  text-align: center;
-  color: #ffc9d1;
-}
-
-.timer__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 3vw;
-}
-
-.timer__head h1 {
-  margin: 0;
-  font-size: clamp(1.2rem, 2.6vw, 2.4rem);
-  line-height: 1.05;
-  /* Large type reads too loose at default tracking. */
-  letter-spacing: -0.02em;
-}
-
-.timer__head p {
-  margin: 0.4vh 0 0;
-  font-size: clamp(0.8rem, 1.2vw, 1.1rem);
-  color: rgba(214, 232, 255, 0.6);
-}
-
-.timer__level {
-  display: grid;
-  justify-items: end;
-  gap: 0.3vh;
-  font-size: clamp(1rem, 2vw, 1.8rem);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.timer__level em {
-  font-style: normal;
-  font-size: clamp(0.7rem, 1vw, 1rem);
-  font-weight: 500;
-  color: rgba(214, 232, 255, 0.5);
-}
-
-.timer__clock {
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 3vh;
-  min-height: 0;
-}
-
-.timer__count {
-  font-size: clamp(5rem, 24vw, 20rem);
-  font-weight: 800;
-  line-height: 0.86;
-  letter-spacing: -0.03em;
-  text-shadow: 0 0 8vw rgba(56, 189, 248, 0.28);
-  transition: color 300ms ease;
-}
-
-/* The last minute of a level is the one moment the room needs to notice. */
-.timer__count--urgent {
-  color: #ffb4b4;
-  text-shadow: 0 0 8vw rgba(248, 113, 113, 0.4);
-}
-
-.timer__progress {
-  width: min(70vw, 900px);
-  height: 0.8vh;
-  min-height: 5px;
-  border-radius: 999px;
-  background: rgba(148, 180, 220, 0.16);
-  overflow: hidden;
-}
-
-.timer__progress span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, rgba(56, 229, 255, 0.5), #38e5ff);
-  transition: width 300ms linear;
-}
-
-.timer__blinds {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 2vw;
-}
-
-.timer__blinds strong {
-  font-size: clamp(2rem, 8vw, 6rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #ffc53d;
-}
-
-.timer__blinds span {
-  font-size: clamp(0.9rem, 2vw, 1.8rem);
-  color: rgba(214, 232, 255, 0.6);
-}
-
-.timer__break { color: #7dd3fc !important; }
-
-.timer__foot {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 2vw;
-  padding-top: 2vh;
-  border-top: 1px solid rgba(148, 180, 220, 0.16);
-}
-
-.timer__next,
-.timer__stat {
-  display: grid;
-  gap: 0.4vh;
-  font-size: clamp(1rem, 2.2vw, 2rem);
-  font-weight: 650;
-}
-
-.timer__next small,
-.timer__stat small {
-  font-size: clamp(0.6rem, 0.9vw, 0.85rem);
-  font-weight: 700;
-  letter-spacing: 0.14em;
+.spkt-label {
+  font-size: clamp(0.6rem, 1.4vh, 0.8rem);
+  font-weight: 600;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: rgba(214, 232, 255, 0.45);
+  color: #94a3b8;
 }
 
-.timer__stat em {
-  font-style: normal;
-  font-size: 0.6em;
-  color: rgba(214, 232, 255, 0.5);
+.spkt-label--dark { color: #cbd5e1; }
+.spkt-label--gap { margin-top: 1.4vh; }
+
+.spkt-break { color: #6ee7b7 !important; }
+
+/* Level-change announcement: a brief gold wash, the way the mahjong
+   clock flags a new round. */
+.spkt-flash {
+  animation: spkt-level-flash 2s ease-out;
 }
 
-.timer__stat--gate { color: #a7f3d0; }
-.timer__stat--shut { color: rgba(214, 232, 255, 0.45); }
-
-/* A paused clock should be unmistakable from the back of the room. */
-.timer--paused .timer__count {
-  font-size: clamp(3rem, 14vw, 11rem);
-  color: #ffc53d;
-}
-
-.timer--paused::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(255, 197, 61, 0.05);
-  pointer-events: none;
-}
-
-.timer__stale {
-  position: absolute;
-  bottom: 1.2vh;
-  left: 0;
-  right: 0;
-  margin: 0;
-  text-align: center;
-  font-size: 0.8rem;
-  color: #ffb4b4;
+@keyframes spkt-level-flash {
+  0% { box-shadow: inset 0 0 0 100vmax rgba(255, 197, 61, 0.28); }
+  100% { box-shadow: inset 0 0 0 100vmax rgba(255, 197, 61, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .timer__progress span,
-  .timer__count { transition: none; }
+  .spkt-flash { animation: none; }
+  .spkt-warnchip i { animation: none; }
 }
 
-/* Clock controls dock — shared by both modes. Poker tones: gold for the
-   money-coloured accents, felt-teal for go. */
-.timer__dock {
-  display: flex;
+.spkt-errorpage {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  background: #020617;
+  color: #fecdd3;
+}
+
+/* Paused / last-minute chip, Sichuan's amber warn pill. */
+.spkt-warnchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  margin-top: 0.8vh;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: 0.2em 1em;
+  font-size: clamp(0.6rem, 1.5vh, 0.85rem);
+  font-weight: 600;
+  color: #92400e;
+  background: rgba(251, 191, 36, 0.2);
+}
+
+.spkt-warnchip i {
+  width: 0.45em;
+  height: 0.45em;
+  border-radius: 999px;
+  background: #fcd34d;
+  animation: spkt-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes spkt-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Mode switch pill, light and dark faces. */
+.spkt-modebtn {
+  border-radius: 999px;
+  padding: 0.35em 1em;
+  font: inherit;
+  font-size: clamp(0.6rem, 1.5vh, 0.8rem);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spkt-modebtn--light {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+}
+
+.spkt-modebtn--light:hover { background: #f1f5f9; }
+
+.spkt-modebtn--dark {
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #f1f5f9;
+}
+
+.spkt-modebtn--dark:hover { background: #1e293b; }
+
+/* Start / Pause pill — emerald means go, exactly as on the Sichuan bar. */
+.spkt-runbtn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 1.2vh;
-  padding-top: 0.6vh;
-}
-
-.timer__btn {
-  border: 1px solid rgba(143, 169, 207, 0.32);
-  border-radius: 1.1vh;
-  padding: 1.2vh 2.2vh;
-  color: #eaf4ff;
+  border-radius: 999px;
+  padding: 0.5em 1.4em;
   font: inherit;
-  font-size: 1.9vh;
-  font-weight: 700;
-  background: rgba(6, 20, 38, 0.85);
+  font-size: clamp(0.7rem, 1.8vh, 0.95rem);
+  font-weight: 600;
   cursor: pointer;
-  transition: border-color 140ms ease, filter 140ms ease;
+  transition: filter 140ms ease;
 }
 
-.timer__btn:hover:not(:disabled) {
-  filter: brightness(1.2);
-}
+.spkt-runbtn:hover:not(:disabled) { filter: brightness(1.08); }
 
-.timer__btn:disabled {
+.spkt-runbtn:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.timer__btn--start {
-  border-color: rgba(95, 229, 192, 0.6);
-  color: #06251c;
-  background: linear-gradient(160deg, #7cf1cf, #2fbf96);
+.spkt-runbtn--start {
+  border: 1px solid #10b981;
+  background: linear-gradient(160deg, #34d399, #059669);
+  color: #022c22;
 }
 
-.timer__btn--pause {
-  border-color: rgba(255, 197, 61, 0.6);
-  color: #ffe08a;
+.spkt-runbtn--pause {
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
-.timer__btn--mode {
-  color: #9fb4d4;
+.spkt-stale {
+  margin: 0.6vh 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #e11d48;
 }
 
-.timer__done {
-  color: #9fb4d4;
-  font-size: 1.9vh;
-  font-weight: 700;
+.spkt-stale--dark {
+  position: absolute;
+  bottom: 1.2vh;
+  left: 0;
+  right: 0;
+  color: #fda4af;
 }
 
-/* Mini mode: a compact card, everything centred, still readable at a
-   glance — and the same server clock underneath. */
-.timer--mini {
-  grid-template-rows: auto auto auto auto;
-  place-content: center;
-  place-items: center;
-  gap: 1.6vh;
+/* ---- minimised: the compact white card ---- */
+
+.spkt-mini {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  padding: 8px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+
+.spkt-card {
+  width: 100%;
+  max-width: 24rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.spkt-card__top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.6vh;
+}
+
+.spkt-card__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8vh;
   text-align: center;
 }
 
-.timer__mini-head {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5vh;
+.spkt-levelchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 0.25em 1.2em;
+  font-size: clamp(0.65rem, 1.6vh, 0.85rem);
+  color: #334155;
+  background: #f8fafc;
 }
 
-.timer__mini-head strong {
-  font-size: 2.4vh;
+.spkt-levelchip em {
+  font-style: normal;
+  color: #64748b;
 }
 
-.timer__mini-head span {
-  color: #8fb0d9;
-  font-size: 1.8vh;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.spkt-card__blind {
+  margin-top: 0.4vh;
+  font-size: clamp(1.5rem, 6vh, 2.2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
 }
 
-.timer__count--mini {
-  font-size: 14vh;
+.spkt-card__clock {
+  font-size: clamp(2.2rem, 12vh, 3.6rem);
+  font-weight: 800;
   line-height: 1;
+  letter-spacing: -0.02em;
+  color: #0f172a;
 }
 
-.timer__blinds--mini strong {
-  font-size: 3.2vh;
-  color: #ffe08a;
+.spkt-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.8vh;
+  padding: 0.8vh 4px 4px 0;
 }
 
-/* Level-change announcement: a brief gold wash, the way the mahjong
-   clock flags a new round. */
-.timer--flash {
-  animation: timer-level-flash 2s ease-out;
+.spkt-stepbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.3em 0;
+  font: inherit;
+  font-size: clamp(0.7rem, 1.8vh, 0.95rem);
+  font-weight: 700;
+  color: #334155;
+  background: #f8fafc;
+  cursor: pointer;
 }
 
-@keyframes timer-level-flash {
-  0% {
-    box-shadow: inset 0 0 0 100vmax rgba(255, 197, 61, 0.28);
-  }
+.spkt-stepbtn:hover:not(:disabled) { background: #f1f5f9; }
 
-  100% {
-    box-shadow: inset 0 0 0 100vmax rgba(255, 197, 61, 0);
-  }
+.spkt-stepbtn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
-/* Breaks read differently across a room: the felt goes teal. */
-.timer--break {
-  background:
-    radial-gradient(120% 80% at 50% -10%, rgba(95, 229, 192, 0.2), transparent 60%),
-    #04140f;
+/* ---- maximised: the dark full-room display ---- */
+
+.spkt-full {
+  position: fixed;
+  inset: 0;
+  background: #020617;
+  color: #f8fafc;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
 }
 
-.timer__head-right {
+/* The Sichuan backdrop: a photo dimmed to nearly black. Offline the
+   image simply never arrives and the slate base carries the look. */
+.spkt-full::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("https://images.unsplash.com/photo-1511882150382-421056c89033?auto=format&fit=crop&w=1600&q=80") center / cover no-repeat;
+}
+
+.spkt-full::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.spkt-full__inner {
+  position: relative;
+  z-index: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 0.8vh;
+  gap: 1.4vh;
+  padding: 1.6vh 2vw;
 }
 
-.timer__wall {
-  color: #8fb0d9;
-  font-family: inherit;
-  font-size: 2.4vh;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+.spkt-full__top {
+  display: flex;
+  justify-content: flex-end;
 }
+
+.spkt-full__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2vw;
+}
+
+.spkt-full__bar-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.2vh;
+}
+
+.spkt-full__bar-side--end { justify-content: flex-end; }
+
+.spkt-full__title {
+  font-size: clamp(1.1rem, 3vh, 1.7rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+
+.spkt-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(100, 116, 139, 0.7);
+  border-radius: 999px;
+  padding: 0.3em 1em;
+  font-size: clamp(0.65rem, 1.6vh, 0.85rem);
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.7);
+  white-space: nowrap;
+}
+
+.spkt-chip--done {
+  border-color: rgba(110, 231, 183, 0.7);
+  color: #a7f3d0;
+}
+
+.spkt-full__center {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.4vh;
+}
+
+/* The glassy slate panel every Sichuan block sits in. */
+.spkt-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8vh;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 1.5rem;
+  padding: 1.6vh 1.5rem;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+}
+
+.spkt-panel--zoomed {
+  flex: 1;
+  justify-content: center;
+}
+
+.spkt-panel__blind {
+  font-size: clamp(2.4rem, 9vh, 5rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+
+.spkt-panel--zoomed .spkt-panel__blind {
+  font-size: clamp(3.5rem, 16vh, 9rem);
+}
+
+.spkt-panel__meta {
+  font-size: clamp(0.75rem, 2vh, 1.05rem);
+  color: #cbd5e1;
+}
+
+.spkt-panel__clock {
+  font-size: clamp(3.2rem, 15vh, 8rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: #f8fafc;
+  transition: color 300ms ease;
+}
+
+.spkt-panel--zoomed .spkt-panel__clock {
+  font-size: clamp(4.5rem, 24vh, 13rem);
+}
+
+.spkt-zoombtn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  border: 1px solid #34d399;
+  border-radius: 999px;
+  padding: 0.35em 1em;
+  font: inherit;
+  font-size: clamp(0.6rem, 1.5vh, 0.8rem);
+  font-weight: 600;
+  color: #d1fae5;
+  background: rgba(16, 185, 129, 0.15);
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spkt-zoombtn:hover { background: rgba(16, 185, 129, 0.25); }
+
+/* The dark face of the amber chip inside the panels. */
+.spkt-panel .spkt-warnchip {
+  border-color: #fcd34d;
+  color: #fef3c7;
+  background: rgba(251, 191, 36, 0.2);
+}
+
+.spkt-panel__next {
+  font-size: clamp(1.6rem, 6vh, 3.2rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+
+.spkt-panel__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8vh;
+  margin-top: 0.6vh;
+}
+
+.spkt-navbtn {
+  border: 1px solid #64748b;
+  border-radius: 0.5rem;
+  padding: 0.45em 1em;
+  font: inherit;
+  font-size: clamp(0.6rem, 1.5vh, 0.8rem);
+  font-weight: 600;
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.8);
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.spkt-navbtn:hover:not(:disabled) { background: #1e293b; }
+
+.spkt-navbtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Sichuan's footer strip: emerald labels, big white numbers. */
+.spkt-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2vh 4vw;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 1rem;
+  padding: 1.4vh 1.5rem;
+  background: rgba(15, 23, 42, 0.9);
+  backdrop-filter: blur(12px);
+}
+
+.spkt-stat {
+  min-width: 10.5rem;
+  text-align: center;
+}
+
+.spkt-stat span {
+  display: block;
+  font-size: clamp(0.6rem, 1.5vh, 0.85rem);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #6ee7b7;
+}
+
+.spkt-stat strong {
+  display: block;
+  margin-top: 0.4vh;
+  font-size: clamp(1.3rem, 3.6vh, 2rem);
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.spkt-stat--shut span { color: #94a3b8; }
+.spkt-stat--shut strong { color: #cbd5e1; }
