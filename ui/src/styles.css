@@ -800,6 +800,19 @@ a:focus-visible {
   align-items: baseline;
   gap: 7px;
   min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* The live diagnosis line — which step the connect sequence is stuck on. */
+.backend-link__detail {
+  flex-basis: 100%;
+  overflow: hidden;
+  color: var(--npl-faint);
+  font-size: 0.58rem;
+  font-style: normal;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .backend-link__copy small {

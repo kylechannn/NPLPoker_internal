@@ -431,6 +431,9 @@ function BackendLinkLight({
       <span className="backend-link__copy">
         <small>Backend link</small>
         <strong>{label}</strong>
+        {enabled && status !== "connected" && hint ? (
+          <em className="backend-link__detail">{hint}</em>
+        ) : null}
       </span>
     </button>
   )

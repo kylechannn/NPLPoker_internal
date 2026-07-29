@@ -79,6 +79,9 @@ export function useBackendLink(venueId: number | null) {
   // Why the light is not green, in words an operator can act on. A silent
   // red light is undiagnosable from a venue floor.
   const [lastError, setLastError] = useState<string | null>(null)
+  // Which step of the connect sequence we are on — rendered under the
+  // light so a stuck state names itself without anyone hovering.
+  const [phase, setPhase] = useState<string | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const attemptRef = useRef(0)
   const lastFrameRef = useRef(Date.now())
@@ -124,6 +127,7 @@ export function useBackendLink(venueId: number | null) {
     const open = async () => {
       if (disposed) return
       setStatus("connecting")
+      setPhase("Fetching connection details…")
 
       let details: RealtimeDetails
       try {
@@ -142,6 +146,7 @@ export function useBackendLink(venueId: number | null) {
       if (disposed) return
 
       const protocol = details.scheme === "https" ? "wss" : "ws"
+      setPhase(`Opening socket to ${details.host}…`)
       const socket = new WebSocket(
         `${protocol}://${details.host}:${details.port}/app/${details.key}?protocol=7&client=npl-os&version=1.0&flash=false`,
       )
@@ -150,6 +155,7 @@ export function useBackendLink(venueId: number | null) {
 
       socket.onopen = () => {
         lastFrameRef.current = Date.now()
+        setPhase("Socket open — waiting for the server handshake…")
       }
 
       socket.onmessage = (frame: MessageEvent<string>) => {
@@ -163,6 +169,7 @@ export function useBackendLink(venueId: number | null) {
         }
 
         if (message?.event === "pusher:connection_established") {
+          setPhase(`Handshake done — subscribing to venue ${venueId}…`)
           socket.send(JSON.stringify({
             event: "pusher:subscribe",
             data: { channel: `${details.channel_prefix}${venueId}` },
@@ -177,6 +184,7 @@ export function useBackendLink(venueId: number | null) {
         if (message?.event === "pusher_internal:subscription_succeeded") {
           attemptRef.current = 0
           setLastError(null)
+          setPhase(null)
           setStatus("connected")
           // Catch up on anything that happened while the link was down.
           void pullSessionsNow().catch(() => {})
@@ -204,10 +212,12 @@ export function useBackendLink(venueId: number | null) {
         }
       }
 
-      socket.onclose = () => {
+      socket.onclose = (event: CloseEvent) => {
         if (socketRef.current === socket) socketRef.current = null
         if (!disposed) {
-          setLastError((current) => current ?? "The realtime socket closed — reconnecting.")
+          // 1006 = the connection never completed or died abnormally —
+          // the close code is the single most diagnostic number we have.
+          setLastError((current) => current ?? `Socket closed (code ${event.code}${event.reason ? `: ${event.reason}` : ""}) — reconnecting.`)
           setStatus("connecting")
           scheduleReconnect()
         }
@@ -270,6 +280,6 @@ export function useBackendLink(venueId: number | null) {
     status: venueId === null ? "off" as const : status,
     enabled,
     toggle,
-    lastError: venueId === null ? "Pick a venue to connect." : lastError,
+    lastError: venueId === null ? "Pick a venue to connect." : (lastError ?? phase),
   }
 }
