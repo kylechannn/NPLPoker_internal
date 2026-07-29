@@ -161,15 +161,26 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     }
   }
 
-  // One button, two jobs: the layout switch and the fullscreen switch move
-  // together, so "Maximise" always means "fill the projector".
-  function toggleMode() {
+  // One button, two jobs: the layout switch and the window itself move
+  // together. Minimise shrinks the real window into a mini clock;
+  // Maximise goes fullscreen. resizeTo is allowed here because the desk
+  // opened this window with window.open.
+  async function toggleMode() {
     if (mode === "max") {
-      if (document.fullscreenElement) void document.exitFullscreen()
       setMode("mini")
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen()
+      } catch {
+        // Fullscreen already gone; the resize below still applies.
+      }
+      window.resizeTo(420, 560)
     } else {
-      void document.documentElement.requestFullscreen().catch(() => {})
       setMode("max")
+      document.documentElement.requestFullscreen().catch(() => {
+        // Fullscreen refused (rare in the desk shell): at least give the
+        // room a projector-sized window again.
+        window.resizeTo(1280, 720)
+      })
     }
   }
 
