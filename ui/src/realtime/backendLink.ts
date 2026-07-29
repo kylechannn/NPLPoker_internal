@@ -76,6 +76,9 @@ export function pullSessionsNow(): Promise<void> {
 export function useBackendLink(venueId: number | null) {
   const [status, setStatus] = useState<BackendLinkStatus>("off")
   const [enabled, setEnabled] = useState(true)
+  // Why the light is not green, in words an operator can act on. A silent
+  // red light is undiagnosable from a venue floor.
+  const [lastError, setLastError] = useState<string | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const attemptRef = useRef(0)
   const lastFrameRef = useRef(Date.now())
@@ -126,8 +129,10 @@ export function useBackendLink(venueId: number | null) {
       try {
         details = await fetchJson<RealtimeDetails>("/api/v1/sync/realtime")
         if (!details.key || !details.host) throw new Error("Realtime endpoint returned no connection details")
-      } catch {
+        setLastError(null)
+      } catch (e) {
         if (!disposed) {
+          setLastError(e instanceof Error ? e.message : "The realtime details could not be loaded.")
           setStatus("off")
           scheduleReconnect()
         }
@@ -171,6 +176,7 @@ export function useBackendLink(venueId: number | null) {
         // it is needed.
         if (message?.event === "pusher_internal:subscription_succeeded") {
           attemptRef.current = 0
+          setLastError(null)
           setStatus("connected")
           // Catch up on anything that happened while the link was down.
           void pullSessionsNow().catch(() => {})
@@ -190,6 +196,7 @@ export function useBackendLink(venueId: number | null) {
       socket.onclose = () => {
         if (socketRef.current === socket) socketRef.current = null
         if (!disposed) {
+          setLastError((current) => current ?? "The realtime socket closed — reconnecting.")
           setStatus("connecting")
           scheduleReconnect()
         }
@@ -248,5 +255,10 @@ export function useBackendLink(venueId: number | null) {
     setEnabled((current) => !current)
   }, [])
 
-  return { status: venueId === null ? "off" as const : status, enabled, toggle }
+  return {
+    status: venueId === null ? "off" as const : status,
+    enabled,
+    toggle,
+    lastError: venueId === null ? "Pick a venue to connect." : lastError,
+  }
 }

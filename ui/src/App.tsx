@@ -394,10 +394,12 @@ function ConnectionSignal({
 function BackendLinkLight({
   status,
   enabled,
+  hint,
   onToggle,
 }: {
   status: BackendLinkStatus
   enabled: boolean
+  hint: string | null
   onToggle: () => void
 }) {
   const effective = enabled ? status : "off"
@@ -409,12 +411,20 @@ function BackendLinkLight({
         ? "Connecting…"
         : "Offline"
 
+  // The tooltip carries the actual reason — a red light nobody can
+  // diagnose from the floor is not a status indicator, it is a mystery.
+  const title = !enabled
+    ? "Tap to connect the live link"
+    : status === "connected"
+      ? "Live link to the NPL cloud — tap to disconnect"
+      : hint ?? "Live link to the NPL cloud — tap to disconnect"
+
   return (
     <button
       className={`backend-link backend-link--${effective}`}
       type="button"
-      aria-label={`Backend live link: ${label}. Tap to ${enabled ? "disconnect" : "connect"}.`}
-      title={enabled ? "Live link to the NPL cloud — tap to disconnect" : "Tap to connect the live link"}
+      aria-label={`Backend live link: ${label}. ${hint ?? ""} Tap to ${enabled ? "disconnect" : "connect"}.`}
+      title={title}
       onClick={onToggle}
     >
       <span className="backend-link__light" aria-hidden="true" />
@@ -1196,7 +1206,12 @@ export default function App() {
           onRefresh={() => void loadNetworkQuality(true)}
         />
 
-        <BackendLinkLight status={backendLink.status} enabled={backendLink.enabled} onToggle={backendLink.toggle} />
+        <BackendLinkLight
+          status={backendLink.status}
+          enabled={backendLink.enabled}
+          hint={backendLink.lastError}
+          onToggle={backendLink.toggle}
+        />
 
         <div className="sidebar-menu-container">
           <nav className="primary-nav" aria-label="Operational system navigation">
