@@ -66,11 +66,20 @@ final class SyncController
      * their seat maps. Called when the realtime channel signals a change
      * (and by the UI's fallback poll) — small enough to run inline.
      */
-    public function pullSessions(): JsonResponse
+    public function pullSessions(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
         try {
             $sessions = $this->sync->syncEntity('game_sessions');
-            $seating = $this->sync->syncEntity('seating');
+            // Venue-scoped incremental refresh: a handful of calls, and it
+            // covers the venue's WHOLE scheduled window — a desk may link
+            // any of those sessions, not just tonight's.
+            $seating = $this->sync->refreshSeatingFor(
+                isset($validated['venue_id']) ? (int) $validated['venue_id'] : null,
+            );
         } catch (CloudException $e) {
             return response()->json([
                 'ok' => false,

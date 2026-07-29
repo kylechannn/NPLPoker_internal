@@ -51,8 +51,11 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
  */
 let pullInFlight: Promise<void> | null = null
 let pullQueued = false
+let pullVenueId: number | null = null
 
-export function pullSessionsNow(): Promise<void> {
+export function pullSessionsNow(venueId: number | null = pullVenueId): Promise<void> {
+  pullVenueId = venueId
+
   if (pullInFlight) {
     pullQueued = true
     return pullInFlight
@@ -60,7 +63,13 @@ export function pullSessionsNow(): Promise<void> {
 
   pullInFlight = (async () => {
     try {
-      await fetchJson("/api/v1/sync/pull-sessions", { method: "POST" })
+      await fetchJson("/api/v1/sync/pull-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        // Venue-scoped: the seat-map refresh covers the venue's whole
+        // scheduled window with a handful of calls.
+        body: JSON.stringify({ venue_id: venueId }),
+      })
       window.dispatchEvent(new CustomEvent("npl:sessions-updated"))
     } finally {
       pullInFlight = null
@@ -201,7 +210,7 @@ export function useBackendLink(venueId: number | null) {
           }
           setStatus("connected")
           // Catch up on anything that happened while the link was down.
-          void pullSessionsNow().catch(() => {})
+          void pullSessionsNow(venueId).catch(() => {})
           return
         }
 
@@ -241,7 +250,7 @@ export function useBackendLink(venueId: number | null) {
             labels[kind] ?? "Session updated",
             `Session #${data?.game_session_id ?? "?"} — syncing now.`,
           )
-          void pullSessionsNow().catch(() => {})
+          void pullSessionsNow(venueId).catch(() => {})
         }
       }
 
@@ -292,13 +301,13 @@ export function useBackendLink(venueId: number | null) {
       // navigator.onLine false means no network route at all — a pull would
       // only stall the local PHP worker on connect timeouts.
       if (statusRef.current !== "connected" && navigator.onLine !== false) {
-        void pullSessionsNow().catch(() => {})
+        void pullSessionsNow(venueId).catch(() => {})
       }
     }, FALLBACK_PULL_MS)
 
     const reconcile = window.setInterval(() => {
       if (statusRef.current === "connected") {
-        void pullSessionsNow().catch(() => {})
+        void pullSessionsNow(venueId).catch(() => {})
       }
     }, RECONCILE_PULL_MS)
 

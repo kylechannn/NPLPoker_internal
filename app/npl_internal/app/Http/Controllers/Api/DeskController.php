@@ -200,7 +200,7 @@ final class DeskController
             '/api/v1/internal/sessions/%d/tables/%d',
             $gameSessionId,
             $tableNumber,
-        ));
+        ), $gameSessionId);
     }
 
     /** Remove a player's online registration — synchronous, then refresh. */
@@ -210,10 +210,10 @@ final class DeskController
             '/api/v1/internal/sessions/%d/registrations/%s',
             $gameSessionId,
             rawurlencode($nplId),
-        ));
+        ), $gameSessionId);
     }
 
-    private function cloudDeskCall(string $path): JsonResponse
+    private function cloudDeskCall(string $path, ?int $gameSessionId = null): JsonResponse
     {
         try {
             $result = $this->cloud->deleteJson($path);
@@ -230,8 +230,8 @@ final class DeskController
         }
 
         try {
-            $this->sync->syncEntity('seating');
             $this->sync->syncEntity('game_sessions');
+            $this->sync->refreshSeatingFor(null, $gameSessionId !== null ? [$gameSessionId] : null);
         } catch (\Throwable) {
             // The realtime signal will bring the mirror up to date anyway.
         }
@@ -278,10 +278,10 @@ final class DeskController
             ], 502);
         }
 
-        // Refresh the local mirror right away so the new table is on the
-        // seating map before the operator's eyes leave the button.
+        // Refresh just this session's mirror rows so the new table is on
+        // the seating map before the operator's eyes leave the button.
         try {
-            $this->sync->syncEntity('seating');
+            $this->sync->refreshSeatingFor(null, [(int) $session->game_session_id]);
         } catch (\Throwable) {
             // The realtime signal from the cloud will bring it in anyway.
         }

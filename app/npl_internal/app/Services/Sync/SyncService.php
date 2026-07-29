@@ -195,13 +195,12 @@ final class SyncService
      */
     private function fetchSeatingRows(): array
     {
-        // Seat maps only matter around game time. Bounding the fan-out to
-        // today/tomorrow keeps it to a handful of HTTP calls instead of one
-        // per scheduled session network-wide — this runs inline on the
-        // desk's only PHP worker, on every realtime signal.
+        // The full Manual-update path covers every scheduled session in the
+        // mirror window — a desk may open any of them. (The realtime pull
+        // uses refreshSeatingFor(), which scopes to one venue and refreshes
+        // incrementally instead of replacing the whole table.)
         $sessionIds = DB::table('mirror_game_sessions')
             ->where('status', 'scheduled')
-            ->whereBetween('session_date', [now()->toDateString(), now()->addDay()->toDateString()])
             ->orderBy('session_date')
             ->pluck('session_id');
 
@@ -273,6 +272,123 @@ final class SyncService
     }
 
     /** Cloud list endpoints answer either {data: [...]} or a bare list. */
+    /**
+     * Incremental seating refresh for the realtime pull: fetch the seat
+     * maps for the venue's scheduled sessions (or an explicit list) and
+     * replace ONLY those sessions' rows — other venues' rows stay put.
+     * This is what lets a signal-triggered pull cost a handful of HTTP
+     * calls instead of one per session network-wide.
+     *
+     * @param  list<int>|null  $sessionIds
+     * @return array{sessions: int, rows: int}
+     */
+    public function refreshSeatingFor(?int $venueId = null, ?array $sessionIds = null): array
+    {
+        $ids = $sessionIds !== null
+            ? collect($sessionIds)->map(fn ($id): int => (int) $id)->values()
+            : DB::table('mirror_game_sessions')
+                ->where('status', 'scheduled')
+                ->when($venueId !== null, fn ($query) => $query->where('venue_id', $venueId))
+                ->orderBy('session_date')
+                ->pluck('session_id')
+                ->map(fn ($id): int => (int) $id)
+                ->values();
+
+        if ($ids->isEmpty()) {
+            return ['sessions' => 0, 'rows' => 0];
+        }
+
+        $now = now();
+        $rowsBySession = [];
+
+        foreach ($ids as $sessionId) {
+            try {
+                $result = $this->cloud->getJson("/api/v1/game-sessions/{$sessionId}/seating");
+            } catch (CloudException $e) {
+                if ($e->isRetryable()) {
+                    throw $e;
+                }
+
+                // Vanished mid-refresh (completed/cancelled): clear its rows.
+                $rowsBySession[$sessionId] = [];
+
+                continue;
+            }
+
+            $seating = $result['data'];
+            $rows = [];
+
+            foreach ((array) ($seating['tables'] ?? []) as $table) {
+                $tableNumber = (int) ($table['table_number'] ?? 0);
+
+                foreach ((array) ($table['seats'] ?? []) as $seat) {
+                    $player = $seat['player'] ?? null;
+                    $seatNumber = (int) ($seat['seat_number'] ?? 0);
+
+                    $rows[] = [
+                        'session_table_key' => sprintf('%d:%d:%d', $sessionId, $tableNumber, $seatNumber),
+                        'session_id' => $sessionId,
+                        'table_number' => $tableNumber,
+                        'seat_number' => $seatNumber,
+                        'table_status' => $this->str($table['status'] ?? null, 20),
+                        'max_seats' => (int) ($table['max_seats'] ?? 8),
+                        'player_npl_id' => $player ? $this->str($player['npl_id'] ?? null, 32) : null,
+                        'player_display_name' => $player ? $this->str($player['display_name'] ?? null, 120) : null,
+                        'registration_status' => $player ? 'registered' : null,
+                        'waitlist_position' => null,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+
+                foreach ((array) ($table['waitlist'] ?? []) as $entry) {
+                    $player = $entry['player'] ?? null;
+                    $position = (int) ($entry['position'] ?? 0);
+
+                    $rows[] = [
+                        'session_table_key' => sprintf('%d:%d:w%d', $sessionId, $tableNumber, $position),
+                        'session_id' => $sessionId,
+                        'table_number' => $tableNumber,
+                        'seat_number' => null,
+                        'table_status' => $this->str($table['status'] ?? null, 20),
+                        'max_seats' => (int) ($table['max_seats'] ?? 8),
+                        'player_npl_id' => $player ? $this->str($player['npl_id'] ?? null, 32) : null,
+                        'player_display_name' => $player ? $this->str($player['display_name'] ?? null, 120) : null,
+                        'registration_status' => 'waitlisted',
+                        'waitlist_position' => $position,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+            }
+
+            $rowsBySession[$sessionId] = $rows;
+        }
+
+        $written = 0;
+
+        DB::transaction(function () use ($rowsBySession, &$written): void {
+            foreach ($rowsBySession as $sessionId => $rows) {
+                DB::table('mirror_session_tables')->where('session_id', $sessionId)->delete();
+
+                foreach (array_chunk($rows, 100) as $chunk) {
+                    DB::table('mirror_session_tables')->insert($chunk);
+                    $written += count($chunk);
+                }
+            }
+        });
+
+        $this->touchState('seating', [
+            'status' => 'ok',
+            'row_count' => DB::table('mirror_session_tables')->count(),
+            'last_success_at' => now(),
+            'last_attempt_at' => now(),
+            'last_error' => null,
+        ]);
+
+        return ['sessions' => count($rowsBySession), 'rows' => $written];
+    }
+
     private function extractRecords(array $data): array
     {
         if (isset($data['data']) && is_array($data['data'])) {
