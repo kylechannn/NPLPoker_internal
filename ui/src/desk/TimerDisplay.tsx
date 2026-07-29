@@ -50,6 +50,12 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // Two layouts, one clock: "max" is the full room display, "mini" a
+  // compact card. Switching (or closing the window) never touches the
+  // time — the clock is server-authoritative; only Pause stops it.
+  const [mode, setMode] = useState<"max" | "mini">("max")
+  const [busy, setBusy] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -83,7 +89,25 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       cancelled = true
       window.clearInterval(handle)
     }
-  }, [sessionId])
+  }, [sessionId, refreshKey])
+
+  async function control(action: "start" | "pause" | "resume" | "next" | "prev") {
+    if (busy) return
+    setBusy(true)
+
+    try {
+      if (action === "start") await deskApi.startClock(sessionId)
+      else if (action === "pause") await deskApi.pauseClock(sessionId)
+      else if (action === "resume") await deskApi.resumeClock(sessionId)
+      else if (action === "next") await deskApi.nextLevel(sessionId)
+      else await deskApi.previousLevel(sessionId)
+      setRefreshKey((key) => key + 1)
+    } catch {
+      // The 5s sync corrects the view either way.
+    } finally {
+      setBusy(false)
+    }
+  }
 
   // Ticks locally between syncs so the seconds move smoothly; every sync
   // re-bases against the server, so drift never accumulates.
@@ -109,6 +133,70 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     return (
       <div className="timer timer--error">
         <p>{error}</p>
+      </div>
+    )
+  }
+
+  const dock = (
+    <div className="timer__dock" role="group" aria-label="Clock controls">
+      {clock?.status === "draft" || !clock ? (
+        <button type="button" className="timer__btn timer__btn--start" disabled={busy || !clock} onClick={() => void control("start")}>
+          ▶ Start
+        </button>
+      ) : clock.status === "finished" ? (
+        <span className="timer__done">Finished</span>
+      ) : (
+        <>
+          <button type="button" className="timer__btn" disabled={busy} title="Previous level" onClick={() => void control("prev")}>‹</button>
+          {clock.running ? (
+            <button type="button" className="timer__btn timer__btn--pause" disabled={busy} onClick={() => void control("pause")}>
+              ⏸ Pause
+            </button>
+          ) : (
+            <button type="button" className="timer__btn timer__btn--start" disabled={busy} onClick={() => void control("resume")}>
+              ▶ Resume
+            </button>
+          )}
+          <button type="button" className="timer__btn" disabled={busy} title="Next level" onClick={() => void control("next")}>›</button>
+        </>
+      )}
+      <button
+        type="button"
+        className="timer__btn timer__btn--mode"
+        title={mode === "max" ? "Minimise the display — the clock keeps running" : "Maximise the display"}
+        onClick={() => setMode((current) => (current === "max" ? "mini" : "max"))}
+      >
+        {mode === "max" ? "▣ Minimise" : "⛶ Maximise"}
+      </button>
+    </div>
+  )
+
+  if (mode === "mini") {
+    return (
+      <div className={`timer timer--mini${clock?.status === "paused" ? " timer--paused" : ""}`}>
+        <header className="timer__mini-head">
+          <strong>{clock?.name ?? "Tournament"}</strong>
+          <span>
+            {level?.is_break ? "Break" : `Level ${level?.level_no ?? "—"}`}
+          </span>
+        </header>
+
+        <span className={`timer__count timer__count--mini${urgent ? " timer__count--urgent" : ""}`}>
+          {clock?.status === "paused" ? "PAUSED" : clock?.status === "draft" ? "READY" : countdown(remaining)}
+        </span>
+
+        <div className="timer__blinds timer__blinds--mini">
+          {level?.is_break ? (
+            <strong className="timer__break">{level.note || "Break"}</strong>
+          ) : (
+            <strong>
+              {(level?.small_blind ?? 0).toLocaleString()} / {(level?.big_blind ?? 0).toLocaleString()}
+              {level && level.bb_ante > 0 ? ` (${level.bb_ante.toLocaleString()})` : ""}
+            </strong>
+          )}
+        </div>
+
+        {dock}
       </div>
     )
   }
@@ -183,6 +271,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           </div>
         ) : null}
       </footer>
+
+      {dock}
 
       {error ? <p className="timer__stale">{error}</p> : null}
     </div>

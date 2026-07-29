@@ -184,3 +184,94 @@
   .timer__progress span,
   .timer__count { transition: none; }
 }
+
+/* Clock controls dock — shared by both modes. Poker tones: gold for the
+   money-coloured accents, felt-teal for go. */
+.timer__dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2vh;
+  padding-top: 0.6vh;
+}
+
+.timer__btn {
+  border: 1px solid rgba(143, 169, 207, 0.32);
+  border-radius: 1.1vh;
+  padding: 1.2vh 2.2vh;
+  color: #eaf4ff;
+  font: inherit;
+  font-size: 1.9vh;
+  font-weight: 700;
+  background: rgba(6, 20, 38, 0.85);
+  cursor: pointer;
+  transition: border-color 140ms ease, filter 140ms ease;
+}
+
+.timer__btn:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.timer__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.timer__btn--start {
+  border-color: rgba(95, 229, 192, 0.6);
+  color: #06251c;
+  background: linear-gradient(160deg, #7cf1cf, #2fbf96);
+}
+
+.timer__btn--pause {
+  border-color: rgba(255, 197, 61, 0.6);
+  color: #ffe08a;
+}
+
+.timer__btn--mode {
+  color: #9fb4d4;
+}
+
+.timer__done {
+  color: #9fb4d4;
+  font-size: 1.9vh;
+  font-weight: 700;
+}
+
+/* Mini mode: a compact card, everything centred, still readable at a
+   glance — and the same server clock underneath. */
+.timer--mini {
+  grid-template-rows: auto auto auto auto;
+  place-content: center;
+  place-items: center;
+  gap: 1.6vh;
+  text-align: center;
+}
+
+.timer__mini-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5vh;
+}
+
+.timer__mini-head strong {
+  font-size: 2.4vh;
+}
+
+.timer__mini-head span {
+  color: #8fb0d9;
+  font-size: 1.8vh;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.timer__count--mini {
+  font-size: 14vh;
+  line-height: 1;
+}
+
+.timer__blinds--mini strong {
+  font-size: 3.2vh;
+  color: #ffe08a;
+}
