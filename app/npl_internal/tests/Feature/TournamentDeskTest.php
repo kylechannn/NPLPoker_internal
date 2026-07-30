@@ -325,6 +325,44 @@ class TournamentDeskTest extends TestCase
         $this->assertNull(collect($scan['options'])->firstWhere('action', 'jackpot'));
     }
 
+    // ---------------------------------------------------------- cash game --
+
+    public function test_a_cash_game_opens_without_levels_and_finishes_without_standings(): void
+    {
+        $result = app(TournamentService::class)->create([
+            'game_type' => 'cash',
+            'venue_name' => 'St George Club',
+            'venue_id' => 7,
+            'buy_in_price_cents' => 10000,
+            'starting_stack' => 10000,
+            'rebuy_tiers' => [['price_cents' => 10000, 'chips' => 10000]],
+            'max_rebuys_per_player' => 255,
+            'seats_per_table' => 8,
+        ]);
+
+        $id = (int) $result['session']['id'];
+        $this->assertSame('cash', $result['session']['game_type']);
+        $this->assertNull($result['session']['registration_closes_at_level']);
+
+        // Buy-in seats, top-ups work, and nothing ever cuts off — no clock
+        // was ever started.
+        $this->mirrorPlayer('NPL9001');
+        $desk = app(TournamentDeskService::class);
+        $desk->apply($id, 'NPL9001', 'buy_in');
+        $desk->apply($id, 'NPL9001', 'rebuy');
+
+        $gates = app(TournamentGateService::class)->gates($id);
+        $this->assertTrue($gates['registration']['open']);
+        $this->assertNull($gates['registration']['closes_at_level']);
+        $this->assertTrue($gates['rebuy']['open']);
+
+        // Finishing with zero placements closes the game — cash records no
+        // standings.
+        $finish = $desk->finishWithResults($id, []);
+        $this->assertSame(0, $finish['recorded']);
+        $this->assertSame('finished', DB::table('tournament_sessions')->where('id', $id)->value('status'));
+    }
+
     // ------------------------------------------------------------- seating --
 
     public function test_players_without_a_club_membership_are_flagged_once_the_register_has_data(): void

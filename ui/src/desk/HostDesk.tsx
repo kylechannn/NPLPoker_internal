@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Loader2, MessageSquareWarning, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
+import { Ban, Loader2, MessageSquareWarning, MonitorPlay, Play, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { notify } from "../notifications/store"
 import { playersApi, type PlayerComment } from "../players/playersApi"
 import {
@@ -26,6 +26,8 @@ type Props = {
   onClockStatus?: (status: string) => void
   /** Moves to the Finishing step (top-10 entry). */
   onFinishGame?: () => void
+  /** 'cash' = no clock, no add-ons, and vouchers never apply. */
+  mode?: "tournament" | "cash"
 }
 
 type SeatMenu = {
@@ -52,7 +54,7 @@ function optionKey(option: DeskOption): string {
   return `${option.action}:${option.tier ?? "-"}`
 }
 
-export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGame }: Props) {
+export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGame, mode = "tournament" }: Props) {
   const scanRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState("")
   const [scan, setScan] = useState<ScanResult | null>(null)
@@ -68,6 +70,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [voucher, setVoucher] = useState<DeskVoucher | null>(null)
+  const [clockStatus, setClockStatus] = useState<string>("draft")
   // The redeem reference survives a failed attempt so retrying is safe.
   const voucherRefRef = useRef<string | null>(null)
   // The scan popup's ticked actions, keyed action:tier. One submit fires
@@ -83,7 +86,10 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       const next = await deskApi.seating(sessionId)
       setSeating(next)
       const status = (next.clock as { status?: string } | undefined)?.status
-      if (status) onClockStatus?.(status)
+      if (status) {
+        setClockStatus(status)
+        onClockStatus?.(status)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "The seating map could not be loaded.")
     }
@@ -138,7 +144,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
       // Free-entry check happens after the scan lands, without blocking it:
       // the prompt appears a beat later only for unregistered players.
-      if (!result.entry) {
+      // Never for cash games — no voucher of any kind covers those.
+      if (!result.entry && mode !== "cash") {
         void checkVoucher(result.player.npl_id)
       }
 
@@ -168,7 +175,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
   async function checkVoucher(nplId: string) {
     try {
-      const check = await deskApi.voucherEntitlement(nplId, activeVenueId())
+      const check = await deskApi.voucherEntitlement(nplId, activeVenueId(), seating?.game_session_id ?? null)
       setVoucher((current) => (current === null && check.entitled ? check.voucher : current))
     } catch {
       // No prompt on failure — the normal fee flow is never blocked.
@@ -188,7 +195,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     voucherRefRef.current ??= `DV-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
 
     try {
-      await deskApi.voucherRedeem(voucherRefRef.current, scan.player.npl_id, voucher.id, activeVenueId())
+      await deskApi.voucherRedeem(voucherRefRef.current, scan.player.npl_id, voucher.id, activeVenueId(), seating?.game_session_id ?? null)
       const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", { voucher_code: voucher.code })
       voucherRefRef.current = null
       setSeating(result.seating)
@@ -332,7 +339,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         </label>
 
         <div className="host-desk__gates">
-          {GATE_LABELS.map(({ key, label }) => {
+          {GATE_LABELS.filter(({ key }) => mode !== "cash" || key !== "addon").map(({ key, label }) => {
             const gate = gates?.[key]
             if (!gate) return null
             return (
@@ -355,7 +362,22 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           </div>
         ) : null}
 
-        <button
+        {mode === "cash" && clockStatus === "draft" ? (
+          <button
+            className="host-desk__display"
+            type="button"
+            title="Start the cash game — the session goes live and preparation locks"
+            disabled={busy}
+            onClick={() => {
+              void deskApi.startClock(sessionId).then(() => refresh()).catch((e) => {
+                setError(e instanceof Error ? e.message : "The game could not be started.")
+              })
+            }}
+          >
+            <Play size={15} /> Start game
+          </button>
+        ) : null}
+        {mode !== "cash" ? <button
           className="host-desk__display"
           type="button"
           title="Open the room clock in its own window"
@@ -378,7 +400,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           }}
         >
           <MonitorPlay size={15} /> Room clock
-        </button>
+        </button> : null}
 
         {onFinishGame ? (
           <button className="host-desk__finish" type="button" onClick={onFinishGame}>Finish game</button>
@@ -484,7 +506,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             ) : null}
 
             <div className="host-scan-modal__options" role="group" aria-label="Tick the actions to take">
-              {scan.options.map((option) => {
+              {scan.options.filter((option) => mode !== "cash" || option.action !== "addon").map((option) => {
                 const key = optionKey(option)
                 const ticked = picked.has(key)
                 return (

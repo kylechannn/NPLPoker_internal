@@ -135,27 +135,7 @@ type NavId =
   | "membership"
   | "jackpot"
 
-type Player = {
-  seat: number
-  name: string
-  nplId: string
-  invested: number
-  rebuys: number
-  stack: number
-  dealer?: boolean
-}
 
-type GameTable = {
-  id: string
-  number: string
-  name: string
-  game: string
-  status: "Live" | "Seating" | "Paused"
-  blinds: string
-  hand: number
-  elapsed: string
-  players: Player[]
-}
 
 const navigation: Array<{
   label: string
@@ -185,82 +165,6 @@ const legacyTabIds: Record<string, NavId> = {
   tables: "cashgame",
 }
 
-const tables: GameTable[] = [
-  {
-    id: "table-03",
-    number: "03",
-    name: "Feature Table",
-    game: "No Limit Hold'em",
-    status: "Live",
-    blinds: "$10 / $20",
-    hand: 185,
-    elapsed: "02:14:38",
-    players: [
-      { seat: 1, name: "Aiden Park", nplId: "NPL-08214", invested: 1000, rebuys: 1, stack: 1240 },
-      { seat: 2, name: "Chloe Martin", nplId: "NPL-01762", invested: 500, rebuys: 0, stack: 820 },
-      { seat: 3, name: "Ethan Wong", nplId: "NPL-10938", invested: 1000, rebuys: 1, stack: 660 },
-      { seat: 4, name: "Mia Lopez", nplId: "NPL-04631", invested: 500, rebuys: 0, stack: 490, dealer: true },
-      { seat: 5, name: "Noah Singh", nplId: "NPL-07115", invested: 500, rebuys: 0, stack: 1150 },
-      { seat: 6, name: "Zara King", nplId: "NPL-02489", invested: 1000, rebuys: 1, stack: 640 },
-    ],
-  },
-  {
-    id: "table-01",
-    number: "01",
-    name: "Main Floor",
-    game: "No Limit Hold'em",
-    status: "Live",
-    blinds: "$5 / $10",
-    hand: 142,
-    elapsed: "01:48:12",
-    players: [
-      { seat: 1, name: "Liam Scott", nplId: "NPL-03128", invested: 500, rebuys: 0, stack: 680 },
-      { seat: 2, name: "Sofia Tran", nplId: "NPL-06110", invested: 500, rebuys: 0, stack: 410 },
-      { seat: 4, name: "Leo Zhang", nplId: "NPL-09871", invested: 1000, rebuys: 1, stack: 1180, dealer: true },
-      { seat: 5, name: "Grace Hall", nplId: "NPL-01452", invested: 500, rebuys: 0, stack: 730 },
-    ],
-  },
-  {
-    id: "table-02",
-    number: "02",
-    name: "North Room",
-    game: "Pot Limit Omaha",
-    status: "Live",
-    blinds: "$5 / $10",
-    hand: 96,
-    elapsed: "01:21:47",
-    players: [
-      { seat: 1, name: "Jack Turner", nplId: "NPL-05519", invested: 1000, rebuys: 1, stack: 1340 },
-      { seat: 3, name: "Ava Patel", nplId: "NPL-03741", invested: 500, rebuys: 0, stack: 620, dealer: true },
-      { seat: 5, name: "Kai Wilson", nplId: "NPL-08773", invested: 500, rebuys: 0, stack: 350 },
-    ],
-  },
-  {
-    id: "table-04",
-    number: "04",
-    name: "East Wing",
-    game: "No Limit Hold'em",
-    status: "Paused",
-    blinds: "$5 / $10",
-    hand: 73,
-    elapsed: "00:58:03",
-    players: [
-      { seat: 2, name: "Emma Reed", nplId: "NPL-06339", invested: 500, rebuys: 0, stack: 570 },
-      { seat: 4, name: "Henry Liu", nplId: "NPL-02218", invested: 500, rebuys: 0, stack: 430, dealer: true },
-    ],
-  },
-  {
-    id: "table-05",
-    number: "05",
-    name: "Championship",
-    game: "Freezeout",
-    status: "Seating",
-    blinds: "Level 1",
-    hand: 0,
-    elapsed: "Starts 7:30 PM",
-    players: [],
-  },
-]
 
 const moduleTitles: Record<NavId, { eyebrow: string; title: string; description: string }> = {
   overview: {
@@ -799,7 +703,6 @@ export default function App() {
     const known = navigation.flatMap((group) => group.items).some((item) => item.id === resolved)
     return known ? (resolved as NavId) : "overview"
   })
-  const [selectedTableId, setSelectedTableId] = useState(tables[0].id)
   const [health, setHealth] = useState<HealthState>({ status: "loading" })
   const [networkQuality, setNetworkQuality] = useState<NetworkQualityState>({ status: "loading" })
   const [networkRefreshing, setNetworkRefreshing] = useState(false)
@@ -838,7 +741,6 @@ export default function App() {
     if (venueId === null) window.localStorage.removeItem("npl.activeVenueId")
     else window.localStorage.setItem("npl.activeVenueId", String(venueId))
   }, [venueId])
-  const [paused, setPaused] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [startupPhase, setStartupPhase] = useState<"visible" | "leaving" | "hidden">("visible")
   const [notificationOpen, setNotificationOpen] = useState(false)
@@ -853,18 +755,6 @@ export default function App() {
     role: "Floor Manager",
     initials: "KC",
   })
-  const [stackEdits, setStackEdits] = useState<{
-    changes: Record<string, number>
-    history: Array<{ key: string; previous: number }>
-  }>({ changes: {}, history: [] })
-
-  const stackChanges = stackEdits.changes
-  const pendingChangeCount = Object.values(stackChanges).filter((change) => change !== 0).length
-
-  const selectedTable = useMemo(
-    () => tables.find((table) => table.id === selectedTableId) ?? tables[0],
-    [selectedTableId],
-  )
 
   const loadHealth = useCallback(async () => {
     setHealth({ status: "loading" })
@@ -1057,36 +947,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleGlobalShortcut)
   }, [])
 
-  const adjustStack = (player: Player, delta: number) => {
-    const key = `${selectedTable.id}-${player.seat}`
-    setStackEdits((current) => {
-      const previous = current.changes[key] ?? 0
-      const next = Math.max(-player.stack, previous + delta)
-      if (next === previous) return current
-
-      return {
-        changes: { ...current.changes, [key]: next },
-        history: [...current.history, { key, previous }],
-      }
-    })
-  }
-
-  const undoStackEdit = () => {
-    setStackEdits((current) => {
-      const last = current.history.at(-1)
-      if (!last) return current
-      const changes = { ...current.changes }
-      if (last.previous === 0) delete changes[last.key]
-      else changes[last.key] = last.previous
-      return { changes, history: current.history.slice(0, -1) }
-    })
-  }
-
-  const saveStackEdits = () => {
-    if (pendingChangeCount === 0) return
-    setNotice(`${pendingChangeCount} score ${pendingChangeCount === 1 ? "change" : "changes"} committed locally.`)
-    setStackEdits({ changes: {}, history: [] })
-  }
 
   const chooseSection = (id: NavId) => {
     setActiveSection(id)
@@ -1346,7 +1206,7 @@ export default function App() {
                 <span />
               </button>
             </div>
-            <DesktopWindowControls hasPendingChanges={pendingChangeCount > 0} />
+            <DesktopWindowControls hasPendingChanges={false} />
           </div>
         </header>
 
@@ -1363,20 +1223,7 @@ export default function App() {
             ) : activeSection === "overview" ? (
               <OverviewWorkspace venue={activeVenue} onNavigate={chooseSection} onNotice={setNotice} />
             ) : activeSection === "cashgame" ? (
-              <CashGameWorkspace
-                selectedTable={selectedTable}
-                selectedTableId={selectedTableId}
-                paused={paused}
-                stackChanges={stackChanges}
-                onSelectTable={setSelectedTableId}
-                onAdjustStack={adjustStack}
-                pendingChangeCount={pendingChangeCount}
-                canUndo={stackEdits.history.length > 0}
-                onUndo={undoStackEdit}
-                onSave={saveStackEdits}
-                onTogglePause={() => setPaused((current) => !current)}
-                onNotice={setNotice}
-              />
+              <HostWorkspace venue={activeVenue} mode="cash" />
             ) : (
               <RegistrationsWorkspace venue={activeVenue} />
             )}
@@ -1485,294 +1332,6 @@ function NotificationSession(_props: { onNavigate: (id: NavId) => void }) {
         <span>Notifications remain visible until you press the bell again.</span>
       </footer>
     </aside>
-  )
-}
-
-type CashGameWorkspaceProps = {
-  selectedTable: GameTable
-  selectedTableId: string
-  paused: boolean
-  stackChanges: Record<string, number>
-  onSelectTable: (id: string) => void
-  onAdjustStack: (player: Player, delta: number) => void
-  pendingChangeCount: number
-  canUndo: boolean
-  onUndo: () => void
-  onSave: () => void
-  onTogglePause: () => void
-  onNotice: (message: string) => void
-}
-
-function CashGameWorkspace({
-  selectedTable,
-  selectedTableId,
-  paused,
-  stackChanges,
-  onSelectTable,
-  onAdjustStack,
-  pendingChangeCount,
-  canUndo,
-  onUndo,
-  onSave,
-  onTogglePause,
-  onNotice,
-}: CashGameWorkspaceProps) {
-  const title = moduleTitles.cashgame
-
-  return (
-    <>
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">{title.eyebrow}</p>
-          <h1>{title.title}</h1>
-          <p className="page-description">{title.description}</p>
-        </div>
-        <div className="page-actions">
-          <button className="secondary-button" type="button" onClick={() => onNotice("The table export is ready for backend wiring.")}>
-            <RefreshCw size={16} />
-            Sync floor
-          </button>
-          <button className="primary-button" type="button" onClick={() => onNotice("New table setup is ready for backend wiring.")}>
-            <Plus size={17} />
-            Start new table
-          </button>
-        </div>
-      </div>
-
-      <section className="metric-grid" aria-label="Venue summary">
-        <MetricCard icon={Table2} label="Active tables" value="5" note="4 live · 1 seating" tone="cyan" />
-        <MetricCard icon={Users} label="Players seated" value="43" note="86% floor capacity" tone="blue" />
-        <MetricCard icon={ListChecks} label="Waitlist" value="6" note="Longest wait 11 min" tone="gold" />
-        <MetricCard icon={CircleDollarSign} label="Buy-ins tonight" value="$12.5k" note="+18% vs last Tuesday" tone="green" />
-      </section>
-
-      <section className="table-switcher" aria-label="Select table">
-        <div className="table-switcher-heading">
-          <div>
-            <span className="live-indicator" />
-            Floor status
-          </div>
-          <button type="button" aria-label="More table options"><MoreHorizontal size={18} /></button>
-        </div>
-        <div className="table-tabs">
-          {tables.map((table) => (
-            <button
-              className={table.id === selectedTableId ? "table-tab table-tab--active" : "table-tab"}
-              type="button"
-              key={table.id}
-              aria-pressed={table.id === selectedTableId}
-              onClick={() => onSelectTable(table.id)}
-            >
-              <span>Table {table.number}</span>
-              <strong>{table.name}</strong>
-              <small>
-                <i className={`table-status-dot table-status-dot--${table.status.toLowerCase()}`} />
-                {table.status} · {table.players.length}/8
-              </small>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <div className="operations-layout">
-        <section className="panel score-panel">
-          <header className="panel-header score-panel-header">
-            <div className="table-identity">
-              <span className="table-number">{selectedTable.number}</span>
-              <div>
-                <p>{selectedTable.game}</p>
-                <h2>{selectedTable.name}</h2>
-              </div>
-            </div>
-            <div className="table-meta">
-              <span><Gauge size={15} /> {selectedTable.blinds}</span>
-              <span><Clock3 size={15} /> {selectedTable.elapsed}</span>
-              <span className={paused ? "state-chip state-chip--paused" : "state-chip"}>
-                <i />
-                {paused ? "Paused" : selectedTable.status}
-              </span>
-            </div>
-          </header>
-
-          <div className="hand-strip">
-            <div>
-              <small>Current hand</small>
-              <strong>#{selectedTable.hand || "—"}</strong>
-            </div>
-            <div>
-              <small>Players</small>
-              <strong>{selectedTable.players.length} / 8</strong>
-            </div>
-            <div>
-              <small>Chips in play</small>
-              <strong>{money(selectedTable.players.reduce((total, player) => total + player.stack, 0))}</strong>
-            </div>
-            <button className={paused ? "round-button round-button--resume" : "round-button"} type="button" onClick={onTogglePause}>
-              {paused ? <Play size={16} /> : <Pause size={16} />}
-              {paused ? "Resume table" : "Pause table"}
-            </button>
-          </div>
-
-          <div className="score-table-wrap">
-            <table className="score-table">
-              <thead>
-                <tr>
-                  <th>Seat</th>
-                  <th>Player</th>
-                  <th>Buy-in</th>
-                  <th>Rebuys</th>
-                  <th>Stack</th>
-                  <th>Net</th>
-                  <th><span className="visually-hidden">Stack controls</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedTable.players.map((player) => {
-                  const key = `${selectedTable.id}-${player.seat}`
-                  const currentStack = player.stack + (stackChanges[key] ?? 0)
-                  const net = currentStack - player.invested
-
-                  return (
-                    <tr className={stackChanges[key] ? "score-row score-row--edited" : "score-row"} key={player.seat}>
-                      <td>
-                        <span className="seat-number">{player.seat}</span>
-                        {player.dealer ? <span className="dealer-chip">D</span> : null}
-                      </td>
-                      <td>
-                        <div className="player-cell">
-                          <span>{player.name.split(" ").map((part) => part[0]).join("")}</span>
-                          <div>
-                            <strong>{player.name}</strong>
-                            <small>{player.nplId}</small>
-                          </div>
-                        </div>
-                      </td>
-                      <td>{money(player.invested)}</td>
-                      <td>{player.rebuys}</td>
-                      <td className="stack-value">
-                        <span>{money(currentStack)}</span>
-                        {stackChanges[key] ? <small>Edited</small> : null}
-                      </td>
-                      <td className={net >= 0 ? "net-positive" : "net-negative"}>
-                        {net >= 0 ? "+" : "−"}{money(Math.abs(net))}
-                      </td>
-                      <td>
-                        <div className="stack-controls">
-                          <button type="button" aria-label={`Subtract 20 from ${player.name}`} onClick={() => onAdjustStack(player, -20)}>
-                            <Minus size={14} />
-                          </button>
-                          <button type="button" aria-label={`Add 20 to ${player.name}`} onClick={() => onAdjustStack(player, 20)}>
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-                {Array.from({ length: Math.max(0, 8 - selectedTable.players.length) }, (_, index) => (
-                  <tr className="empty-seat-row" key={`empty-${index}`}>
-                    <td><span className="seat-number">{selectedTable.players.length + index + 1}</span></td>
-                    <td colSpan={5}>
-                      <button type="button" onClick={() => onNotice("Player seating is ready for backend wiring.")}>
-                        <UserPlus size={15} />
-                        Seat available
-                      </button>
-                    </td>
-                    <td />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="score-panel-footer">
-            <div className={pendingChangeCount ? "score-save-state score-save-state--pending" : "score-save-state"}>
-              <span>
-                {pendingChangeCount
-                  ? `${pendingChangeCount} score ${pendingChangeCount === 1 ? "change" : "changes"} pending`
-                  : "All score changes saved locally"}
-              </span>
-            </div>
-            <div className="score-footer-actions">
-              {pendingChangeCount ? (
-                <>
-                  <button className="undo-button" type="button" disabled={!canUndo} onClick={onUndo}>
-                    <Undo2 size={14} />
-                    Undo
-                  </button>
-                  <button className="save-button" type="button" onClick={onSave}>
-                    <Save size={14} />
-                    Save changes
-                  </button>
-                </>
-              ) : null}
-              <button className="close-table-button" type="button" onClick={() => onNotice("Table close flow is ready for backend wiring.")}>Close table</button>
-            </div>
-          </div>
-        </section>
-
-        <aside className="right-rail">
-          <section className="panel quick-actions">
-            <header className="panel-header compact-panel-header">
-              <div>
-                <p>Table controls</p>
-                <h2>Quick actions</h2>
-              </div>
-              <ShieldCheck size={18} />
-            </header>
-            <div className="quick-action-grid">
-              <button type="button" onClick={() => onNotice("Player check-in opened.")}><UserPlus size={18} /><span>Add player</span></button>
-              <button type="button" onClick={() => onNotice("Seat move opened.")}><Users size={18} /><span>Move seat</span></button>
-              <button type="button" onClick={() => onNotice("Rebuy recorded locally.")}><CircleDollarSign size={18} /><span>Add rebuy</span></button>
-              <button type="button" onClick={() => onNotice("Result review opened.")}><Medal size={18} /><span>Result</span></button>
-            </div>
-          </section>
-
-          <section className="panel waitlist-panel">
-            <header className="panel-header compact-panel-header">
-              <div>
-                <p>Live queue</p>
-                <h2>Waitlist</h2>
-              </div>
-              <span className="count-chip">6</span>
-            </header>
-            <ol className="waitlist">
-              <li>
-                <span>01</span>
-                <div><strong>Lucas Kim</strong><small>NPL-05172 · 11 min</small></div>
-                <button type="button" aria-label="Seat Lucas Kim" onClick={() => onNotice("Lucas Kim selected for seating.")}><ChevronDown size={15} /></button>
-              </li>
-              <li>
-                <span>02</span>
-                <div><strong>Ruby Taylor</strong><small>NPL-02619 · 8 min</small></div>
-                <button type="button" aria-label="Seat Ruby Taylor" onClick={() => onNotice("Ruby Taylor selected for seating.")}><ChevronDown size={15} /></button>
-              </li>
-              <li>
-                <span>03</span>
-                <div><strong>Ben Nguyen</strong><small>NPL-09340 · 4 min</small></div>
-                <button type="button" aria-label="Seat Ben Nguyen" onClick={() => onNotice("Ben Nguyen selected for seating.")}><ChevronDown size={15} /></button>
-              </li>
-            </ol>
-            <button className="text-button" type="button" onClick={() => onNotice("Full waitlist opened.")}>View full waitlist <span>→</span></button>
-          </section>
-
-          <section className="panel activity-panel">
-            <header className="panel-header compact-panel-header">
-              <div>
-                <p>Audit trail</p>
-                <h2>Recent activity</h2>
-              </div>
-              <Activity size={18} />
-            </header>
-            <ul className="activity-list">
-              <li><span className="activity-icon activity-icon--green"><UserPlus size={14} /></span><div><strong>Zara King seated</strong><small>Table 03 · Seat 6 · 2m ago</small></div></li>
-              <li><span className="activity-icon activity-icon--gold"><CircleDollarSign size={14} /></span><div><strong>Rebuy recorded</strong><small>Ethan Wong · $500 · 8m ago</small></div></li>
-              <li><span className="activity-icon"><RefreshCw size={14} /></span><div><strong>Cloud sync complete</strong><small>47 records · 11m ago</small></div></li>
-            </ul>
-          </section>
-        </aside>
-      </div>
-    </>
   )
 }
 

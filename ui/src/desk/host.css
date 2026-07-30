@@ -1802,3 +1802,122 @@
 }
 
 .host-desk__display:active { transform: scale(0.97); }
+
+/* ---- Cash game preparation ---- */
+
+.cashprep {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cashprep__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--host-line);
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: rgba(10, 20, 38, 0.78);
+}
+
+.cashprep__head h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 5px;
+  font-size: 1.02rem;
+}
+
+.cashprep__head p {
+  margin: 0;
+  color: #8fa9cf;
+  font-size: 0.78rem;
+  max-width: 620px;
+}
+
+.cashprep__card {
+  border: 1px solid var(--host-line);
+  border-radius: 16px;
+  padding: 18px;
+  background: rgba(10, 20, 38, 0.6);
+}
+
+.cashprep__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px 15px;
+}
+
+.cashprep__grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cashprep__grid label > span {
+  color: #8fa9cf;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cashprep__grid input,
+.cashprep__grid select {
+  border: 1px solid var(--host-line-strong);
+  border-radius: 10px;
+  padding: 9px 11px;
+  color: #e7eefc;
+  font: inherit;
+  font-size: 0.86rem;
+  background: var(--host-sunken, rgba(4, 12, 26, 0.8));
+  outline: none;
+}
+
+.cashprep__wide {
+  grid-column: 1 / -1;
+}
+
+.cashprep__toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 9px !important;
+  align-self: end;
+  padding: 9px 0;
+}
+
+.cashprep__toggle span {
+  text-transform: none !important;
+  font-size: 0.84rem !important;
+  color: #e7eefc !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+}
+
+.cashprep__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.cashprep__open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 22px;
+  color: #04240f;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #5ce9a8, #21bda3);
+  cursor: pointer;
+}
+
+.cashprep__open:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

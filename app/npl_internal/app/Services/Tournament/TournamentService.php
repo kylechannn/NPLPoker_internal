@@ -32,12 +32,18 @@ final class TournamentService
      */
     public function create(array $data): array
     {
+        // A cash game is the same desk minus the clock: no blind ladder, no
+        // templates, and every cut-off blank — open until the game finishes.
+        $isCash = ($data['game_type'] ?? 'tournament') === 'cash';
+
         $template = null;
 
-        if (! empty($data['template_id'])) {
-            $template = $this->templates->find((int) $data['template_id']);
-        } elseif (! array_key_exists('levels', $data)) {
-            $template = $this->templates->default();
+        if (! $isCash) {
+            if (! empty($data['template_id'])) {
+                $template = $this->templates->find((int) $data['template_id']);
+            } elseif (! array_key_exists('levels', $data)) {
+                $template = $this->templates->default();
+            }
         }
 
         if ($template !== null) {
@@ -45,10 +51,14 @@ final class TournamentService
         }
 
         // A pattern is the usual way a venue describes its structure, so the
-        // preset screen can send one instead of twenty hand-typed rows.
-        $levels = isset($data['structure']) && is_array($data['structure'])
-            ? app(BlindStructureGenerator::class)->generate($data['structure'])
-            : ($data['levels'] ?? TournamentClockService::DEFAULT_STRUCTURE);
+        // preset screen can send one instead of twenty hand-typed rows. Cash
+        // games get one silent placeholder level: the clock/gate math stays
+        // intact, and the clock is simply never started.
+        $levels = $isCash
+            ? [['level_no' => 1, 'type' => 'blind', 'small_blind' => 0, 'big_blind' => 0, 'duration_min' => 480]]
+            : (isset($data['structure']) && is_array($data['structure'])
+                ? app(BlindStructureGenerator::class)->generate($data['structure'])
+                : ($data['levels'] ?? TournamentClockService::DEFAULT_STRUCTURE));
 
         if ($levels === []) {
             throw ValidationException::withMessages(['levels' => ['A tournament needs at least one level.']]);
@@ -56,22 +66,25 @@ final class TournamentService
 
         // The registration cut-off is the one setting the desk must decide:
         // everything downstream (online registration closing, the countdown
-        // players watch, what a scan is allowed to do) hangs off it.
-        $registrationCloses = $data['registration_closes_at_level'] ?? null;
+        // players watch, what a scan is allowed to do) hangs off it. Cash
+        // games have no levels to cut off at — everything stays open.
+        $registrationCloses = $isCash ? null : ($data['registration_closes_at_level'] ?? null);
 
-        if ($registrationCloses === null) {
+        if ($registrationCloses === null && ! $isCash) {
             throw ValidationException::withMessages([
                 'registration_closes_at_level' => ['Set the level registration closes at before opening the session.'],
             ]);
         }
 
-        $this->assertCutOffWithinStructure('registration_closes_at_level', $registrationCloses, $levels);
+        if (! $isCash) {
+            $this->assertCutOffWithinStructure('registration_closes_at_level', $registrationCloses, $levels);
 
-        foreach (['addon_closes_at_level', 'rebuy_closes_at_level', 'jackpot_closes_at_level'] as $field) {
-            // Optional — but once entered they have to be reachable, or the
-            // desk has set a rule that silently never fires.
-            if (($data[$field] ?? null) !== null) {
-                $this->assertCutOffWithinStructure($field, (int) $data[$field], $levels);
+            foreach (['addon_closes_at_level', 'rebuy_closes_at_level', 'jackpot_closes_at_level'] as $field) {
+                // Optional — but once entered they have to be reachable, or
+                // the desk has set a rule that silently never fires.
+                if (($data[$field] ?? null) !== null) {
+                    $this->assertCutOffWithinStructure($field, (int) $data[$field], $levels);
+                }
             }
         }
 
@@ -82,7 +95,7 @@ final class TournamentService
             $name = trim(sprintf(
                 '%s — %s',
                 now()->format('D j M Y'),
-                (string) ($data['venue_name'] ?? 'NPL Tournament'),
+                (string) ($data['venue_name'] ?? ($isCash ? 'NPL Cash Game' : 'NPL Tournament')),
             ), ' —');
         }
 
@@ -117,9 +130,10 @@ final class TournamentService
             ]]);
         }
 
-        return DB::transaction(function () use ($data, $levels, $name, $tiers, $rebuyTiers): array {
+        return DB::transaction(function () use ($data, $levels, $name, $tiers, $rebuyTiers, $isCash, $registrationCloses): array {
             $id = DB::table('tournament_sessions')->insertGetId([
                 'uuid' => (string) Str::uuid(),
+                'game_type' => $isCash ? 'cash' : 'tournament',
                 'game_session_id' => $data['game_session_id'] ?? null,
                 'game_entity_id' => $data['game_entity_id'] ?? null,
                 'name' => $name,
@@ -136,7 +150,7 @@ final class TournamentService
                 'max_addons_per_player' => (int) ($data['max_addons_per_player'] ?? 1),
                 'buy_in_price_cents' => (int) ($data['buy_in_price_cents'] ?? 0),
                 'ko_bounty_cents' => (int) ($data['ko_bounty_cents'] ?? 0),
-                'registration_closes_at_level' => (int) $data['registration_closes_at_level'],
+                'registration_closes_at_level' => $registrationCloses !== null ? (int) $registrationCloses : null,
                 'addon_closes_at_level' => $data['addon_closes_at_level'] ?? null,
                 'rebuy_closes_at_level' => $data['rebuy_closes_at_level'] ?? null,
                 'jackpot_enabled' => (bool) ($data['jackpot_enabled'] ?? false),
@@ -276,6 +290,7 @@ final class TournamentService
                 'name' => $session->name,
                 'venue_name' => $session->venue_name,
                 'status' => $session->status,
+                'game_type' => $session->game_type ?? 'tournament',
                 'game_session_id' => $session->game_session_id,
                 'starting_stack' => (int) $session->starting_stack,
                 'rebuy_chips' => (int) $session->rebuy_chips,

@@ -211,17 +211,17 @@ export const deskApi = {
   venues: () => request<{ venues: Venue[] }>('/api/v1/desk/venues'),
 
   /** Live cloud check on scan: does this player enter free? */
-  voucherEntitlement: (nplId: string, venueId: number | null) =>
+  voucherEntitlement: (nplId: string, venueId: number | null, gameSessionId: number | null = null) =>
     request<{ entitled: boolean, voucher: DeskVoucher | null, offline: boolean }>('/api/v1/vouchers/entitlement', {
       method: 'POST',
-      body: JSON.stringify({ npl_id: nplId, venue_id: venueId }),
+      body: JSON.stringify({ npl_id: nplId, venue_id: venueId, game_session_id: gameSessionId }),
     }),
 
   /** One-tap apply — idempotent by reference, safe to retry. */
-  voucherRedeem: (reference: string, nplId: string, voucherId: number | null, venueId: number | null) =>
+  voucherRedeem: (reference: string, nplId: string, voucherId: number | null, venueId: number | null, gameSessionId: number | null = null) =>
     request<{ voucher: DeskVoucher | null }>('/api/v1/vouchers/redeem', {
       method: 'POST',
-      body: JSON.stringify({ reference, npl_id: nplId, voucher_id: voucherId, venue_id: venueId }),
+      body: JSON.stringify({ reference, npl_id: nplId, voucher_id: voucherId, venue_id: venueId, game_session_id: gameSessionId }),
     }),
 
   /** Cloud-scheduled sessions still ahead for the venue — express entry list. */

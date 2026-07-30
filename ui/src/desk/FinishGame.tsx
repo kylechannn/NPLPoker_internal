@@ -10,6 +10,8 @@ type Props = {
   sessionId: number
   onBack: () => void
   onFinished: () => void
+  /** Cash games record no standings — finishing just completes the session. */
+  mode?: "tournament" | "cash"
 }
 
 /**
@@ -18,7 +20,8 @@ type Props = {
  * the standings push to the NPL cloud. The confirmation popup only appears
  * once the cloud has answered.
  */
-export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
+export default function FinishGame({ sessionId, onBack, onFinished, mode = "tournament" }: Props) {
+  const cash = mode === "cash"
   const [slots, setSlots] = useState<Slot[]>(Array.from({ length: 10 }, () => null))
   const [inputs, setInputs] = useState<string[]>(Array.from({ length: 10 }, () => ""))
   const [busyRow, setBusyRow] = useState<number | null>(null)
@@ -64,7 +67,7 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
   const placedCount = slots.filter(Boolean).length
 
   async function finishGame() {
-    if (placedCount === 0 || pushing) return
+    if ((placedCount === 0 && !cash) || pushing) return
 
     setPushing(true)
     setError(null)
@@ -79,9 +82,11 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
       notify(
         "system",
         `${result.name} finished`,
-        result.pushed
-          ? `Top ${result.recorded} pushed to the NPL cloud.`
-          : `Top ${result.recorded} recorded — standings queued, they sync when the link returns.`,
+        cash
+          ? (result.pushed ? "Session marked finished on the NPL cloud." : "Finished locally — the cloud syncs when the link returns.")
+          : (result.pushed
+              ? `Top ${result.recorded} pushed to the NPL cloud.`
+              : `Top ${result.recorded} recorded — standings queued, they sync when the link returns.`),
         result.pushed ? "success" : "warning",
       )
       setDone({ name: result.name, venue: result.venue_name, pushed: result.pushed })
@@ -97,15 +102,19 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
     <div className="host-finish">
       <header className="host-finish__head">
         <div>
-          <h3><Trophy size={18} /> Final standings</h3>
-          <p>Scan each finisher into their rank — 1st place first. Empty ranks are fine.</p>
+          <h3><Trophy size={18} /> {cash ? "Finish the cash game" : "Final standings"}</h3>
+          <p>
+            {cash
+              ? "Cash games record no standings — finishing closes the game and marks the online session finished."
+              : "Scan each finisher into their rank — 1st place first. Empty ranks are fine."}
+          </p>
         </div>
         <button type="button" className="host-desk__exit" disabled={pushing} onClick={onBack}>Back to desk</button>
       </header>
 
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
 
-      <ol className="host-finish__slots">
+      {cash ? null : <ol className="host-finish__slots">
         {slots.map((slot, index) => (
           <li key={index} className={slot ? "host-finish__slot host-finish__slot--filled" : "host-finish__slot"}>
             <span className="host-finish__rank">{ordinal(index + 1)}</span>
@@ -143,14 +152,14 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
             )}
           </li>
         ))}
-      </ol>
+      </ol>}
 
       <footer className="host-finish__footer">
-        <span>{placedCount} of 10 placed</span>
+        <span>{cash ? "" : `${placedCount} of 10 placed`}</span>
         <button
           type="button"
           className="host-finish__submit"
-          disabled={placedCount === 0 || pushing}
+          disabled={(placedCount === 0 && !cash) || pushing}
           onClick={() => setConfirming(true)}
         >
           {pushing ? "Pushing to the NPL cloud…" : "Finish game"}
@@ -162,9 +171,18 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
           <section className="host-scan-modal__panel" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
             <h3 className="host-finish__confirm-title">Finish this game?</h3>
             <p className="host-finish__confirm-copy">
-              The top {placedCount} placement{placedCount === 1 ? "" : "s"} will be recorded and pushed to the
-              NPL cloud, and the session will be marked <strong>finished</strong>. Once finished there is
-              <strong> no turning back</strong> — check the ranks one more time.
+              {cash ? (
+                <>
+                  The cash game closes and the online session is marked <strong>finished</strong> — no
+                  standings are recorded. Once finished there is <strong>no turning back</strong>.
+                </>
+              ) : (
+                <>
+                  The top {placedCount} placement{placedCount === 1 ? "" : "s"} will be recorded and pushed to the
+                  NPL cloud, and the session will be marked <strong>finished</strong>. Once finished there is
+                  <strong> no turning back</strong> — check the ranks one more time.
+                </>
+              )}
             </p>
             <footer className="host-scan-modal__footer">
               <span className="host-scan-modal__total" />
@@ -203,8 +221,10 @@ export default function FinishGame({ sessionId, onBack, onFinished }: Props) {
           </strong>
           <small>
             {done.name}. {done.pushed
-              ? "Standings are live on the NPL cloud."
-              : "Standings recorded locally — they will sync as soon as the backend link returns."}
+              ? (cash ? "The session is marked finished on the NPL cloud." : "Standings are live on the NPL cloud.")
+              : (cash
+                  ? "Finished locally — the cloud syncs as soon as the backend link returns."
+                  : "Standings recorded locally — they will sync as soon as the backend link returns.")}
           </small>
           <button type="button" className="host-finish__submit" onClick={onFinished}>Done</button>
         </div>

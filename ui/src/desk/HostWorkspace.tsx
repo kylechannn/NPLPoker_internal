@@ -1,4 +1,5 @@
 import { useState } from "react"
+import CashPreset from "./CashPreset"
 import FinishGame from "./FinishGame"
 import HostDesk from "./HostDesk"
 import HostPreset from "./HostPreset"
@@ -19,7 +20,7 @@ export const HOST_STEPS = [
   { id: "finish", label: "Finishing" },
 ] as const
 
-export default function HostWorkspace({ venue }: { venue: Venue | null }) {
+export default function HostWorkspace({ venue, mode = "tournament" }: { venue: Venue | null, mode?: "tournament" | "cash" }) {
   // A second station at the same desk can be pointed straight at the running
   // session rather than being walked back through the hub.
   const [sessionId, setSessionId] = useState<number | null>(() => {
@@ -33,9 +34,11 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
   // Back-to-prep for an open draft: everything stays editable until Start.
   const [editingSession, setEditingSession] = useState<number | null>(null)
 
+  const Preset = mode === "cash" ? CashPreset : HostPreset
+
   if (editingSession !== null) {
     return (
-      <HostPreset
+      <Preset
         venue={venue}
         editSessionId={editingSession}
         onBack={() => setEditingSession(null)}
@@ -50,7 +53,7 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
   if (sessionId === null) {
     if (view === "prep") {
       return (
-        <HostPreset
+        <Preset
           venue={venue}
           initialLinkedSessionId={prepLink}
           onBack={() => setView("hub")}
@@ -65,6 +68,7 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
     return (
       <SessionsHub
         venue={venue}
+        mode={mode}
         onOpenLocal={(localTournamentId) => {
           setSessionId(localTournamentId)
           setStage("desk")
@@ -133,6 +137,7 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
       {stage === "finish" ? (
         <FinishGame
           sessionId={sessionId}
+          mode={mode}
           onBack={() => setStage("desk")}
           onFinished={() => {
             setStage("desk")
@@ -143,6 +148,7 @@ export default function HostWorkspace({ venue }: { venue: Venue | null }) {
       ) : (
         <HostDesk
           sessionId={sessionId}
+          mode={mode}
           onExit={() => {
             setSessionId(null)
             setView("hub")

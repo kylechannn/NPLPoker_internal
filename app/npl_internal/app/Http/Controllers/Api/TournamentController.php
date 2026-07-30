@@ -34,6 +34,8 @@ final class TournamentController
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            // 'cash' = the same desk with no clock, no ladder, no cut-offs.
+            'game_type' => ['sometimes', Rule::in(['tournament', 'cash'])],
             // Optional: an empty name defaults to "date — venue" downstream,
             // because most nights that IS the name.
             'name' => ['sometimes', 'nullable', 'string', 'max:160'],
@@ -56,9 +58,9 @@ final class TournamentController
             'max_addons_per_player' => ['sometimes', 'integer', 'min:0', 'max:255'],
             'buy_in_price_cents' => ['sometimes', 'integer', 'min:0'],
             'ko_bounty_cents' => ['sometimes', 'integer', 'min:0'],
-            // Required: the desk has to decide when the doors shut. The
-            // other cut-offs are optional and only bite when supplied.
-            'registration_closes_at_level' => ['required', 'integer', 'min:1'],
+            // Required for tournaments: the desk has to decide when the
+            // doors shut. Cash games have no levels — nothing ever cuts off.
+            'registration_closes_at_level' => ['required_unless:game_type,cash', 'integer', 'min:1'],
             'addon_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'rebuy_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'jackpot_enabled' => ['sometimes', 'boolean'],

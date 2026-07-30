@@ -135,12 +135,15 @@ final class WheelController extends Controller
         $validated = $request->validate([
             'npl_id' => ['required', 'string', 'max:32'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
+            'game_session_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
         try {
             $result = $this->cloud->getJson('/api/v1/internal/vouchers/entitlement', array_filter([
                 'npl_id' => trim($validated['npl_id']),
                 'venue_id' => $validated['venue_id'] ?? null,
+                // The cloud refuses vouchers outright for cash sessions.
+                'game_session_id' => $validated['game_session_id'] ?? null,
             ], fn ($value): bool => $value !== null));
         } catch (CloudException) {
             // Offline is not an error at the desk — the prompt just does not
@@ -165,6 +168,7 @@ final class WheelController extends Controller
             'npl_id' => ['required', 'string', 'max:32'],
             'voucher_id' => ['sometimes', 'nullable', 'integer'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
+            'game_session_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
         try {
@@ -173,6 +177,8 @@ final class WheelController extends Controller
                 'npl_id' => trim($validated['npl_id']),
                 'voucher_id' => $validated['voucher_id'] ?? null,
                 'venue_id' => $validated['venue_id'] ?? null,
+                // The cloud refuses vouchers outright for cash sessions.
+                'game_session_id' => $validated['game_session_id'] ?? null,
             ], $validated['reference']);
         } catch (CloudException $e) {
             return response()->json([

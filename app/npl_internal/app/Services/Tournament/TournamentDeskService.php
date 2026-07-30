@@ -527,7 +527,9 @@ final class TournamentDeskService
         $pushed = false;
         $queued = false;
 
-        if ($session->game_session_id !== null && $recorded > 0) {
+        // An empty placement list (cash game) still pushes: the cloud marks
+        // the session completed without writing any game records.
+        if ($session->game_session_id !== null && ($recorded > 0 || $placements === [])) {
             $fieldSize = (int) DB::table('tournament_entries')
                 ->where('tournament_session_id', $sessionId)
                 ->count();

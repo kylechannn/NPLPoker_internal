@@ -364,8 +364,10 @@ final class DeskController
      */
     public function finalise(Request $request, int $id): JsonResponse
     {
+        // Cash games finish with NO placements — nothing is ranked, the
+        // session just completes. Tournaments still scan their top 10.
         $validated = $request->validate([
-            'placements' => ['required', 'array', 'min:1', 'max:10'],
+            'placements' => ['present', 'array', 'max:10'],
             'placements.*.npl_id' => ['required', 'string', 'max:32'],
             'placements.*.position' => ['required', 'integer', 'min:1', 'max:10', 'distinct'],
         ]);

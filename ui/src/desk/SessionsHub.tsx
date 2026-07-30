@@ -8,6 +8,8 @@ type Props = {
   venue: Venue | null
   onOpenLocal: (localTournamentId: number) => void
   onPrepare: (gameSessionId: number | null) => void
+  /** Which sessions this hub fronts: cash games or everything else. */
+  mode?: "tournament" | "cash"
 }
 
 /**
@@ -18,7 +20,7 @@ type Props = {
  * open the desk) — everything except deleting the session itself, which
  * belongs to the cloud.
  */
-export default function SessionsHub({ venue, onOpenLocal, onPrepare }: Props) {
+export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tournament" }: Props) {
   const [sessions, setSessions] = useState<UpcomingSession[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -38,14 +40,16 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare }: Props) {
     if (initial) setLoading(true)
     try {
       const result = await deskApi.upcomingSessions(venue.id)
-      setSessions(result.sessions.filter((session) => session.category !== "cash_game"))
+      setSessions(result.sessions.filter((session) => (
+        mode === "cash" ? session.category === "cash_game" : session.category !== "cash_game"
+      )))
       setError(null)
     } catch (e) {
       if (initial) setError(e instanceof Error ? e.message : "Sessions could not be loaded.")
     } finally {
       if (initial) setLoading(false)
     }
-  }, [venue])
+  }, [venue, mode])
 
   const loadRoster = useCallback(async (gameSessionId: number) => {
     setRosterLoading(true)
