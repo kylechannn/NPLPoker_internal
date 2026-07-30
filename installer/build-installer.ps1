@@ -91,7 +91,8 @@ if ($Sidecars) {
 # compiling, including sanity minimum sizes on the two big executables.
 Assert-Files -Root $PayloadDir -RelativePaths $CriticalFiles -Context "installer\payload\"
 if ((Get-Item (Join-Path $PayloadDir "NPLPokerOS.exe")).Length -lt 5MB) { throw "NPLPokerOS.exe in the payload is implausibly small -- truncated build?" }
-if ((Get-Item (Join-Path $PayloadDir ".tools\php\php.exe")).Length -lt 1MB) { throw "php.exe in the payload is implausibly small -- truncated copy?" }
+if ((Get-Item (Join-Path $PayloadDir ".tools\php\php.exe")).Length -lt 100KB) { throw "php.exe in the payload is implausibly small -- truncated copy?" }
+if ((Get-Item (Join-Path $PayloadDir ".tools\php\php8.dll")).Length -lt 5MB) { throw "php8.dll in the payload is implausibly small -- truncated copy?" }
 
 # ---- 3. Setup wizard icon from winres PNGs ---------------------------------
 # The repo has no .ico (app\npl_internal\public\favicon.ico is empty); pack

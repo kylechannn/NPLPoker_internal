@@ -73,17 +73,17 @@ try {
 # 1. The host executable.
 Copy-Item -LiteralPath (Join-Path $RepoRoot "NPLPokerOS.exe") -Destination (Join-Path $OutputDirectory "NPLPokerOS.exe") -Force
 
-# 2. Portable PHP at .tools\php — where backendPHPBinary() looks first.
+# 2. Portable PHP at .tools\php - where backendPHPBinary() looks first.
 $PhpSource = Join-Path $ReferenceBundle "redist\php"
 if (-not (Test-Path -LiteralPath (Join-Path $PhpSource "php.exe"))) {
-    throw "Portable PHP not found at '$PhpSource' — set -ReferenceBundle."
+    throw "Portable PHP not found at '$PhpSource' - set -ReferenceBundle."
 }
 $PhpTarget = Join-Path $OutputDirectory ".tools\php"
 robocopy $PhpSource $PhpTarget /MIR /NFL /NDL /NJH /NJS | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Copying portable PHP failed (robocopy $LASTEXITCODE)." }
 $LASTEXITCODE = 0
 
-# 3. The bundled Laravel backend — dev database, dev env, caches and
+# 3. The bundled Laravel backend - dev database, dev env, caches and
 #    tests stay behind.
 $BackendSource = Join-Path $RepoRoot "app\npl_internal"
 $BackendTarget = Join-Path $OutputDirectory "app\npl_internal"
