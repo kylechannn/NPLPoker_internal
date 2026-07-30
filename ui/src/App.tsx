@@ -6,6 +6,7 @@ import HostWorkspace from "./desk/HostWorkspace"
 import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
 import MembershipWorkspace from "./membership/MembershipWorkspace"
 import PlayersWorkspace from "./players/PlayersWorkspace"
+import RegistrationsWorkspace from "./registrations/RegistrationsWorkspace"
 import { deskApi, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
@@ -297,20 +298,6 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     title: "Jackpot Wheel",
     description: "Spin the venue jackpot wheel and track the live prize pool.",
   },
-}
-
-type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame" | "jackpot" | "membership" | "players">
-
-const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> = {
-  registrations: [
-    ["Checked in", "54", "For today's sessions"],
-    ["Waiting", "6", "Longest wait 11 min"],
-    ["Seats open", "9", "Across three tables"],
-  ],
-}
-
-const modulePreviewIcons: Record<PreviewNavId, LucideIcon> = {
-  registrations: ListChecks,
 }
 
 function money(value: number) {
@@ -1391,7 +1378,7 @@ export default function App() {
                 onNotice={setNotice}
               />
             ) : (
-              <ModulePreview id={activeSection} onNotice={setNotice} />
+              <RegistrationsWorkspace venue={activeVenue} />
             )}
           </main>
 
@@ -1811,56 +1798,6 @@ function MetricCard({
         <span>{note}</span>
       </div>
     </article>
-  )
-}
-
-function ModulePreview({
-  id,
-  onNotice,
-}: {
-  id: PreviewNavId
-  onNotice: (message: string) => void
-}) {
-  const title = moduleTitles[id]
-  const cards = modulePreviewCards[id]
-  const Icon = modulePreviewIcons[id]
-
-  return (
-    <>
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">{title.eyebrow}</p>
-          <h1>{title.title}</h1>
-          <p className="page-description">{title.description}</p>
-        </div>
-        <div className="page-actions">
-          <button className="primary-button" type="button" onClick={() => onNotice(`${title.title} action is ready for backend wiring.`)}>
-            <Plus size={17} />
-            New action
-          </button>
-        </div>
-      </div>
-
-      <section className="module-preview-grid">
-        {cards.map(([label, value, note], index) => (
-          <article className="module-preview-card" key={label}>
-            <span>0{index + 1}</span>
-            <p>{label}</p>
-            <strong>{value}</strong>
-            <small>{note}</small>
-          </article>
-        ))}
-      </section>
-
-      <section className="panel module-empty-state">
-        <div className="module-empty-icon">
-          <Icon size={28} />
-        </div>
-        <p>Design foundation ready</p>
-        <h2>{title.title} workspace</h2>
-        <span>This module now has the NPL operational shell and is ready for its API workflow.</span>
-      </section>
-    </>
   )
 }
 

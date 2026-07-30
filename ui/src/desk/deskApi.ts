@@ -99,6 +99,29 @@ export type ScanResult = {
   gates: Gates
 }
 
+export type SessionSummary = {
+  session_id: number
+  title: string | null
+  category: string | null
+  venue_id: number | null
+  venue_name: string | null
+  session_date: string
+  start_time: string | null
+  status: string
+  registrations_count: number
+  max_players: number | null
+}
+
+export type OnlineRegistration = {
+  npl_id: string
+  display_name: string
+  status: 'registered' | 'waitlisted'
+  registered_at: string | null
+  waitlist_position: number | null
+  table_number: number | null
+  seat_number: number | null
+}
+
 export type Venue = {
   id: number
   name: string | null
@@ -211,6 +234,18 @@ export const deskApi = {
     request<{ venue_id: number | null, sessions: Array<Record<string, unknown>>, players_mirrored: number }>(
       `/api/v1/desk/dashboard${venueId ? `?venue_id=${venueId}` : ''}`,
     ),
+
+  /** Every synced session — the Registrations tab groups these by date. */
+  allSessions: (venueId: number | null) =>
+    request<{ sessions: SessionSummary[] }>(
+      `/api/v1/desk/all-sessions${venueId ? `?venue_id=${venueId}` : ''}`,
+    ),
+
+  /** Live online registration record: names, NPL IDs, times. */
+  onlineRegistrations: (gameSessionId: number) =>
+    request<{ result: { registrations: OnlineRegistration[] } }>(
+      `/api/v1/desk/sessions/${gameSessionId}/online-registrations`,
+    ).then((data) => data.result.registrations),
 
   previewStructure: (options: Record<string, unknown>) =>
     request<{ levels: GeneratedLevel[], preview: string[], total_minutes: number }>(

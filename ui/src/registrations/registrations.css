@@ -1,0 +1,187 @@
+/* Registrations tab — the online record, gathered by session. */
+
+.regs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+.regs__head {
+  border: 1px solid var(--host-line, rgba(120, 150, 190, 0.22));
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: rgba(10, 20, 38, 0.78);
+}
+
+.regs__head h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 5px;
+  font-size: 1.02rem;
+}
+
+.regs__head p {
+  margin: 0;
+  color: #8fa9cf;
+  font-size: 0.78rem;
+}
+
+.regs__dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.regs__date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(120, 150, 190, 0.28);
+  border-radius: 999px;
+  padding: 7px 14px;
+  color: #b9cbe8;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: rgba(12, 24, 44, 0.7);
+  cursor: pointer;
+}
+
+.regs__date--active {
+  border-color: rgba(92, 233, 168, 0.55);
+  color: #6ff0bf;
+  background: rgba(92, 233, 168, 0.1);
+}
+
+.regs__list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.regs__card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: 1px solid var(--host-line, rgba(120, 150, 190, 0.22));
+  border-radius: 13px;
+  padding: 13px 16px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: rgba(10, 20, 38, 0.6);
+  cursor: pointer;
+}
+
+.regs__card:hover {
+  border-color: rgba(92, 233, 168, 0.45);
+}
+
+.regs__cardmain {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.regs__cardmain strong {
+  font-size: 0.9rem;
+}
+
+.regs__cardmain small {
+  color: #8fa9cf;
+  font-size: 0.74rem;
+}
+
+.regs__status {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.regs__status--scheduled {
+  color: #6ff0bf;
+  background: rgba(46, 213, 145, 0.12);
+}
+
+.regs__status--completed {
+  color: #9fb4d4;
+  background: rgba(148, 180, 220, 0.14);
+}
+
+.regs__status--cancelled {
+  color: #fda4a4;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.regs__count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: #ffd97a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* ---- popup ---- */
+
+.regs__modalhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.regs__modalhead h4 {
+  margin: 0 0 3px;
+}
+
+.regs__modalhead small {
+  color: #8fa9cf;
+  font-size: 0.75rem;
+}
+
+.regs__close {
+  border: 1px solid rgba(120, 150, 190, 0.26);
+  border-radius: 9px;
+  padding: 6px;
+  color: #b9cbe8;
+  background: rgba(12, 24, 44, 0.7);
+  cursor: pointer;
+}
+
+.regs__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.regs__table th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  color: #8fa9cf;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  background: #0a1426;
+}
+
+.regs__table td {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(120, 150, 190, 0.12);
+}

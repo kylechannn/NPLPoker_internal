@@ -104,6 +104,61 @@ final class DeskController
      * way into a night: the overview lists them and one tap opens the right
      * workspace (cash game or tournament).
      */
+    /**
+     * Every session in the sync window, any status — the Registrations tab
+     * groups these by date so staff can read the whole online record.
+     */
+    public function allSessions(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $venueId = $validated['venue_id'] ?? null;
+
+        $sessions = DB::table('mirror_game_sessions')
+            ->when($venueId !== null, fn ($query) => $query->where('venue_id', $venueId))
+            ->orderBy('session_date')
+            ->orderBy('start_time')
+            ->get()
+            ->map(fn (object $row): array => [
+                'session_id' => (int) $row->session_id,
+                'title' => $row->title,
+                'category' => $row->category,
+                'venue_id' => $row->venue_id !== null ? (int) $row->venue_id : null,
+                'venue_name' => $row->venue_name,
+                'session_date' => $row->session_date,
+                'start_time' => $row->start_time,
+                'status' => $row->status,
+                'registrations_count' => (int) $row->registrations_count,
+                'max_players' => $row->max_players !== null ? (int) $row->max_players : null,
+            ])
+            ->values()
+            ->all();
+
+        return $this->ok(['sessions' => $sessions]);
+    }
+
+    /** The live online registration record — names, NPL IDs and times. */
+    public function onlineRegistrations(int $gameSessionId): JsonResponse
+    {
+        try {
+            $result = $this->cloud->getJson(sprintf('/api/v1/internal/sessions/%d/registrations', $gameSessionId));
+        } catch (\App\Services\Cloud\CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => [
+                    'code' => $e->errorCode,
+                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                        ? 'The NPL cloud could not be reached — the registration record needs a connection.'
+                        : $e->getMessage(),
+                ],
+            ], 502);
+        }
+
+        return $this->ok(['result' => $result['data'] ?? $result]);
+    }
+
     public function upcomingSessions(Request $request): JsonResponse
     {
         $validated = $request->validate([
