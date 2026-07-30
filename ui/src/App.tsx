@@ -4,6 +4,7 @@ import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
 import HostWorkspace from "./desk/HostWorkspace"
 import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
+import MembershipWorkspace from "./membership/MembershipWorkspace"
 import { deskApi, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
@@ -297,7 +298,7 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
   },
 }
 
-type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame" | "jackpot">
+type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame" | "jackpot" | "membership">
 
 const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> = {
   registrations: [
@@ -310,17 +311,11 @@ const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> 
     ["Active tonight", "47", "Across all sessions"],
     ["Needs review", "2", "Identity checks"],
   ],
-  membership: [
-    ["Members enrolled", "1,284", "Linked NPL accounts"],
-    ["Cards issued", "312", "Physical club IDs"],
-    ["Pending prints", "9", "Queued for next batch"],
-  ],
 }
 
 const modulePreviewIcons: Record<PreviewNavId, LucideIcon> = {
   registrations: ListChecks,
   players: Users,
-  membership: IdCard,
 }
 
 function money(value: number) {
@@ -1379,6 +1374,8 @@ export default function App() {
               <HostWorkspace venue={activeVenue} />
             ) : activeSection === "jackpot" ? (
               <JackpotWheelWorkspace />
+            ) : activeSection === "membership" ? (
+              <MembershipWorkspace venue={activeVenue} />
             ) : activeSection === "overview" ? (
               <OverviewWorkspace venue={activeVenue} onNavigate={chooseSection} onNotice={setNotice} />
             ) : activeSection === "cashgame" ? (

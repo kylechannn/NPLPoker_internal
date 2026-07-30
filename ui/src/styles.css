@@ -5458,3 +5458,25 @@ html {
   font-size: 0.8rem;
   opacity: 0.6;
 }
+
+/* Yellow flag: this player holds NO club membership ID for the venue.
+   Shared by the host desk seats and the Membership tab. */
+.club-flag {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #facc15;
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.22), 0 0 7px rgba(250, 204, 21, 0.55);
+  flex-shrink: 0;
+}
+
+.club-flag--inline {
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
+.host-seat__name .club-flag,
+.host-chip .club-flag {
+  margin-right: 6px;
+}

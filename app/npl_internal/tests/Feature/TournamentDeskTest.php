@@ -327,6 +327,39 @@ class TournamentDeskTest extends TestCase
 
     // ------------------------------------------------------------- seating --
 
+    public function test_players_without_a_club_membership_are_flagged_once_the_register_has_data(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL7601');
+        $this->mirrorPlayer('NPL7602');
+
+        $desk = app(TournamentDeskService::class);
+        $desk->apply($id, 'NPL7601', 'buy_in');
+        $desk->apply($id, 'NPL7602', 'buy_in');
+
+        // No register mirrored yet: no data, nobody gets shouted at.
+        $players = collect($desk->seating($id)['tables'][0]['seats'])->pluck('player')->filter();
+        $this->assertNull($players->firstWhere('npl_id', 'NPL7601')['club_member']);
+
+        DB::table('mirror_club_memberships')->insert([
+            'cloud_id' => 1,
+            'venue_id' => 7,
+            'npl_id' => 'npl7601',
+            'club_member_code' => 'STG-0001',
+            'status' => 'active',
+            'valid' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Case-insensitive holder passes; the other player gets the flag.
+        // Fresh service: the register cache is per-request in production.
+        $desk = app(TournamentDeskService::class);
+        $players = collect($desk->seating($id)['tables'][0]['seats'])->pluck('player')->filter();
+        $this->assertTrue($players->firstWhere('npl_id', 'NPL7601')['club_member']);
+        $this->assertFalse($players->firstWhere('npl_id', 'NPL7602')['club_member']);
+    }
+
     public function test_tables_hold_eight_seats_and_a_taken_seat_is_refused(): void
     {
         $id = $this->tournament();

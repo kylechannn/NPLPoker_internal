@@ -282,6 +282,46 @@ final class SyncService
      * @param  list<int>|null  $sessionIds
      * @return array{sessions: int, rows: int}
      */
+    /**
+     * Mirrors one club's member register from the cloud — full snapshot
+     * replace, so removals disappear too. Called after every membership
+     * write and whenever the Membership tab loads.
+     */
+    public function refreshClubMemberships(int $venueId): int
+    {
+        $result = $this->cloud->getJson('/api/v1/internal/club-memberships', ['venue_id' => $venueId]);
+
+        $now = now();
+        $rows = collect((array) ($result['data']['memberships'] ?? []))
+            ->filter(fn ($row): bool => is_array($row) && isset($row['id'], $row['npl_id']))
+            ->map(fn (array $row): array => [
+                'cloud_id' => (int) $row['id'],
+                'venue_id' => $venueId,
+                'player_id' => isset($row['player_id']) ? (int) $row['player_id'] : null,
+                'npl_id' => (string) $row['npl_id'],
+                'display_name' => $this->str($row['display_name'] ?? null, 190),
+                'club_member_code' => $this->str($row['club_member_code'] ?? null, 100) ?? '',
+                'status' => $this->str($row['status'] ?? null, 20) ?? 'active',
+                'valid' => (bool) ($row['valid'] ?? false),
+                'joined_at' => $this->str($row['joined_at'] ?? null, 10),
+                'expires_at' => $this->str($row['expires_at'] ?? null, 10),
+                'notes' => $this->str($row['notes'] ?? null, 2000),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])
+            ->values();
+
+        DB::transaction(function () use ($venueId, $rows): void {
+            DB::table('mirror_club_memberships')->where('venue_id', $venueId)->delete();
+
+            foreach ($rows->chunk(200) as $chunk) {
+                DB::table('mirror_club_memberships')->insert($chunk->all());
+            }
+        });
+
+        return $rows->count();
+    }
+
     public function refreshSeatingFor(?int $venueId = null, ?array $sessionIds = null): array
     {
         $ids = $sessionIds !== null

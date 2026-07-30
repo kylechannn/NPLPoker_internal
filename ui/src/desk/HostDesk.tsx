@@ -513,6 +513,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       setMenu({ x: e.clientX, y: e.clientY, player })
                     }}
                   >
+                    {player.club_member === false ? <span className="club-flag" title="No club membership ID" /> : null}
                     {player.display_name}
                   </button>
                 ))}
@@ -579,6 +580,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       <span className="host-seat__no">{seat.seat_number}</span>
                       {seat.player ? (
                         <span className="host-seat__name">
+                          {seat.player.club_member === false ? <span className="club-flag" title="No club membership ID" /> : null}
                           {seat.player.display_name}
                           {seat.player.in_jackpot ? <em title="In the jackpot">★</em> : null}
                         </span>

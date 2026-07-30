@@ -40,6 +40,12 @@ export type AddonTier = {
 export type SeatedPlayer = {
   npl_id: string
   display_name: string
+  /**
+   * Whether they hold a valid club membership ID for this venue.
+   * Null = no register data — the desk shows nothing rather than flagging
+   * the whole room.
+   */
+  club_member?: boolean | null
   status: 'active' | 'eliminated'
   table_number: number | null
   seat_number: number | null

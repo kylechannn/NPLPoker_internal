@@ -974,6 +974,39 @@ final class TournamentDeskService
         ];
     }
 
+    /** Per-request cache of each venue's valid club IDs, keyed by venue. */
+    private array $clubMemberCache = [];
+
+    /**
+     * Whether this player holds a valid club ID for the session's venue.
+     * Null means "no data" — venue unknown, or the register has never been
+     * mirrored — and the desk hides the flag rather than shouting at
+     * everyone.
+     */
+    private function hasClubMembership(object $session, string $nplId): ?bool
+    {
+        $venueId = $session->venue_id !== null ? (int) $session->venue_id : null;
+
+        if ($venueId === null) {
+            return null;
+        }
+
+        $this->clubMemberCache[$venueId] ??= DB::table('mirror_club_memberships')
+            ->where('venue_id', $venueId)
+            ->where('valid', true)
+            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>=', now()->toDateString()))
+            ->pluck('npl_id')
+            ->map(fn ($id): string => strtoupper((string) $id))
+            ->flip()
+            ->all();
+
+        if ($this->clubMemberCache[$venueId] === []) {
+            return null;
+        }
+
+        return isset($this->clubMemberCache[$venueId][strtoupper($nplId)]);
+    }
+
     private function presentEntry(object $entry, int $sessionId, object $session): array
     {
         $nplId = (string) $entry->player_npl_id;
@@ -981,6 +1014,7 @@ final class TournamentDeskService
         return [
             'npl_id' => $nplId,
             'display_name' => $entry->player_name ?: $nplId,
+            'club_member' => $this->hasClubMembership($session, $nplId),
             'status' => $entry->status,
             'table_number' => $entry->table_number !== null ? (int) $entry->table_number : null,
             'seat_number' => $entry->seat_number !== null ? (int) $entry->seat_number : null,

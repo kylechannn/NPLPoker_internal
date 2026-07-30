@@ -104,3 +104,11 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::post('{id}/finalise', 'finalise')->whereNumber('id');
     Route::post('{id}/remove-player', 'removePlayer')->whereNumber('id');
 });
+
+// Club Membership IDs — the venue's own member register, cloud-authoritative.
+Route::prefix('v1/membership')->controller(\App\Http\Controllers\Api\MembershipController::class)->group(function (): void {
+    Route::get('/', 'index');
+    Route::post('resolve', 'resolve');
+    Route::post('/', 'upsert');
+    Route::delete('{cloudId}', 'destroy')->whereNumber('cloudId');
+});
