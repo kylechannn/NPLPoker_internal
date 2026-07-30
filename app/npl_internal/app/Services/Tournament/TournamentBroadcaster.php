@@ -66,6 +66,7 @@ final class TournamentBroadcaster
                 'players_total' => $summary['total_players'],
                 'players_active' => $summary['active_players'],
                 'average_stack' => $summary['average_stack'],
+                'total_chips' => $summary['total_chips'],
                 'registration_open' => $state['registration_open'],
                 // Cut-offs travel with the clock so the website and the phone
                 // apps can run the same countdown the room is watching,

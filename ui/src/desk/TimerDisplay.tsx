@@ -28,7 +28,7 @@ type ClockState = {
 type Summary = {
   total_players?: number
   active_players?: number
-  average_stack?: number
+  total_chips?: number
 }
 
 const SYNC_MS = 5000
@@ -133,7 +133,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         setSummary({
           total_players: seating.counts.total_players ?? seating.counts.entries,
           active_players: seating.counts.active_players ?? seating.counts.active,
-          average_stack: seating.counts.average_stack,
+          total_chips: seating.counts.total_chips,
         })
         setGates(seating.gates)
         setSyncedAt(Date.now())
@@ -476,8 +476,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 <div className="scx-stat__value">{summary.active_players?.toLocaleString() ?? "—"}</div>
               </div>
               <div className="scx-stat">
-                <div className="scx-stat__label">Avg Stack</div>
-                <div className="scx-stat__value">{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</div>
+                <div className="scx-stat__label">Total Stacks</div>
+                <div className="scx-stat__value">{summary.total_chips ? summary.total_chips.toLocaleString() : "—"}</div>
               </div>
               {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
                 <div className="scx-stat">
