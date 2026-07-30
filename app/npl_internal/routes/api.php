@@ -111,6 +111,10 @@ Route::prefix('v1/players')->controller(\App\Http\Controllers\Api\PlayersControl
     Route::get('comments', 'comments');
     Route::post('comments', 'storeComment');
     Route::delete('comments/{cloudId}', 'destroyComment')->whereNumber('cloudId');
+    Route::post('update', 'updatePlayer');
+    Route::post('password', 'setPassword');
+    Route::get('vouchers', 'vouchers');
+    Route::post('vouchers/{cloudVoucherId}/mark-used', 'markVoucherUsed')->whereNumber('cloudVoucherId');
     Route::post('register-code', 'registerCode');
     Route::post('register', 'register');
 });

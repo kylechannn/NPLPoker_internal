@@ -1,21 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { CloudOff, IdCard, Loader2, MessageSquarePlus, Search, Trash2, UserPlus, Users } from "lucide-react"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import {
+  CloudOff, IdCard, KeyRound, Loader2, MessageSquarePlus, MessageSquareText,
+  Pencil, Search, Ticket, Trash2, UserPlus, Users,
+} from "lucide-react"
 import type { Venue } from "../desk/deskApi"
-import { playersApi, type CommentsResult, type RosterPlayer } from "./playersApi"
+import { playersApi, type CommentsResult, type DeskVoucher, type RosterPlayer } from "./playersApi"
 import { notify } from "../notifications/store"
 import "./players.css"
 
 const AUTHOR_KEY = "npl.commentAuthor"
 
+type Action = "edit" | "password" | "comments" | "vouchers"
+
 /**
- * Players: search the synced roster, read/leave staff comments (stored on
- * the cloud, venue-attributed) and register a brand-new member with the
- * same email verification-code chain the website uses.
+ * Players: search the synced roster and act on a player — edit details,
+ * set a password, read/leave staff comments, check and mark vouchers —
+ * or register a brand-new member with the same email-code chain the
+ * website uses. Every action lands on the cloud directly.
  */
 export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
   const [query, setQuery] = useState("")
   const [players, setPlayers] = useState<RosterPlayer[] | null>(null)
-  const [selected, setSelected] = useState<RosterPlayer | null>(null)
+  const [action, setAction] = useState<{ kind: Action, player: RosterPlayer } | null>(null)
   const [registerOpen, setRegisterOpen] = useState(false)
   const searchSeq = useRef(0)
 
@@ -42,74 +48,85 @@ export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
       <header className="players__head">
         <div>
           <h3><Users size={18} /> Players{venue ? ` — ${venue.name}` : ""}</h3>
-          <p>Search the synced roster, leave staff comments, or register a new member at the desk.</p>
+          <p>Search the roster, then act on a player: edit, password, staff comments, vouchers.</p>
         </div>
         <button type="button" className="players__register" onClick={() => setRegisterOpen(true)}>
           <UserPlus size={15} /> Register player
         </button>
       </header>
 
-      <div className="players__body">
-        <section className="players__list">
-          <label className="players__search">
-            <Search size={15} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search name, NPL ID or card number…"
-              spellCheck={false}
-            />
-          </label>
+      <section className="players__list players__list--full">
+        <label className="players__search">
+          <Search size={15} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search name, NPL ID or card number…"
+            spellCheck={false}
+          />
+        </label>
 
-          {players === null ? (
-            <p className="players__empty"><Loader2 size={15} className="host-spin" /> Loading…</p>
-          ) : players.length === 0 ? (
-            <p className="players__empty">No players match.</p>
-          ) : (
-            <ul>
-              {players.map((player) => (
-                <li key={player.npl_id}>
-                  <button
-                    type="button"
-                    className={selected?.npl_id === player.npl_id ? "players__row players__row--active" : "players__row"}
-                    onClick={() => setSelected(player)}
-                  >
-                    {player.avatar_media_key
-                      ? <img src={`/media/${player.avatar_media_key}`} alt="" />
-                      : <span className="players__initials">{player.display_name.slice(0, 2).toUpperCase()}</span>}
-                    <span className="players__who">
-                      <strong>
-                        {venueId !== null && player.club_member_code === null ? (
-                          <span className="club-flag" title="No club membership ID" />
-                        ) : null}
-                        {player.display_name}
-                      </strong>
-                      <small>
-                        {player.npl_id}
-                        {player.public_player_code ? ` · ${player.public_player_code}` : ""}
-                        {player.state_code ? ` · ${player.state_code}` : ""}
-                      </small>
-                    </span>
-                    {player.club_member_code ? (
-                      <span className="players__clubchip" title="Club membership ID">
-                        <IdCard size={12} /> {player.club_member_code}
-                      </span>
+        {players === null ? (
+          <p className="players__empty"><Loader2 size={15} className="host-spin" /> Loading…</p>
+        ) : players.length === 0 ? (
+          <p className="players__empty">No players match.</p>
+        ) : (
+          <ul>
+            {players.map((player) => (
+              <li key={player.npl_id} className="players__row players__row--static">
+                {player.avatar_media_key
+                  ? <img src={`/media/${player.avatar_media_key}`} alt="" />
+                  : <span className="players__initials">{player.display_name.slice(0, 2).toUpperCase()}</span>}
+                <span className="players__who">
+                  <strong>
+                    {venueId !== null && player.club_member_code === null ? (
+                      <span className="club-flag" title="No club membership ID" />
                     ) : null}
+                    {player.display_name}
+                  </strong>
+                  <small>
+                    {player.npl_id}
+                    {player.public_player_code ? ` · ${player.public_player_code}` : ""}
+                    {player.state_code ? ` · ${player.state_code}` : ""}
+                  </small>
+                </span>
+                {player.club_member_code ? (
+                  <span className="players__clubchip" title="Club membership ID">
+                    <IdCard size={12} /> {player.club_member_code}
+                  </span>
+                ) : null}
+                <span className="players__actions">
+                  <button type="button" title="Edit details" onClick={() => setAction({ kind: "edit", player })}>
+                    <Pencil size={15} />
                   </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                  <button type="button" title="Change password" onClick={() => setAction({ kind: "password", player })}>
+                    <KeyRound size={15} />
+                  </button>
+                  <button type="button" title="Staff comments" onClick={() => setAction({ kind: "comments", player })}>
+                    <MessageSquareText size={15} />
+                  </button>
+                  <button type="button" title="Vouchers" onClick={() => setAction({ kind: "vouchers", player })}>
+                    <Ticket size={15} />
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-        <section className="players__detail">
-          {selected === null ? (
-            <p className="players__empty">Pick a player to read and leave staff comments.</p>
-          ) : (
-            <PlayerComments key={selected.npl_id} player={selected} venueId={venueId} />
-          )}
-        </section>
-      </div>
+      {action?.kind === "edit" ? (
+        <EditModal player={action.player} onClose={() => setAction(null)} onSaved={() => { setAction(null); runSearch(query) }} />
+      ) : null}
+      {action?.kind === "password" ? (
+        <PasswordModal player={action.player} onClose={() => setAction(null)} />
+      ) : null}
+      {action?.kind === "comments" ? (
+        <CommentsModal player={action.player} venueId={venueId} onClose={() => setAction(null)} />
+      ) : null}
+      {action?.kind === "vouchers" ? (
+        <VouchersModal player={action.player} onClose={() => setAction(null)} />
+      ) : null}
 
       {registerOpen ? (
         <RegisterWizard
@@ -124,7 +141,153 @@ export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
   )
 }
 
-function PlayerComments({ player, venueId }: { player: RosterPlayer, venueId: number | null }) {
+// ---------------------------------------------------------------- edit --
+
+function EditModal({ player, onClose, onSaved }: { player: RosterPlayer, onClose: () => void, onSaved: () => void }) {
+  const [form, setForm] = useState({
+    first_name: "",
+    last_name: "",
+    preferred_name: "",
+    email: "",
+    phone: "",
+    state_code: "",
+  })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function set<K extends keyof typeof form>(key: K, value: string) {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    // Only what was actually typed travels — blank fields stay untouched.
+    const changes: Record<string, string> = {}
+    for (const [key, value] of Object.entries(form)) {
+      if (value.trim() !== "") changes[key] = value.trim()
+    }
+    if (changes.phone) changes.phone = `+61${changes.phone.replace(/\D/g, "")}`
+    if (Object.keys(changes).length === 0) {
+      onClose()
+      return
+    }
+    setBusy(true)
+    setError(null)
+    playersApi.updatePlayer({ npl_id: player.npl_id, ...changes })
+      .then(() => {
+        notify("system", "Player updated", `${player.display_name} — details saved to the cloud.`, "success")
+        onSaved()
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "The player could not be updated."))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Edit ${player.display_name}`}>
+      <form className="membership-modal__card membership-modal__card--wide" onSubmit={submit}>
+        <h4><Pencil size={15} /> Edit — {player.display_name} <small className="players__modalsub">{player.npl_id}</small></h4>
+        <p>Only the fields you fill in change. Email changes here need no verification code — the desk vouches for the person in front of it.</p>
+        <div className="membership-modal__grid">
+          <label>
+            <span>First name</span>
+            <input value={form.first_name} onChange={(event) => set("first_name", event.target.value)} placeholder="Unchanged" />
+          </label>
+          <label>
+            <span>Last name</span>
+            <input value={form.last_name} onChange={(event) => set("last_name", event.target.value)} placeholder="Unchanged" />
+          </label>
+          <label>
+            <span>Preferred name</span>
+            <input value={form.preferred_name} onChange={(event) => set("preferred_name", event.target.value)} placeholder="Unchanged" />
+          </label>
+          <label>
+            <span>Email (no code needed)</span>
+            <input type="email" value={form.email} onChange={(event) => set("email", event.target.value)} placeholder="Unchanged" />
+          </label>
+          <label>
+            <span>Mobile (+61)</span>
+            <input
+              value={form.phone}
+              onChange={(event) => set("phone", event.target.value.replace(/\D/g, "").slice(0, 9))}
+              placeholder="Unchanged"
+              inputMode="numeric"
+            />
+          </label>
+          <label>
+            <span>State</span>
+            <select value={form.state_code} onChange={(event) => set("state_code", event.target.value)}>
+              <option value="">Unchanged</option>
+              {["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"].map((state) => (
+                <option key={state} value={state}>{state}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {error ? <p className="players__error" role="alert">{error}</p> : null}
+        <div className="membership-modal__actions">
+          <button type="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="membership-modal__save" disabled={busy}>
+            {busy ? <Loader2 size={14} className="host-spin" /> : null} Save changes
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------ password --
+
+function PasswordModal({ player, onClose }: { player: RosterPlayer, onClose: () => void }) {
+  const [password, setPassword] = useState("")
+  const [confirm, setConfirm] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    playersApi.setPassword(player.npl_id, password, confirm)
+      .then(() => {
+        notify("system", "Password changed", `${player.display_name} can log in with the new password.`, "success")
+        onClose()
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "The password could not be changed."))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Change password — ${player.display_name}`}>
+      <form className="membership-modal__card" onSubmit={submit}>
+        <h4><KeyRound size={15} /> Change password — {player.display_name}</h4>
+        <p>Let the player type it themselves. 10+ characters with upper case, lower case and a number.</p>
+        <div className="membership-modal__grid">
+          <label>
+            <span>New password</span>
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoFocus required />
+          </label>
+          <label>
+            <span>Confirm password</span>
+            <input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} required />
+          </label>
+        </div>
+        {error ? <p className="players__error" role="alert">{error}</p> : null}
+        <div className="membership-modal__actions">
+          <button type="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="membership-modal__save" disabled={busy || !password || !confirm}>
+            {busy ? <Loader2 size={14} className="host-spin" /> : null} Set password
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------ comments --
+
+function CommentsModal({ player, venueId, onClose }: { player: RosterPlayer, venueId: number | null, onClose: () => void }) {
   const [result, setResult] = useState<CommentsResult | null>(null)
   const [note, setNote] = useState("")
   const [author, setAuthor] = useState(() => window.localStorage.getItem(AUTHOR_KEY) ?? "")
@@ -156,73 +319,186 @@ function PlayerComments({ player, venueId }: { player: RosterPlayer, venueId: nu
   }
 
   return (
-    <div className="players-comments">
-      <header>
-        <strong>{player.display_name}</strong>
-        <small>{player.npl_id}{player.public_player_code ? ` · ${player.public_player_code}` : ""}</small>
-      </header>
+    <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Staff comments — ${player.display_name}`}>
+      <div className="membership-modal__card membership-modal__card--wide players__commentsmodal">
+        <h4><MessageSquareText size={15} /> Staff comments — {player.display_name} <small className="players__modalsub">{player.npl_id}</small></h4>
 
-      {result?.available === false ? (
-        <p className="players__offline"><CloudOff size={13} /> Cloud unreachable — comments unavailable right now.</p>
-      ) : null}
+        {result?.available === false ? (
+          <p className="players__offline"><CloudOff size={13} /> Cloud unreachable — comments unavailable right now.</p>
+        ) : null}
 
-      <form className="players-comments__composer" onSubmit={submit}>
-        <textarea
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder={`Leave a staff comment on ${player.display_name}…`}
-          rows={3}
-          maxLength={5000}
-        />
-        <div className="players-comments__composerrow">
-          <input
-            value={author}
-            onChange={(event) => setAuthor(event.target.value)}
-            placeholder="Your name (optional)"
-            maxLength={120}
+        <form className="players-comments__composer" onSubmit={submit}>
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder={`Leave a staff comment on ${player.display_name}…`}
+            rows={3}
+            maxLength={5000}
+            autoFocus
           />
-          <button type="submit" disabled={busy || !note.trim() || result?.available === false}>
-            {busy ? <Loader2 size={14} className="host-spin" /> : <MessageSquarePlus size={14} />} Save comment
-          </button>
-        </div>
-        {error ? <p className="players__error" role="alert">{error}</p> : null}
-      </form>
+          <div className="players-comments__composerrow">
+            <input
+              value={author}
+              onChange={(event) => setAuthor(event.target.value)}
+              placeholder="Your name (optional)"
+              maxLength={120}
+            />
+            <button type="submit" disabled={busy || !note.trim() || result?.available === false}>
+              {busy ? <Loader2 size={14} className="host-spin" /> : <MessageSquarePlus size={14} />} Save comment
+            </button>
+          </div>
+          {error ? <p className="players__error" role="alert">{error}</p> : null}
+        </form>
 
-      {result === null ? (
-        <p className="players__empty"><Loader2 size={15} className="host-spin" /> Loading comments…</p>
-      ) : result.comments.length === 0 ? (
-        result.available ? <p className="players__empty">No staff comments yet.</p> : null
-      ) : (
-        <ul className="players-comments__list">
-          {result.truncated ? <li className="players-comments__truncated">Showing the latest 50.</li> : null}
-          {result.comments.map((comment) => (
-            <li key={comment.id}>
-              <div className="players-comments__meta">
-                <strong>{comment.author_name}</strong>
-                <span>
-                  {comment.venue_name ? `${comment.venue_name} · ` : ""}
-                  {new Date(comment.created_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}
-                </span>
-                <button
-                  type="button"
-                  title="Delete comment"
-                  onClick={() => {
-                    playersApi.deleteComment(comment.id)
-                      .then(load)
-                      .catch((e) => notify("system", "Comment not removed", e instanceof Error ? e.message : "Try again.", "warning"))
-                  }}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-              <p>{comment.note}</p>
-            </li>
-          ))}
-        </ul>
-      )}
+        <div className="players__commentsscroll">
+          {result === null ? (
+            <p className="players__empty"><Loader2 size={15} className="host-spin" /> Loading comments…</p>
+          ) : result.comments.length === 0 ? (
+            result.available ? <p className="players__empty">No staff comments yet.</p> : null
+          ) : (
+            <ul className="players-comments__list">
+              {result.truncated ? <li className="players-comments__truncated">Showing the latest 50.</li> : null}
+              {result.comments.map((comment) => (
+                <li key={comment.id}>
+                  <div className="players-comments__meta">
+                    <strong>{comment.author_name}</strong>
+                    <span>
+                      {comment.venue_name ? `${comment.venue_name} · ` : ""}
+                      {new Date(comment.created_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}
+                    </span>
+                    <button
+                      type="button"
+                      title="Delete comment"
+                      onClick={() => {
+                        playersApi.deleteComment(comment.id)
+                          .then(load)
+                          .catch((e) => notify("system", "Comment not removed", e instanceof Error ? e.message : "Try again.", "warning"))
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                  <p>{comment.note}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="membership-modal__actions">
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   )
 }
+
+// ------------------------------------------------------------ vouchers --
+
+function VouchersModal({ player, onClose }: { player: RosterPlayer, onClose: () => void }) {
+  const [vouchers, setVouchers] = useState<DeskVoucher[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [marking, setMarking] = useState<DeskVoucher | null>(null)
+  const [handledBy, setHandledBy] = useState(() => window.localStorage.getItem(AUTHOR_KEY) ?? "")
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(() => {
+    playersApi.vouchers(player.npl_id)
+      .then((result) => setVouchers(result.vouchers))
+      .catch((e) => setError(e instanceof Error ? e.message : "Vouchers could not be loaded."))
+  }, [player.npl_id])
+
+  useEffect(() => { load() }, [load])
+
+  function markUsed(voucher: DeskVoucher) {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    window.localStorage.setItem(AUTHOR_KEY, handledBy.trim())
+    playersApi.markVoucherUsed(voucher.id, player.npl_id, handledBy.trim() || null)
+      .then(() => {
+        notify("system", "Voucher marked used", `${voucher.code} — ${player.display_name}${handledBy.trim() ? `, handled by ${handledBy.trim()}` : ""}.`, "success")
+        setMarking(null)
+        load()
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "The voucher could not be marked."))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Vouchers — ${player.display_name}`}>
+      <div className="membership-modal__card membership-modal__card--wide players__commentsmodal">
+        <h4><Ticket size={15} /> Vouchers — {player.display_name} <small className="players__modalsub">{player.npl_id}</small></h4>
+
+        <label className="players__handledby">
+          <span>Handled by (recorded on every redemption)</span>
+          <input
+            value={handledBy}
+            onChange={(event) => setHandledBy(event.target.value)}
+            placeholder="Your name"
+            maxLength={120}
+          />
+        </label>
+
+        {error ? <p className="players__error" role="alert">{error}</p> : null}
+
+        <div className="players__commentsscroll">
+          {vouchers === null ? (
+            <p className="players__empty"><Loader2 size={15} className="host-spin" /> Loading vouchers…</p>
+          ) : vouchers.length === 0 ? (
+            <p className="players__empty">This player holds no vouchers.</p>
+          ) : (
+            <ul className="players__voucherlist">
+              {vouchers.map((voucher) => (
+                <li key={voucher.id}>
+                  <div className="players__voucherrow">
+                    <div className="players__voucherinfo">
+                      <strong><code>{voucher.code}</code> — {voucher.title || voucher.type}</strong>
+                      <small>
+                        {voucher.unlimited_uses ? `${voucher.uses_count}/∞ uses` : `${voucher.uses_count}/${voucher.max_uses} uses`}
+                        {voucher.expires_at ? ` · until ${voucher.expires_at}` : ""}
+                        {" · "}
+                        <em className={`players__voucherstatus players__voucherstatus--${voucher.status}`}>{voucher.status}</em>
+                      </small>
+                      {voucher.last_redemption ? (
+                        <small className="players__voucherhandled">
+                          Last redeemed {voucher.last_redemption.redeemed_at
+                            ? new Date(voucher.last_redemption.redeemed_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })
+                            : ""}
+                          {voucher.last_redemption.handled_by ? ` — handled by ${voucher.last_redemption.handled_by}` : ""}
+                        </small>
+                      ) : null}
+                    </div>
+                    {voucher.status === "active" ? (
+                      marking?.id === voucher.id ? (
+                        <span className="players__voucherconfirm">
+                          <button type="button" disabled={busy} onClick={() => markUsed(voucher)}>
+                            {busy ? <Loader2 size={13} className="host-spin" /> : null} Confirm
+                          </button>
+                          <button type="button" disabled={busy} onClick={() => setMarking(null)}>Cancel</button>
+                        </span>
+                      ) : (
+                        <button type="button" className="players__vouchermark" onClick={() => setMarking(voucher)}>
+                          Mark used
+                        </button>
+                      )
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="membership-modal__actions">
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------ register --
 
 const STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"] as const
 

@@ -103,6 +103,56 @@ final class PlayersController extends Controller
         return $this->cloudCall(fn (): array => $this->cloud->deleteJson('/api/v1/internal/player-comments/'.$cloudId));
     }
 
+    /** Edit details — email included, no verification code by design. */
+    public function updatePlayer(Request $request): JsonResponse
+    {
+        $payload = $request->all();
+
+        $response = $this->cloudCall(fn (): array => $this->cloud->postJson('/api/v1/internal/players/update', $payload));
+
+        // Keep the local roster in step so the next scan shows the edit.
+        $data = $response->getData(true);
+        $player = $data['data']['result']['player'] ?? null;
+
+        if (is_array($player) && isset($player['npl_id'])) {
+            DB::table('mirror_players')
+                ->whereRaw('UPPER(npl_id) = ?', [strtoupper((string) $player['npl_id'])])
+                ->update([
+                    'display_name' => (string) ($player['display_name'] ?? $player['npl_id']),
+                    'first_name' => $player['first_name'] ?? null,
+                    'last_name' => $player['last_name'] ?? null,
+                    'state_code' => $player['state_code'] ?? null,
+                    'updated_at' => now(),
+                ]);
+        }
+
+        return $response;
+    }
+
+    public function setPassword(Request $request): JsonResponse
+    {
+        return $this->cloudCall(fn (): array => $this->cloud->postJson('/api/v1/internal/players/password', $request->all()));
+    }
+
+    public function vouchers(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'npl_id' => ['required', 'string', 'max:60'],
+        ]);
+
+        return $this->cloudCall(fn (): array => $this->cloud->getJson('/api/v1/internal/players/vouchers', [
+            'npl_id' => (string) $validated['npl_id'],
+        ]));
+    }
+
+    public function markVoucherUsed(Request $request, int $cloudVoucherId): JsonResponse
+    {
+        return $this->cloudCall(fn (): array => $this->cloud->postJson(
+            '/api/v1/internal/players/vouchers/'.$cloudVoucherId.'/mark-used',
+            $request->all(),
+        ));
+    }
+
     public function registerCode(Request $request): JsonResponse
     {
         $validated = $request->validate([

@@ -406,3 +406,181 @@
   background: linear-gradient(160deg, #ffd766, #eab308);
   cursor: pointer;
 }
+
+/* ---- action-row layout & modals (four actions per player) ---- */
+
+.players__list--full {
+  flex: 1;
+}
+
+.players__row--static {
+  cursor: default;
+  border-bottom: 1px solid rgba(120, 150, 190, 0.1);
+  border-radius: 0;
+}
+
+.players__row--static:hover {
+  background: rgba(120, 150, 190, 0.06);
+}
+
+.players__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.players__actions button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(120, 150, 190, 0.26);
+  border-radius: 9px;
+  color: #b9cbe8;
+  background: rgba(12, 24, 44, 0.7);
+  cursor: pointer;
+}
+
+.players__actions button:hover {
+  border-color: rgba(92, 233, 168, 0.5);
+  color: #6ff0bf;
+}
+
+.players__modalsub {
+  color: #8fa9cf;
+  font-size: 0.72rem;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.players__commentsmodal {
+  display: flex;
+  flex-direction: column;
+  max-height: min(84vh, 700px);
+}
+
+.players__commentsscroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 10px 0 4px;
+}
+
+.players__handledby {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0 4px;
+}
+
+.players__handledby span {
+  color: #8fa9cf;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.players__handledby input {
+  border: 1px solid rgba(120, 150, 190, 0.3);
+  border-radius: 10px;
+  padding: 9px 11px;
+  color: #e7eefc;
+  font: inherit;
+  font-size: 0.84rem;
+  background: rgba(4, 12, 26, 0.8);
+  outline: none;
+}
+
+.players__voucherlist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.players__voucherlist li {
+  border: 1px solid rgba(120, 150, 190, 0.2);
+  border-radius: 11px;
+  padding: 10px 13px;
+  background: rgba(12, 24, 44, 0.5);
+}
+
+.players__voucherrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.players__voucherinfo {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.players__voucherinfo strong {
+  font-size: 0.84rem;
+}
+
+.players__voucherinfo small {
+  color: #8fa9cf;
+  font-size: 0.74rem;
+}
+
+.players__voucherhandled {
+  color: #ffd97a !important;
+}
+
+.players__voucherstatus {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.players__voucherstatus--active { color: #6ff0bf; }
+.players__voucherstatus--used { color: #9fb4d4; }
+.players__voucherstatus--expired,
+.players__voucherstatus--revoked { color: #fda4a4; }
+
+.players__vouchermark {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 197, 61, 0.5);
+  border-radius: 9px;
+  padding: 7px 13px;
+  color: #ffd97a;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: rgba(255, 197, 61, 0.1);
+  cursor: pointer;
+}
+
+.players__voucherconfirm {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.players__voucherconfirm button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(120, 150, 190, 0.3);
+  border-radius: 9px;
+  padding: 7px 12px;
+  color: #b9cbe8;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: rgba(12, 24, 44, 0.7);
+  cursor: pointer;
+}
+
+.players__voucherconfirm button:first-child {
+  border: none;
+  color: #241a02;
+  background: linear-gradient(160deg, #ffd766, #eab308);
+}

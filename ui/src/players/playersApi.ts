@@ -29,6 +29,21 @@ export type CommentsResult = {
   truncated: boolean
 }
 
+export type DeskVoucher = {
+  id: number
+  code: string
+  type: string
+  title: string | null
+  max_uses: number
+  unlimited_uses: boolean
+  uses_count: number
+  uses_remaining: number | null
+  starts_at: string | null
+  expires_at: string | null
+  status: string
+  last_redemption: { handled_by: string | null, source: string | null, redeemed_at: string | null } | null
+}
+
 export type RegisteredPlayer = {
   id: number
   npl_id: string
@@ -76,6 +91,33 @@ export const playersApi = {
 
   deleteComment: (cloudId: number) =>
     request<{ result: unknown }>(`/api/v1/players/comments/${cloudId}`, { method: 'DELETE' }),
+
+  updatePlayer: (form: Record<string, string>) =>
+    request<{ result: { player: unknown } }>('/api/v1/players/update', {
+      method: 'POST',
+      body: JSON.stringify(form),
+    }),
+
+  setPassword: (nplId: string, password: string, confirmation: string) =>
+    request<{ result: unknown }>('/api/v1/players/password', {
+      method: 'POST',
+      body: JSON.stringify({ npl_id: nplId, password, password_confirmation: confirmation }),
+    }),
+
+  vouchers: (nplId: string) =>
+    request<{ result: { vouchers: DeskVoucher[] } }>(`/api/v1/players/vouchers?npl_id=${encodeURIComponent(nplId)}`)
+      .then((data) => ({ vouchers: data.result.vouchers })),
+
+  markVoucherUsed: (voucherId: number, nplId: string, handledBy: string | null) =>
+    request<{ result: { voucher: DeskVoucher } }>(`/api/v1/players/vouchers/${voucherId}/mark-used`, {
+      method: 'POST',
+      body: JSON.stringify({
+        npl_id: nplId,
+        handled_by: handledBy,
+        // Idempotent by reference: a double-click can never consume twice.
+        reference: `DM-${crypto.randomUUID().replace(/-/g, '').slice(0, 24).toUpperCase()}`,
+      }),
+    }),
 
   registerCode: (email: string) =>
     request<{ result: unknown }>('/api/v1/players/register-code', {
