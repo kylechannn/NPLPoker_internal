@@ -70,6 +70,11 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [voucher, setVoucher] = useState<DeskVoucher | null>(null)
+  // The pre-popup question: a free-entry voucher was detected on scan and
+  // the operator has not answered yet. The registration popup waits.
+  const [voucherAsk, setVoucherAsk] = useState<{ result: ScanResult, voucher: DeskVoucher } | null>(null)
+  // Yes was answered: this scan's buy-in is covered — shown at $0.
+  const [useVoucher, setUseVoucher] = useState(false)
   const [clockStatus, setClockStatus] = useState<string>("draft")
   // The redeem reference survives a failed attempt so retrying is safe.
   const voucherRefRef = useRef<string | null>(null)
@@ -134,36 +139,29 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
     try {
       const result = await deskApi.scan(sessionId, id)
-      setScan(result)
       setValue("")
 
-      // Buy-in is the essential first action for a player not in yet —
-      // pre-ticked so the common case is scan → Submit.
-      const buyIn = result.options.find((option) => option.action === "buy_in" && option.allowed)
-      setPicked(!result.entry && buyIn ? new Set([optionKey(buyIn)]) : new Set())
-
-      // Free-entry check happens after the scan lands, without blocking it:
-      // the prompt appears a beat later only for unregistered players.
-      // Never for cash games — no voucher of any kind covers those.
+      // Free entry comes FIRST: for a player not yet in the tournament,
+      // the voucher question appears BEFORE the registration popup. Only
+      // a clear "entitled" answer asks — offline or no voucher goes
+      // straight to the normal popup. Never for cash games.
       if (!result.entry && mode !== "cash") {
-        void checkVoucher(result.player.npl_id)
+        try {
+          const check = await deskApi.voucherEntitlement(
+            result.player.npl_id,
+            activeVenueId(),
+            seating?.game_session_id ?? null,
+          )
+          if (check.entitled && check.voucher) {
+            setVoucherAsk({ result, voucher: check.voucher })
+            return
+          }
+        } catch {
+          // No answer = no question; the normal fee flow is never blocked.
+        }
       }
 
-      // Staff comments surface on the FIRST registration scan only, and
-      // once acknowledged the same player never re-prompts this session
-      // (mahjong-style). Fetch is async and fail-open — offline just
-      // means no popup, never a blocked scan.
-      setScanComments(null)
-      if (!result.entry) {
-        void playersApi.comments(result.player.npl_id)
-          .then((comments) => {
-            const seenKey = `${sessionId}:${result.player.npl_id}:${comments.comments[0]?.id ?? 0}`
-            if (comments.available && comments.comments.length > 0 && !seenCommentsRef.current.has(seenKey)) {
-              setScanComments({ nplId: result.player.npl_id, seenKey, comments: comments.comments })
-            }
-          })
-          .catch(() => undefined)
-      }
+      openActions(result, false)
     } catch (e) {
       setScan(null)
       setError(e instanceof Error ? e.message : "That scan could not be read.")
@@ -173,43 +171,36 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     }
   }
 
-  async function checkVoucher(nplId: string) {
-    try {
-      const check = await deskApi.voucherEntitlement(nplId, activeVenueId(), seating?.game_session_id ?? null)
-      setVoucher((current) => (current === null && check.entitled ? check.voucher : current))
-    } catch {
-      // No prompt on failure — the normal fee flow is never blocked.
+  /** Opens the registration popup — with the buy-in covered, or not. */
+  function openActions(result: ScanResult, withVoucher: boolean) {
+    setUseVoucher(withVoucher)
+    setScan(result)
+
+    // Buy-in is the essential first action for a player not in yet —
+    // pre-ticked so the common case is scan → Submit.
+    const buyIn = result.options.find((option) => option.action === "buy_in" && option.allowed)
+    setPicked(!result.entry && buyIn ? new Set([optionKey(buyIn)]) : new Set())
+
+    // Staff comments surface on the FIRST registration scan only, and
+    // once acknowledged the same player never re-prompts this session
+    // (mahjong-style). Fetch is async and fail-open — offline just
+    // means no popup, never a blocked scan.
+    setScanComments(null)
+    if (!result.entry) {
+      void playersApi.comments(result.player.npl_id)
+        .then((comments) => {
+          const seenKey = `${sessionId}:${result.player.npl_id}:${comments.comments[0]?.id ?? 0}`
+          if (comments.available && comments.comments.length > 0 && !seenCommentsRef.current.has(seenKey)) {
+            setScanComments({ nplId: result.player.npl_id, seenKey, comments: comments.comments })
+          }
+        })
+        .catch(() => undefined)
     }
   }
 
-  /**
-   * One tap: redeem the voucher in the cloud (idempotent by reference, so a
-   * retry after a dropped connection can never consume twice), then book
-   * the buy-in locally at zero with the code on the action.
-   */
-  async function applyVoucher() {
-    if (!scan || !voucher || busy) return
-
-    setBusy(true)
-    setError(null)
-    voucherRefRef.current ??= `DV-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
-
-    try {
-      await deskApi.voucherRedeem(voucherRefRef.current, scan.player.npl_id, voucher.id, activeVenueId(), seating?.game_session_id ?? null)
-      const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", { voucher_code: voucher.code })
-      voucherRefRef.current = null
-      setSeating(result.seating)
-      setFlash(`FREE entry for ${scan.player.display_name} — voucher ${voucher.code} applied.`)
-      notify("registration", `${scan.player.display_name} — desk`, `Free entry, voucher ${voucher.code} applied.`, "success")
-      setVoucher(null)
-      setScan(await deskApi.scan(sessionId, scan.player.npl_id))
-    } catch (e) {
-      // The kept reference makes pressing the button again a safe retry.
-      setError(e instanceof Error ? e.message : "The voucher could not be applied.")
-    } finally {
-      setBusy(false)
-      focusScan()
-    }
+  /** What this option actually charges — the accepted voucher zeroes buy-in. */
+  function priceFor(option: DeskOption): number {
+    return useVoucher && option.action === "buy_in" ? 0 : option.price_cents
   }
 
   function toggleOption(option: DeskOption) {
@@ -260,6 +251,19 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
     try {
       for (const option of chosen) {
+        // A voucher-covered buy-in redeems on the cloud FIRST (idempotent
+        // by reference — a retry can never consume twice), then books the
+        // entry locally at zero with the code on the action.
+        if (option.action === "buy_in" && useVoucher && voucher) {
+          voucherRefRef.current ??= `DV-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
+          await deskApi.voucherRedeem(voucherRefRef.current, scan.player.npl_id, voucher.id, activeVenueId(), seating?.game_session_id ?? null)
+          const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", { voucher_code: voucher.code })
+          voucherRefRef.current = null
+          setSeating(result.seating)
+          applied.push(`Buy-in (FREE — voucher ${voucher.code})`)
+          continue
+        }
+
         const result = await deskApi.act(
           sessionId,
           scan.player.npl_id,
@@ -268,7 +272,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         )
         setSeating(result.seating)
         applied.push(option.label)
-        total += option.price_cents
+        total += priceFor(option)
       }
 
       setFlash(`${scan.player.display_name}: ${applied.join(" + ")} — ${money(total)} collected.`)
@@ -281,6 +285,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       setScan(null)
       setPicked(new Set())
       setVoucher(null)
+      setUseVoucher(false)
     } catch (e) {
       // Whatever landed before the failure is real: re-scan so the popup
       // shows the true remaining state, and name what got through.
@@ -411,8 +416,55 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
       {flash ? <p className="host-desk__flash" role="status">{flash}</p> : null}
 
+      {voucherAsk ? (
+        <div className="host-scan-modal" role="presentation">
+          <section className="host-scan-modal__panel" role="alertdialog" aria-modal="true" aria-label="Free entry voucher detected">
+            <div className="host-voucher-ask">
+              <span className="host-voucher-ask__icon"><Ticket size={24} /></span>
+              <h3>FREE ENTRY — {voucherAsk.voucher.title || "entry voucher"}</h3>
+              <p>
+                <strong>{voucherAsk.result.player.display_name}</strong> holds voucher{" "}
+                <code>{voucherAsk.voucher.code}</code>
+                {voucherAsk.voucher.unlimited_uses
+                  ? " — pass active"
+                  : voucherAsk.voucher.uses_remaining !== null
+                    ? ` — ${voucherAsk.voucher.uses_remaining} use${voucherAsk.voucher.uses_remaining === 1 ? "" : "s"} left`
+                    : ""}
+                {voucherAsk.voucher.expires_at ? `, valid until ${voucherAsk.voucher.expires_at}` : ""}.
+                {" "}Use it for this buy-in?
+              </p>
+              <div className="host-voucher-ask__actions">
+                <button
+                  type="button"
+                  className="host-scan-modal__cancel"
+                  onClick={() => {
+                    setVoucher(null)
+                    openActions(voucherAsk.result, false)
+                    setVoucherAsk(null)
+                  }}
+                >
+                  No — normal fee
+                </button>
+                <button
+                  type="button"
+                  className="host-voucher-ask__yes"
+                  autoFocus
+                  onClick={() => {
+                    setVoucher(voucherAsk.voucher)
+                    openActions(voucherAsk.result, true)
+                    setVoucherAsk(null)
+                  }}
+                >
+                  <Ticket size={15} /> Use voucher — FREE entry
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {scan ? (
-        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); focusScan() } }}>
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setUseVoucher(false); focusScan() } }}>
           <section
             className="host-scan-modal__panel"
             role="dialog"
@@ -482,27 +534,10 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
               </p>
             ) : null}
 
-            {voucher && !scan.entry && scan.options.some((option) => option.action === "buy_in" && option.allowed) ? (
-              <button
-                className="host-voucher-banner"
-                type="button"
-                disabled={busy}
-                onClick={() => void applyVoucher()}
-              >
-                <Ticket size={18} />
-                <span>
-                  <strong>FREE ENTRY — {voucher.title || "entry voucher"}</strong>
-                  <small>
-                    {voucher.code}
-                    {voucher.unlimited_uses
-                      ? " · pass active"
-                      : voucher.uses_remaining !== null
-                        ? ` · ${voucher.uses_remaining} use${voucher.uses_remaining === 1 ? "" : "s"} left`
-                        : ""}
-                    {" — tap to apply the free Buy-in now"}
-                  </small>
-                </span>
-              </button>
+            {useVoucher && voucher && !scan.entry ? (
+              <p className="host-booking-banner host-booking-banner--voucher">
+                <Ticket size={14} /> Buy-in covered by voucher {voucher.code} — $0 due for the entry.
+              </p>
             ) : null}
 
             <div className="host-scan-modal__options" role="group" aria-label="Tick the actions to take">
@@ -526,7 +561,16 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       onChange={() => toggleOption(option)}
                     />
                     <strong>{option.label}</strong>
-                    <span>{option.price_cents ? money(option.price_cents) : "Free"}</span>
+                    <span>
+                      {priceFor(option) > 0 ? money(priceFor(option)) : (
+                        <>
+                          {useVoucher && option.action === "buy_in" && option.price_cents > 0
+                            ? <s className="host-tick__was">{money(option.price_cents)}</s>
+                            : null}
+                          Free
+                        </>
+                      )}
+                    </span>
                     {option.reason ? <em>{option.reason}</em> : null}
                   </label>
                 )
@@ -539,7 +583,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 <strong>
                   {money(scan.options
                     .filter((option) => option.allowed && picked.has(optionKey(option)))
-                    .reduce((sum, option) => sum + option.price_cents, 0))}
+                    .reduce((sum, option) => sum + priceFor(option), 0))}
                 </strong>
               </div>
               <button

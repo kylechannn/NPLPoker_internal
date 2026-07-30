@@ -1921,3 +1921,71 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* ---- pre-popup free-entry question + covered buy-in styling ---- */
+
+.host-voucher-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.host-voucher-ask__icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  color: #241a02;
+  background: linear-gradient(160deg, #ffd766, #eab308);
+}
+
+.host-voucher-ask h3 {
+  margin: 2px 0 0;
+  font-size: 1.05rem;
+  color: #ffd97a;
+}
+
+.host-voucher-ask p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #c9d8ef;
+}
+
+.host-voucher-ask__actions {
+  display: flex;
+  gap: 10px;
+  align-self: stretch;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.host-voucher-ask__yes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 11px;
+  padding: 11px 18px;
+  color: #241a02;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  background: linear-gradient(160deg, #ffd766, #eab308);
+  cursor: pointer;
+}
+
+.host-booking-banner--voucher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffd97a !important;
+  border-color: rgba(255, 197, 61, 0.4) !important;
+  background: rgba(255, 197, 61, 0.1) !important;
+}
+
+.host-tick__was {
+  margin-right: 5px;
+  color: rgba(214, 232, 255, 0.4);
+}
