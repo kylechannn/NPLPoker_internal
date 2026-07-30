@@ -116,11 +116,8 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare }: Props) {
       <header className="host-hub__head">
         <div>
           <h3><CalendarDays size={18} /> Sessions — {venue.name}</h3>
-          <p>Live from the NPL cloud. Open the desk on tonight's game, or run a local-only tournament.</p>
+          <p>Live from the NPL cloud. Open the desk on tonight's game.</p>
         </div>
-        <button type="button" className="host-desk__exit" onClick={() => onPrepare(null)}>
-          Local-only game
-        </button>
       </header>
 
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}

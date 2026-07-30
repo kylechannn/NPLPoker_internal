@@ -24,6 +24,12 @@ type PrizeWheelProps = {
    */
   requestSpin?: () => Promise<SpinOutcome | null>
   onResult?: (prize: WheelPrize) => void
+  /**
+   * Fires only when the rotor has physically landed — not when the cloud
+   * answers. The workspace reveals the reward off this, so the card can
+   * never spoil the wheel mid-spin.
+   */
+  onSettled?: (outcome: SpinOutcome) => void
 }
 
 const ROTOR_SIZE = 500
@@ -179,7 +185,7 @@ function strokePolyline(ctx: CanvasRenderingContext2D, points: Point[]) {
   ctx.stroke()
 }
 
-export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult }: PrizeWheelProps) {
+export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult, onSettled }: PrizeWheelProps) {
   const SEGMENT_ANGLE = 360 / Math.max(1, prizes.length)
   const [rotation, setRotation] = useState(0)
   const [spinning, setSpinning] = useState(false)
@@ -190,6 +196,7 @@ export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult
   const [hovered, setHovered] = useState<number | null>(null)
   const settleTimerRef = useRef<number>(0)
   const onResultRef = useRef(onResult)
+  const onSettledRef = useRef(onSettled)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sceneRef = useRef<HTMLDivElement>(null)
   const spinningRef = useRef(false)
@@ -200,6 +207,10 @@ export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult
   useEffect(() => {
     onResultRef.current = onResult
   }, [onResult])
+
+  useEffect(() => {
+    onSettledRef.current = onSettled
+  }, [onSettled])
 
   useEffect(() => () => window.clearTimeout(settleTimerRef.current), [])
 
@@ -469,6 +480,7 @@ export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult
       setOutcome(landedOutcome)
       setModalOpen(true)
       onResultRef.current?.(landed)
+      if (landedOutcome) onSettledRef.current?.(landedOutcome)
     }, duration + 150)
   }
 

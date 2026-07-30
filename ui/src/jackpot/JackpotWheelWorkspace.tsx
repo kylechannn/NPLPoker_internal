@@ -102,7 +102,9 @@ export default function JackpotWheelWorkspace() {
       const { spin } = await wheelApi.spin(referenceRef.current, player.npl_id, venueId)
       referenceRef.current = null
 
-      const result: SpinOutcome = {
+      // Don't reveal here — the wheel is still spinning. The card flips
+      // when PrizeWheel reports the rotor has landed (onSettled).
+      return {
         segmentIndex: spin.segment_index,
         prizeLabel: spin.prize.label,
         voucherCode: spin.voucher?.code ?? null,
@@ -110,10 +112,6 @@ export default function JackpotWheelWorkspace() {
         pointsAmount: spin.points_amount,
         playerName: spin.player.display_name,
       }
-
-      setOutcome(result)
-
-      return result
     } catch (error) {
       // Keep the reference: pressing SPIN again retries the SAME spin.
       setSpinError(error instanceof Error ? error.message : "The spin could not be completed. Nothing was drawn.")
@@ -188,7 +186,7 @@ export default function JackpotWheelWorkspace() {
             </p>
           </section>
         ) : (
-          <PrizeWheel prizes={prizes} requestSpin={requestSpin} />
+          <PrizeWheel prizes={prizes} requestSpin={requestSpin} onSettled={setOutcome} />
         )}
       </div>
 
