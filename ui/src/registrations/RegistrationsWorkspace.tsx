@@ -154,7 +154,12 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
                 {rows.map((row, index) => (
                   <tr key={row.npl_id}>
                     <td>{index + 1}</td>
-                    <td>{row.display_name}</td>
+                    <td>
+                      {row.pre_registered ? (
+                        <span className="regs__pre" title="Pre-registered — seat secured at club check-in">PRE</span>
+                      ) : null}
+                      {row.display_name}
+                    </td>
                     <td><code>{row.npl_id}</code></td>
                     <td>
                       {row.status === "waitlisted"

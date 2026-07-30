@@ -116,6 +116,8 @@ export type OnlineRegistration = {
   npl_id: string
   display_name: string
   status: 'registered' | 'waitlisted'
+  /** True until desk check-in (or a voucher) secures the seat. */
+  pre_registered?: boolean
   registered_at: string | null
   waitlist_position: number | null
   table_number: number | null

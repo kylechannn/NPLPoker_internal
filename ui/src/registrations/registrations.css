@@ -185,3 +185,17 @@
   padding: 8px 10px;
   border-top: 1px solid rgba(120, 150, 190, 0.12);
 }
+
+/* PRE — online pre-registration, not yet checked in at the club. */
+.regs__pre {
+  display: inline-block;
+  margin-right: 7px;
+  padding: 1px 7px;
+  border: 1px solid rgba(255, 197, 61, 0.55);
+  border-radius: 6px;
+  color: #ffd97a;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: rgba(255, 197, 61, 0.12);
+}
