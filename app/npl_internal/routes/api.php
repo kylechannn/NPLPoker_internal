@@ -105,6 +105,16 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::post('{id}/remove-player', 'removePlayer')->whereNumber('id');
 });
 
+// Player operations: roster search, staff comments, desk registration.
+Route::prefix('v1/players')->controller(\App\Http\Controllers\Api\PlayersController::class)->group(function (): void {
+    Route::get('/', 'index');
+    Route::get('comments', 'comments');
+    Route::post('comments', 'storeComment');
+    Route::delete('comments/{cloudId}', 'destroyComment')->whereNumber('cloudId');
+    Route::post('register-code', 'registerCode');
+    Route::post('register', 'register');
+});
+
 // Club Membership IDs — the venue's own member register, cloud-authoritative.
 Route::prefix('v1/membership')->controller(\App\Http\Controllers\Api\MembershipController::class)->group(function (): void {
     Route::get('/', 'index');

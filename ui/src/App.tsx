@@ -5,6 +5,7 @@ import NplTransitLoader from "./NplTransitLoader"
 import HostWorkspace from "./desk/HostWorkspace"
 import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
 import MembershipWorkspace from "./membership/MembershipWorkspace"
+import PlayersWorkspace from "./players/PlayersWorkspace"
 import { deskApi, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
@@ -298,7 +299,7 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
   },
 }
 
-type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame" | "jackpot" | "membership">
+type PreviewNavId = Exclude<NavId, "overview" | "tournament" | "cashgame" | "jackpot" | "membership" | "players">
 
 const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> = {
   registrations: [
@@ -306,16 +307,10 @@ const modulePreviewCards: Record<PreviewNavId, Array<[string, string, string]>> 
     ["Waiting", "6", "Longest wait 11 min"],
     ["Seats open", "9", "Across three tables"],
   ],
-  players: [
-    ["Venue players", "1,284", "Local synced roster"],
-    ["Active tonight", "47", "Across all sessions"],
-    ["Needs review", "2", "Identity checks"],
-  ],
 }
 
 const modulePreviewIcons: Record<PreviewNavId, LucideIcon> = {
   registrations: ListChecks,
-  players: Users,
 }
 
 function money(value: number) {
@@ -1376,6 +1371,8 @@ export default function App() {
               <JackpotWheelWorkspace />
             ) : activeSection === "membership" ? (
               <MembershipWorkspace venue={activeVenue} />
+            ) : activeSection === "players" ? (
+              <PlayersWorkspace venue={activeVenue} />
             ) : activeSection === "overview" ? (
               <OverviewWorkspace venue={activeVenue} onNavigate={chooseSection} onNotice={setNotice} />
             ) : activeSection === "cashgame" ? (

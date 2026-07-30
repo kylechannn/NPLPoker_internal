@@ -1401,6 +1401,7 @@
 }
 
 .host-scan-modal__panel {
+  position: relative;
   width: min(520px, 100%);
   max-height: min(86vh, 720px);
   overflow-y: auto;

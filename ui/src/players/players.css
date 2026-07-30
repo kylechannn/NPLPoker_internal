@@ -1,0 +1,408 @@
+/* Players tab — roster search + staff comments + desk registration. */
+
+.players {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+.players__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--host-line, rgba(120, 150, 190, 0.22));
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: rgba(10, 20, 38, 0.78);
+}
+
+.players__head h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 5px;
+  font-size: 1.02rem;
+}
+
+.players__head p {
+  margin: 0;
+  color: #8fa9cf;
+  font-size: 0.78rem;
+}
+
+.players__register {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 11px;
+  padding: 10px 16px;
+  color: #04240f;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #5ce9a8, #21bda3);
+  cursor: pointer;
+}
+
+.players__body {
+  display: grid;
+  grid-template-columns: minmax(320px, 5fr) minmax(300px, 4fr);
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.players__list,
+.players__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  border: 1px solid var(--host-line, rgba(120, 150, 190, 0.22));
+  border-radius: 14px;
+  padding: 13px;
+  background: rgba(10, 20, 38, 0.6);
+  overflow: hidden;
+}
+
+.players__search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--host-line-strong, rgba(120, 150, 190, 0.3));
+  border-radius: 11px;
+  padding: 0 12px;
+  color: #8fa9cf;
+  background: var(--host-sunken, rgba(4, 12, 26, 0.7));
+}
+
+.players__search input {
+  flex: 1;
+  border: none;
+  padding: 10px 0;
+  color: inherit;
+  font: inherit;
+  font-size: 0.84rem;
+  background: transparent;
+  outline: none;
+}
+
+.players__list ul {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.players__row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 8px 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.players__row:hover {
+  background: rgba(120, 150, 190, 0.1);
+}
+
+.players__row--active {
+  border-color: rgba(92, 233, 168, 0.4);
+  background: rgba(92, 233, 168, 0.08);
+}
+
+.players__row img,
+.players__initials {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.players__initials {
+  display: grid;
+  place-items: center;
+  color: #dbe9ff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  background: rgba(143, 169, 207, 0.18);
+}
+
+.players__who {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.players__who strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.86rem;
+}
+
+.players__who small {
+  color: #8fa9cf;
+  font-size: 0.72rem;
+}
+
+.players__clubchip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 3px 9px;
+  color: #6ff0bf;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(46, 213, 145, 0.12);
+}
+
+.players__empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 22px auto;
+  color: #8fa9cf;
+  font-size: 0.82rem;
+}
+
+.players__error {
+  margin: 6px 0 0;
+  color: #fda4a4;
+  font-size: 0.76rem;
+}
+
+.players__hint {
+  margin: 6px 0 0;
+  color: #8fa9cf;
+  font-size: 0.72rem;
+}
+
+.players__offline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  border: 1px solid rgba(255, 197, 61, 0.32);
+  border-radius: 10px;
+  padding: 7px 11px;
+  color: #ffd97a;
+  font-size: 0.74rem;
+  background: rgba(255, 197, 61, 0.1);
+}
+
+/* ---- comments panel ---- */
+
+.players-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.players-comments > header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.players-comments > header small {
+  color: #8fa9cf;
+  font-size: 0.74rem;
+}
+
+.players-comments__composer textarea {
+  width: 100%;
+  border: 1px solid rgba(120, 150, 190, 0.3);
+  border-radius: 11px;
+  padding: 10px 12px;
+  color: #e7eefc;
+  font: inherit;
+  font-size: 0.84rem;
+  background: rgba(4, 12, 26, 0.8);
+  outline: none;
+  resize: vertical;
+}
+
+.players-comments__composerrow {
+  display: flex;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.players-comments__composerrow input {
+  flex: 1;
+  border: 1px solid rgba(120, 150, 190, 0.3);
+  border-radius: 10px;
+  padding: 8px 11px;
+  color: #e7eefc;
+  font: inherit;
+  font-size: 0.8rem;
+  background: rgba(4, 12, 26, 0.8);
+  outline: none;
+}
+
+.players-comments__composerrow button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  border-radius: 10px;
+  padding: 0 14px;
+  color: #04240f;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffd766, #eab308);
+  cursor: pointer;
+}
+
+.players-comments__composerrow button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.players-comments__list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.players-comments__list li {
+  border: 1px solid rgba(255, 197, 61, 0.22);
+  border-left: 3px solid rgba(255, 197, 61, 0.65);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: rgba(255, 197, 61, 0.06);
+}
+
+.players-comments__list li p {
+  margin: 5px 0 0;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+.players-comments__truncated {
+  border: none !important;
+  padding: 0 !important;
+  color: #8fa9cf;
+  font-size: 0.72rem;
+  background: transparent !important;
+}
+
+.players-comments__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+}
+
+.players-comments__meta strong {
+  color: #ffd97a;
+}
+
+.players-comments__meta span {
+  flex: 1;
+  color: #8fa9cf;
+}
+
+.players-comments__meta button {
+  border: none;
+  padding: 3px;
+  color: #8fa9cf;
+  background: transparent;
+  cursor: pointer;
+}
+
+.players-comments__meta button:hover {
+  color: #fda4a4;
+}
+
+/* ---- scan-time comment notice (host desk) ---- */
+
+.scan-comments {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  border-radius: inherit;
+  padding: 18px 20px;
+  background: rgba(9, 15, 28, 0.97);
+}
+
+.scan-comments h5 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 3px;
+  color: #ffd97a;
+  font-size: 0.92rem;
+}
+
+.scan-comments > small {
+  color: #8fa9cf;
+  font-size: 0.74rem;
+}
+
+.scan-comments__list {
+  flex: 1;
+  min-height: 0;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scan-comments__list li {
+  border: 1px solid rgba(255, 197, 61, 0.24);
+  border-left: 3px solid rgba(255, 197, 61, 0.7);
+  border-radius: 9px;
+  padding: 8px 11px;
+  background: rgba(255, 197, 61, 0.07);
+}
+
+.scan-comments__list li p {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.scan-comments__ack {
+  align-self: flex-end;
+  border: none;
+  border-radius: 11px;
+  padding: 11px 20px;
+  color: #241a02;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 800;
+  background: linear-gradient(160deg, #ffd766, #eab308);
+  cursor: pointer;
+}

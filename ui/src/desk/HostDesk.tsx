@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Loader2, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
+import { Ban, Loader2, MessageSquareWarning, MonitorPlay, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { notify } from "../notifications/store"
+import { playersApi, type PlayerComment } from "../players/playersApi"
 import {
   countdown,
   deskApi,
@@ -55,6 +56,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const scanRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState("")
   const [scan, setScan] = useState<ScanResult | null>(null)
+  // Staff comments gating the scan popup until acknowledged.
+  const [scanComments, setScanComments] = useState<{ nplId: string, seenKey: string, comments: PlayerComment[] } | null>(null)
+  const seenCommentsRef = useRef<Set<string>>(new Set())
   const [seating, setSeating] = useState<Seating | null>(null)
   const [menu, setMenu] = useState<SeatMenu | null>(null)
   const [tableMenu, setTableMenu] = useState<{ x: number, y: number, tableNumber: number } | null>(null)
@@ -136,6 +140,22 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       // the prompt appears a beat later only for unregistered players.
       if (!result.entry) {
         void checkVoucher(result.player.npl_id)
+      }
+
+      // Staff comments surface on the FIRST registration scan only, and
+      // once acknowledged the same player never re-prompts this session
+      // (mahjong-style). Fetch is async and fail-open — offline just
+      // means no popup, never a blocked scan.
+      setScanComments(null)
+      if (!result.entry) {
+        void playersApi.comments(result.player.npl_id)
+          .then((comments) => {
+            const seenKey = `${sessionId}:${result.player.npl_id}:${comments.comments[0]?.id ?? 0}`
+            if (comments.available && comments.comments.length > 0 && !seenCommentsRef.current.has(seenKey)) {
+              setScanComments({ nplId: result.player.npl_id, seenKey, comments: comments.comments })
+            }
+          })
+          .catch(() => undefined)
       }
     } catch (e) {
       setScan(null)
@@ -378,6 +398,37 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             aria-label={`Actions for ${scan.player.display_name}`}
             onMouseDown={(e) => e.stopPropagation()}
           >
+            {scanComments && scanComments.nplId === scan.player.npl_id ? (
+              <div className="scan-comments" role="alertdialog" aria-modal="true" aria-label="Staff comments — review before continuing">
+                <h5><MessageSquareWarning size={16} /> Staff comments on {scan.player.display_name}</h5>
+                <small>First registration — review before continuing.</small>
+                <ul className="scan-comments__list">
+                  {scanComments.comments.map((comment) => (
+                    <li key={comment.id}>
+                      <div className="players-comments__meta">
+                        <strong>{comment.author_name}</strong>
+                        <span>
+                          {comment.venue_name ? `${comment.venue_name} · ` : ""}
+                          {new Date(comment.created_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}
+                        </span>
+                      </div>
+                      <p>{comment.note}</p>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="scan-comments__ack"
+                  autoFocus
+                  onClick={() => {
+                    seenCommentsRef.current.add(scanComments.seenKey)
+                    setScanComments(null)
+                  }}
+                >
+                  Acknowledge and continue
+                </button>
+              </div>
+            ) : null}
             <div className="host-desk__identity">
               {scan.player.avatar_url
                 ? <img src={scan.player.avatar_url} alt="" />

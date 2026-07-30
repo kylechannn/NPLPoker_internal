@@ -225,7 +225,14 @@ final class CloudClient
             default => CloudException::BAD_RESPONSE,
         };
 
-        $message = (string) (($response->json()['error']['message'] ?? null) ?: $response->body());
+        // The first field error is the sentence the operator needs ("That
+        // code doesn't match…"), not the generic envelope message.
+        $json = (array) $response->json();
+        $fieldErrors = is_array($json['errors'] ?? null) ? array_values($json['errors']) : [];
+        $message = (string) (($json['error']['message'] ?? null)
+            ?: ($fieldErrors[0][0] ?? null)
+            ?: ($json['message'] ?? null)
+            ?: $response->body());
 
         throw new CloudException($code, sprintf('%s failed (%d): %s', $path, $status, Str::limit($message, 300)), $status);
     }
