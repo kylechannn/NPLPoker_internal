@@ -991,3 +991,129 @@
     padding: 30px 20px 26px;
   }
 }
+
+/* ---- Fullscreen spin mode: scan done, the wheel owns the window ---- */
+
+.wheel-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  background:
+    radial-gradient(120% 85% at 50% -10%, rgba(56, 189, 248, 0.14), transparent 60%),
+    #01030a;
+  overflow: hidden;
+}
+
+/* The wheel grows to the room. */
+.wheel-fullscreen .npl-wheel-stage {
+  width: min(74vmin, 820px);
+}
+
+.wheel-fullscreen__stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.wheel-fullscreen__leave {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(143, 169, 207, 0.3);
+  border-radius: 10px;
+  padding: 9px 14px;
+  color: #b9cbe8;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: rgba(5, 17, 36, 0.7);
+  cursor: pointer;
+}
+
+/* Bottom-middle player card — becomes the reward card after the draw. */
+.wheel-player-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: min(520px, 92vw);
+  max-width: 92vw;
+  margin-bottom: 6px;
+  border: 1px solid rgba(143, 169, 207, 0.25);
+  border-radius: 16px;
+  padding: 13px 18px;
+  background: rgba(4, 12, 27, 0.88);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
+}
+
+.wheel-player-card--won {
+  border-color: rgba(255, 197, 61, 0.55);
+  box-shadow: 0 0 34px rgba(255, 197, 61, 0.2);
+}
+
+.wheel-player-card__avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(143, 169, 207, 0.35);
+}
+
+.wheel-player-card__avatar--initials {
+  display: grid;
+  place-items: center;
+  color: #dbe9ff;
+  font-size: 1rem;
+  font-weight: 800;
+  background: rgba(143, 169, 207, 0.18);
+}
+
+.wheel-player-card__info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wheel-player-card__info strong {
+  font-size: 1.05rem;
+}
+
+.wheel-player-card__info span {
+  color: #8fa9cf;
+  font-size: 0.76rem;
+}
+
+.wheel-player-card__info em {
+  color: #5fe5c0;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.wheel-player-card__prize {
+  color: #ffe08a !important;
+}
+
+.wheel-player-card__done {
+  border: 1px solid rgba(255, 197, 61, 0.6);
+  border-radius: 12px;
+  padding: 12px 26px;
+  color: #241a02;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  background: linear-gradient(160deg, #ffd766, #eab308);
+  cursor: pointer;
+}

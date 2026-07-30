@@ -31,6 +31,9 @@ export default function JackpotWheelWorkspace() {
   const [player, setPlayer] = useState<WheelPlayer | null>(null)
   const [eligibility, setEligibility] = useState<WheelEligibility>(null)
   const [spinError, setSpinError] = useState<string | null>(null)
+  // The completed draw — once set, the bottom card flips to the reward
+  // summary and the Done button, which is the only way off the page.
+  const [outcome, setOutcome] = useState<SpinOutcome | null>(null)
   // A spin's reference survives a failed attempt so the retry can never
   // double-award — the cloud treats the same reference as the same spin.
   const referenceRef = useRef<string | null>(null)
@@ -83,6 +86,7 @@ export default function JackpotWheelWorkspace() {
     setEligibility(null)
     setScanError(null)
     setSpinError(null)
+    setOutcome(null)
     referenceRef.current = null
   }
 
@@ -98,7 +102,7 @@ export default function JackpotWheelWorkspace() {
       const { spin } = await wheelApi.spin(referenceRef.current, player.npl_id, venueId)
       referenceRef.current = null
 
-      return {
+      const result: SpinOutcome = {
         segmentIndex: spin.segment_index,
         prizeLabel: spin.prize.label,
         voucherCode: spin.voucher?.code ?? null,
@@ -106,6 +110,10 @@ export default function JackpotWheelWorkspace() {
         pointsAmount: spin.points_amount,
         playerName: spin.player.display_name,
       }
+
+      setOutcome(result)
+
+      return result
     } catch (error) {
       // Keep the reference: pressing SPIN again retries the SAME spin.
       setSpinError(error instanceof Error ? error.message : "The spin could not be completed. Nothing was drawn.")
@@ -161,35 +169,68 @@ export default function JackpotWheelWorkspace() {
 
   const prizes = toWheelPrizes(segments ?? [])
 
+  // Scanned → the wheel takes the whole window. The player rides as a card
+  // at the bottom middle; after the draw the card flips to the reward and
+  // Done is the only exit — it clears everything back to the scan input.
   return (
-    <div className="jackpot-wheel-view">
-      <div className="wheel-player-bar">
-        <div>
-          <small>Spinning for</small>
-          <strong>{player.display_name}</strong>
-          <span>{player.npl_id}</span>
-          {eligibility?.mode === "jackpot_entry" && eligibility.spins_available !== null ? (
-            <em className="wheel-player-bar__spins">
-              {eligibility.spins_available} spin{eligibility.spins_available === 1 ? "" : "s"} available
-            </em>
-          ) : null}
-        </div>
-        <button type="button" onClick={resetToScan}>
+    <div className="wheel-fullscreen" role="dialog" aria-modal="true" aria-label={`Jackpot Wheel — ${player.display_name}`}>
+      {outcome === null ? (
+        <button type="button" className="wheel-fullscreen__leave" onClick={resetToScan}>
           <Undo2 size={15} /> Change player
         </button>
+      ) : null}
+
+      <div className="wheel-fullscreen__stage">
+        {prizes.length === 0 ? (
+          <section className="wheel-scan-card">
+            <p className="wheel-scan-card__note">
+              The wheel has no prizes yet. Compose it in the admin console (Jackpot Control), then run a Manual update here.
+            </p>
+          </section>
+        ) : (
+          <PrizeWheel prizes={prizes} requestSpin={requestSpin} />
+        )}
       </div>
 
-      {prizes.length === 0 ? (
-        <section className="wheel-scan-card">
-          <p className="wheel-scan-card__note">
-            The wheel has no prizes yet. Compose it in the admin console (Jackpot Control), then run a Manual update here.
-          </p>
-        </section>
-      ) : (
-        <PrizeWheel prizes={prizes} requestSpin={requestSpin} />
-      )}
-
       {spinError ? <p className="wheel-spin-error" role="alert">{spinError}</p> : null}
+
+      <div className={outcome ? "wheel-player-card wheel-player-card--won" : "wheel-player-card"}>
+        {player.avatar_media_key ? (
+          <img className="wheel-player-card__avatar" src={`/media/${player.avatar_media_key}`} alt="" />
+        ) : (
+          <span className="wheel-player-card__avatar wheel-player-card__avatar--initials">
+            {player.display_name.slice(0, 2).toUpperCase()}
+          </span>
+        )}
+
+        <div className="wheel-player-card__info">
+          <strong>{player.display_name}</strong>
+          <span>
+            {player.npl_id}
+            {player.state_code ? ` · ${player.state_code}` : ""}
+          </span>
+          {outcome === null ? (
+            eligibility?.mode === "jackpot_entry" && eligibility.spins_available !== null ? (
+              <em>{eligibility.spins_available} spin{eligibility.spins_available === 1 ? "" : "s"} available</em>
+            ) : (
+              <em>Ready to spin</em>
+            )
+          ) : (
+            <em className="wheel-player-card__prize">
+              🏆 {outcome.prizeLabel}
+              {outcome.voucherCode ? ` — voucher ${outcome.voucherCode}` : ""}
+              {outcome.pointsAmount ? ` — ${outcome.pointsAmount.toLocaleString()} points` : ""}
+              {" · sent to their inbox"}
+            </em>
+          )}
+        </div>
+
+        {outcome !== null ? (
+          <button type="button" className="wheel-player-card__done" onClick={resetToScan}>
+            Done
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }
