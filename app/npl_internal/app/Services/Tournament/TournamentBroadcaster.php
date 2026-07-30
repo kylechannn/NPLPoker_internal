@@ -39,13 +39,11 @@ final class TournamentBroadcaster
             $summary = $this->tournaments->summary($sessionId);
             $session = $this->clock->session($sessionId);
 
-            // Cash games have no clock and never appear as live tournaments
-            // — nothing to tell the lobby.
-            if (($session->game_type ?? 'tournament') === 'cash') {
-                return false;
-            }
-
+            // Cash desks report too — their Start drives the cloud's
+            // pre-registration purge — flagged so the public live feed
+            // filters them out.
             $this->cloud->postJson('/api/v1/internal/tournament/state', [
+                'game_type' => ($session->game_type ?? 'tournament') === 'cash' ? 'cash' : 'tournament',
                 // Stable per device + local tournament, so a re-report
                 // updates rather than duplicating.
                 'tournament_uid' => $this->uid($sessionId),
