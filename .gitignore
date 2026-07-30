@@ -24,3 +24,8 @@ app/npl_internal/.phpunit.result.cache
 NPLPokerOS.exe
 nplpoker-internal.exe
 NPLPokerOS.exe~
+
+# Installer build artifacts — assembled by installer/build-installer.ps1.
+installer/payload/
+installer/output/
+installer/app.ico
