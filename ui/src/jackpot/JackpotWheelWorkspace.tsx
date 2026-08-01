@@ -11,7 +11,7 @@ import "@fontsource/inter/400.css"
 import "@fontsource/inter/500.css"
 import "@fontsource/inter/600.css"
 import "@fontsource/inter/700.css"
-import { useEffect, useRef, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react"
 import { ScanLine, RefreshCw, ShieldCheck, Undo2 } from "lucide-react"
 import PrizeWheel, { type SpinOutcome } from "./PrizeWheel"
 import { toWheelPrizes, wheelApi, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier } from "./wheelApi"
@@ -40,6 +40,9 @@ export default function JackpotWheelWorkspace() {
   // Which tier the stage is showing; golden carries the funding spin's ref.
   const [activeWheel, setActiveWheel] = useState<WheelTier>("normal")
   const [goldenParentRef, setGoldenParentRef] = useState<string | null>(null)
+  // The unlock take-over: gold burst + title before the golden wheel shows.
+  const [goldenIntro, setGoldenIntro] = useState(false)
+  const goldenIntroTimerRef = useRef<number>(0)
   // The completed draw — once set, the bottom card flips to the reward
   // summary and the Done button, which is the only way off the page.
   const [outcome, setOutcome] = useState<SpinOutcome | null>(null)
@@ -69,6 +72,16 @@ export default function JackpotWheelWorkspace() {
     }
   }, [])
 
+  useEffect(() => () => window.clearTimeout(goldenIntroTimerRef.current), [])
+
+  /** Take over the screen with the gold burst, then reveal the golden wheel. */
+  function playGoldenIntro() {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    setGoldenIntro(true)
+    window.clearTimeout(goldenIntroTimerRef.current)
+    goldenIntroTimerRef.current = window.setTimeout(() => setGoldenIntro(false), reduced ? 1200 : 3000)
+  }
+
   async function submitScan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const nplId = scanValue.trim().toUpperCase()
@@ -94,6 +107,7 @@ export default function JackpotWheelWorkspace() {
       setEligibility(result.eligibility)
       setActiveWheel(pendingGolden ? "golden" : "normal")
       setGoldenParentRef(pendingGolden ? pendingGolden.parent_reference : null)
+      if (pendingGolden) playGoldenIntro()
       setScanValue("")
       setSpinError(null)
       referenceRef.current = null
@@ -112,6 +126,8 @@ export default function JackpotWheelWorkspace() {
     setOutcome(null)
     setActiveWheel("normal")
     setGoldenParentRef(null)
+    setGoldenIntro(false)
+    window.clearTimeout(goldenIntroTimerRef.current)
     referenceRef.current = null
   }
 
@@ -163,6 +179,7 @@ export default function JackpotWheelWorkspace() {
       setGoldenParentRef(settled.reference)
       setSpinError(null)
       referenceRef.current = null
+      playGoldenIntro()
       return
     }
     setOutcome(settled)
@@ -239,8 +256,25 @@ export default function JackpotWheelWorkspace() {
         </button>
       ) : null}
 
-      {isGolden && outcome === null ? (
+      {isGolden && outcome === null && !goldenIntro ? (
         <p className="wheel-golden-banner" role="status">✨ GOLDEN WHEEL — one more spin, {player.display_name}! ✨</p>
+      ) : null}
+
+      {goldenIntro ? (
+        <div className="wheel-golden-intro" role="status" aria-label="Golden wheel unlocked">
+          <div className="wheel-golden-intro__rays" aria-hidden="true" />
+          <div className="wheel-golden-intro__flash" aria-hidden="true" />
+          <div className="wheel-golden-intro__sparks" aria-hidden="true">
+            {Array.from({ length: 14 }, (_, index) => (
+              <i key={index} style={{ "--i": index } as CSSProperties} />
+            ))}
+          </div>
+          <div className="wheel-golden-intro__text">
+            <span className="wheel-golden-intro__eyebrow">{player.display_name} hit the golden segment</span>
+            <strong className="wheel-golden-intro__title">GOLDEN WHEEL</strong>
+            <span className="wheel-golden-intro__sub">✨ UNLOCKED — SPIN AGAIN ✨</span>
+          </div>
+        </div>
       ) : null}
 
       <div className="wheel-fullscreen__stage">

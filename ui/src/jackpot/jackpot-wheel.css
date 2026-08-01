@@ -1179,3 +1179,149 @@
 @media (prefers-reduced-motion: reduce) {
   .wheel-golden-banner { animation: none; }
 }
+
+/* Gild the lightning canvas too when the golden stage is up. */
+.wheel-fullscreen--golden .npl-wheel-storm {
+  filter: sepia(1) saturate(2.6) hue-rotate(-10deg);
+}
+
+/* ---- Golden unlock take-over ------------------------------------------- */
+
+/* Full-screen burst between "landed on the golden segment" and the golden
+   wheel itself: rotating rays, a flash, a shimmering title, gold sparks. */
+.wheel-golden-intro {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(80, 54, 4, 0.94), rgba(18, 12, 2, 0.98) 70%);
+  animation: golden-intro-in 420ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+.wheel-golden-intro__rays {
+  position: absolute;
+  inset: -40%;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(255, 205, 80, 0.22) 0deg 9deg,
+    transparent 9deg 24deg
+  );
+  animation: golden-rays-spin 14s linear infinite;
+  mask-image: radial-gradient(circle at 50% 50%, black 0%, transparent 68%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black 0%, transparent 68%);
+}
+
+.wheel-golden-intro__flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 236, 170, 0.95), transparent 55%);
+  animation: golden-flash 900ms ease-out both;
+}
+
+.wheel-golden-intro__text {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+  animation: golden-title-pop 700ms 180ms cubic-bezier(0.18, 1.4, 0.4, 1) both;
+}
+
+.wheel-golden-intro__eyebrow {
+  color: rgba(255, 235, 190, 0.85);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.wheel-golden-intro__title {
+  font-size: clamp(3.2rem, 9vw, 6.5rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  background: linear-gradient(100deg, #8a5c06 0%, #ffd766 25%, #fff3c4 50%, #ffd766 75%, #8a5c06 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 26px rgba(255, 190, 40, 0.45));
+  animation: golden-shimmer 2.2s linear infinite;
+}
+
+.wheel-golden-intro__sub {
+  color: #ffe08a;
+  font-size: clamp(1rem, 2.6vw, 1.5rem);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+}
+
+.wheel-golden-intro__sparks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wheel-golden-intro__sparks i {
+  --i: 0;
+  position: absolute;
+  top: 52%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff6d8, #ffd23d 55%, rgba(255, 180, 30, 0));
+  transform: rotate(calc(var(--i) * 25.7deg)) translateY(-30px);
+  animation: golden-spark-fly 1600ms calc(var(--i) * 55ms) ease-out infinite;
+  opacity: 0;
+}
+
+@keyframes golden-intro-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes golden-rays-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes golden-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes golden-title-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes golden-shimmer {
+  to { background-position: -250% 0; }
+}
+
+@keyframes golden-spark-fly {
+  0% { opacity: 0; transform: rotate(calc(var(--i) * 25.7deg)) translateY(-30px) scale(0.4); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(calc(var(--i) * 25.7deg)) translateY(calc(-46vh - 40px)) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-golden-intro,
+  .wheel-golden-intro__flash,
+  .wheel-golden-intro__text {
+    animation: none;
+  }
+
+  .wheel-golden-intro__rays,
+  .wheel-golden-intro__title {
+    animation: none;
+  }
+
+  .wheel-golden-intro__sparks {
+    display: none;
+  }
+}
