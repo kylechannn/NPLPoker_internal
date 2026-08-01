@@ -196,12 +196,10 @@ export default function PrizeWheel({ prizes = wheelPrizes, golden = false, reque
   // its wedge — the wheel face itself shows the chances honestly.
   const arcs = useMemo(() => {
     const total = prizes.reduce((sum, prize) => sum + Math.max(1, prize.weight), 0)
-    let cursor = 0
-    return prizes.map((prize) => {
-      const span = (Math.max(1, prize.weight) / total) * 360
-      const arc = { start: cursor, span, mid: cursor + span / 2 }
-      cursor += span
-      return arc
+    const spans = prizes.map((prize) => (Math.max(1, prize.weight) / total) * 360)
+    return spans.map((span, index) => {
+      const start = spans.slice(0, index).reduce((sum, value) => sum + value, 0)
+      return { start, span, mid: start + span / 2 }
     })
   }, [prizes])
   const [rotation, setRotation] = useState(0)
