@@ -192,7 +192,18 @@ function strokePolyline(ctx: CanvasRenderingContext2D, points: Point[]) {
 }
 
 export default function PrizeWheel({ prizes = wheelPrizes, golden = false, requestSpin, onResult, onSettled }: PrizeWheelProps) {
-  const SEGMENT_ANGLE = 360 / Math.max(1, prizes.length)
+  // Slice size follows the odds: the easier a prize is to win, the bigger
+  // its wedge — the wheel face itself shows the chances honestly.
+  const arcs = useMemo(() => {
+    const total = prizes.reduce((sum, prize) => sum + Math.max(1, prize.weight), 0)
+    let cursor = 0
+    return prizes.map((prize) => {
+      const span = (Math.max(1, prize.weight) / total) * 360
+      const arc = { start: cursor, span, mid: cursor + span / 2 }
+      cursor += span
+      return arc
+    })
+  }, [prizes])
   const [rotation, setRotation] = useState(0)
   const [spinning, setSpinning] = useState(false)
   const [drawing, setDrawing] = useState(false)
@@ -469,8 +480,10 @@ export default function PrizeWheel({ prizes = wheelPrizes, golden = false, reque
     }
 
     const landed = prizes[index]
-    const midAngle = index * SEGMENT_ANGLE + SEGMENT_ANGLE / 2
-    const jitter = (Math.random() - 0.5) * (SEGMENT_ANGLE - 16)
+    const arc = arcs[index]
+    const midAngle = arc.mid
+    // Jitter stays inside the wedge, however narrow it is.
+    const jitter = (Math.random() - 0.5) * Math.max(2, arc.span - 16)
     const targetMod = (((360 - midAngle + jitter) % 360) + 360) % 360
     const delta = ((targetMod - (rotation % 360)) % 360 + 360) % 360
     const reduced = prefersReducedMotion()
@@ -564,8 +577,11 @@ export default function PrizeWheel({ prizes = wheelPrizes, golden = false, reque
             </defs>
 
             {prizes.map((segment, index) => {
-              const start = index * SEGMENT_ANGLE
-              const mid = start + SEGMENT_ANGLE / 2
+              const { start, span, mid } = arcs[index]
+              // Narrow wedges shrink their words so the text stays inside.
+              const textScale = Math.max(0.4, Math.min(1.05, span / 34))
+              const labelSize = Math.round(21 * textScale)
+              const oddsSize = Math.round(14 * textScale)
               return (
                 <g
                   key={segment.id}
@@ -574,17 +590,17 @@ export default function PrizeWheel({ prizes = wheelPrizes, golden = false, reque
                   onPointerLeave={() => setHovered((value) => (value === index ? null : value))}
                 >
                   <path
-                    d={slicePath(start, start + SEGMENT_ANGLE)}
+                    d={slicePath(start, start + span)}
                     fill={`url(#npl-wheel-grad-${segment.hue})`}
                     stroke="#02040f"
                     strokeWidth="2.5"
                   />
                   <g transform={`rotate(${mid} ${ROTOR_CENTER} ${ROTOR_CENTER})`} pointerEvents="none">
-                    <text className="npl-wheel-label" x={ROTOR_CENTER} y="74" textAnchor="middle">
+                    <text className="npl-wheel-label" fontSize={labelSize} x={ROTOR_CENTER} y="74" textAnchor="middle">
                       <tspan x={ROTOR_CENTER} y="74">{segment.lines[0]}</tspan>
-                      <tspan x={ROTOR_CENTER} y="99">{segment.lines[1]}</tspan>
+                      <tspan x={ROTOR_CENTER} y={74 + Math.round(25 * textScale)}>{segment.lines[1]}</tspan>
                     </text>
-                    <text className="npl-wheel-odds" x={ROTOR_CENTER} y="126" textAnchor="middle">
+                    <text className="npl-wheel-odds" fontSize={oddsSize} x={ROTOR_CENTER} y={74 + Math.round(52 * textScale)} textAnchor="middle">
                       {segment.weight}%
                     </text>
                   </g>
@@ -593,7 +609,7 @@ export default function PrizeWheel({ prizes = wheelPrizes, golden = false, reque
             })}
 
             {prizes.map((segment, index) => {
-              const edge = polarPoint(index * SEGMENT_ANGLE, ROTOR_RADIUS)
+              const edge = polarPoint(arcs[index].start, ROTOR_RADIUS)
               return (
                 <line
                   key={`divider-${segment.id}`}
