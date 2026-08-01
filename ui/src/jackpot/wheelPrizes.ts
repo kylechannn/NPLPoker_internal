@@ -3,7 +3,7 @@
 // passthrough; the wheel only ever reads `prizes` and `hueGradients`, so those
 // are exported directly here.
 
-export type WheelHue = 'electric' | 'gold' | 'cyan' | 'magenta' | 'violet' | 'green' | 'blue' | 'red'
+export type WheelHue = 'electric' | 'gold' | 'goldDeep' | 'cyan' | 'magenta' | 'violet' | 'green' | 'blue' | 'red'
 
 export type WheelPrize = {
   id: string
@@ -27,6 +27,9 @@ export const wheelPrizes: WheelPrize[] = [
 export const hueGradients: Record<WheelHue, [string, string]> = {
   electric: ['#3d7bff', '#081238'],
   gold: ['#ffd23d', '#3f2c04'],
+  // The golden wheel alternates these two so its all-gold face still shows
+  // segment boundaries.
+  goldDeep: ['#c9971f', '#241801'],
   cyan: ['#00e5ff', '#03293e'],
   magenta: ['#ff2bd6', '#3c0733'],
   violet: ['#9d4dff', '#210a4a'],

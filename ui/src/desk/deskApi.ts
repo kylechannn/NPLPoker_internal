@@ -207,6 +207,13 @@ export type DeskVoucher = {
   unlimited_uses: boolean
   uses_remaining: number | null
   expires_at: string | null
+  /** Ticket face value (cash prize / special ticket), in cents. */
+  value_cents?: number | null
+  /**
+   * Entry types: buy-ins at or under this are fully covered; dearer games
+   * charge the player the difference. Null/absent = covers any buy-in.
+   */
+  entry_fee_limit_cents?: number | null
 }
 
 export const deskApi = {

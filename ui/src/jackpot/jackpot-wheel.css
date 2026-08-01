@@ -1117,3 +1117,65 @@
   background: linear-gradient(160deg, #ffd766, #eab308);
   cursor: pointer;
 }
+
+/* ---- The all-golden follow-up wheel ------------------------------------ */
+
+/* Landing on the golden segment flips the whole stage gold: warm backdrop,
+   gilded chrome, and a banner that tells the operator this spin PAYS. */
+.wheel-fullscreen--golden {
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(255, 200, 60, 0.16), transparent 55%),
+    radial-gradient(ellipse at 50% 110%, rgba(180, 120, 10, 0.22), transparent 60%),
+    #120c02;
+}
+
+/* Gild the shared chrome (rim ring, bulbs, pointer) without touching the
+   segment fills — those already alternate the two gold gradients. */
+.wheel-fullscreen--golden .npl-wheel-rim,
+.wheel-fullscreen--golden .npl-wheel-pointer {
+  filter: sepia(1) saturate(3.2) hue-rotate(-12deg) brightness(1.05);
+}
+
+.wheel-fullscreen--golden .npl-wheel-hub {
+  border-color: rgba(255, 205, 80, 0.85);
+  background: radial-gradient(circle at 32% 28%, #ffe9a8, #eab308 52%, #7a5104);
+  color: #241a02;
+  text-shadow: none;
+  box-shadow:
+    0 0 0 6px rgba(255, 200, 60, 0.18),
+    0 0 42px rgba(255, 190, 40, 0.55);
+}
+
+.wheel-golden-banner {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  margin: 0;
+  padding: 10px 26px;
+  border: 1px solid rgba(255, 205, 80, 0.55);
+  border-radius: 999px;
+  background: linear-gradient(160deg, rgba(60, 42, 4, 0.92), rgba(34, 22, 2, 0.92));
+  color: #ffe08a;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  animation: wheel-golden-pulse 1.6s ease-in-out infinite;
+}
+
+.wheel-player-card__golden {
+  color: #ffd766 !important;
+  font-style: normal;
+  font-weight: 700;
+}
+
+@keyframes wheel-golden-pulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(255, 190, 40, 0.25); }
+  50% { box-shadow: 0 0 34px rgba(255, 190, 40, 0.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-golden-banner { animation: none; }
+}

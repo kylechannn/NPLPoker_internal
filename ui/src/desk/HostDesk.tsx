@@ -198,9 +198,24 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     }
   }
 
-  /** What this option actually charges — the accepted voucher zeroes buy-in. */
+  /**
+   * The part of a buy-in the voucher does NOT cover. A voucher with an
+   * entry-fee limit covers buy-ins up to that limit in full; for dearer
+   * games the player pays the difference. No limit = fully covered.
+   */
+  function voucherDeficitCents(candidate: DeskVoucher, buyInCents: number): number {
+    const limit = candidate.entry_fee_limit_cents ?? null
+    if (limit === null) return 0
+    return Math.max(0, buyInCents - limit)
+  }
+
+  /** What this option actually charges — the accepted voucher covers buy-in
+   *  up to its limit; anything above is still collected. */
   function priceFor(option: DeskOption): number {
-    return useVoucher && option.action === "buy_in" ? 0 : option.price_cents
+    if (useVoucher && voucher && option.action === "buy_in") {
+      return voucherDeficitCents(voucher, option.price_cents)
+    }
+    return option.price_cents
   }
 
   function toggleOption(option: DeskOption) {
@@ -255,12 +270,19 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         // by reference — a retry can never consume twice), then books the
         // entry locally at zero with the code on the action.
         if (option.action === "buy_in" && useVoucher && voucher) {
+          const deficit = voucherDeficitCents(voucher, option.price_cents)
           voucherRefRef.current ??= `DV-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
           await deskApi.voucherRedeem(voucherRefRef.current, scan.player.npl_id, voucher.id, activeVenueId(), seating?.game_session_id ?? null)
-          const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", { voucher_code: voucher.code })
+          const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+            voucher_code: voucher.code,
+            voucher_limit_cents: voucher.entry_fee_limit_cents ?? null,
+          })
           voucherRefRef.current = null
           setSeating(result.seating)
-          applied.push(`Buy-in (FREE — voucher ${voucher.code})`)
+          applied.push(deficit > 0
+            ? `Buy-in (voucher ${voucher.code} + ${money(deficit)} difference)`
+            : `Buy-in (FREE — voucher ${voucher.code})`)
+          total += deficit
           continue
         }
 
@@ -416,52 +438,59 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
       {flash ? <p className="host-desk__flash" role="status">{flash}</p> : null}
 
-      {voucherAsk ? (
-        <div className="host-scan-modal" role="presentation">
-          <section className="host-scan-modal__panel" role="alertdialog" aria-modal="true" aria-label="Free entry voucher detected">
-            <div className="host-voucher-ask">
-              <span className="host-voucher-ask__icon"><Ticket size={24} /></span>
-              <h3>FREE ENTRY — {voucherAsk.voucher.title || "entry voucher"}</h3>
-              <p>
-                <strong>{voucherAsk.result.player.display_name}</strong> holds voucher{" "}
-                <code>{voucherAsk.voucher.code}</code>
-                {voucherAsk.voucher.unlimited_uses
-                  ? " — pass active"
-                  : voucherAsk.voucher.uses_remaining !== null
-                    ? ` — ${voucherAsk.voucher.uses_remaining} use${voucherAsk.voucher.uses_remaining === 1 ? "" : "s"} left`
+      {voucherAsk ? (() => {
+        const askBuyIn = voucherAsk.result.options.find((option) => option.action === "buy_in")
+        const askDeficit = askBuyIn ? voucherDeficitCents(voucherAsk.voucher, askBuyIn.price_cents) : 0
+        return (
+          <div className="host-scan-modal" role="presentation">
+            <section className="host-scan-modal__panel" role="alertdialog" aria-modal="true" aria-label="Entry voucher detected">
+              <div className="host-voucher-ask">
+                <span className="host-voucher-ask__icon"><Ticket size={24} /></span>
+                <h3>{askDeficit > 0 ? "PART-COVERED ENTRY" : "FREE ENTRY"} — {voucherAsk.voucher.title || "entry voucher"}</h3>
+                <p>
+                  <strong>{voucherAsk.result.player.display_name}</strong> holds voucher{" "}
+                  <code>{voucherAsk.voucher.code}</code>
+                  {voucherAsk.voucher.unlimited_uses
+                    ? " — pass active"
+                    : voucherAsk.voucher.uses_remaining !== null
+                      ? ` — ${voucherAsk.voucher.uses_remaining} use${voucherAsk.voucher.uses_remaining === 1 ? "" : "s"} left`
+                      : ""}
+                  {voucherAsk.voucher.expires_at ? `, valid until ${voucherAsk.voucher.expires_at}` : ""}.
+                  {askDeficit > 0 && voucherAsk.voucher.entry_fee_limit_cents
+                    ? ` It covers buy-ins up to $${(voucherAsk.voucher.entry_fee_limit_cents / 100).toLocaleString()} — this game leaves ${money(askDeficit)} to collect.`
                     : ""}
-                {voucherAsk.voucher.expires_at ? `, valid until ${voucherAsk.voucher.expires_at}` : ""}.
-                {" "}Use it for this buy-in?
-              </p>
-              <div className="host-voucher-ask__actions">
-                <button
-                  type="button"
-                  className="host-scan-modal__cancel"
-                  onClick={() => {
-                    setVoucher(null)
-                    openActions(voucherAsk.result, false)
-                    setVoucherAsk(null)
-                  }}
-                >
-                  No — normal fee
-                </button>
-                <button
-                  type="button"
-                  className="host-voucher-ask__yes"
-                  autoFocus
-                  onClick={() => {
-                    setVoucher(voucherAsk.voucher)
-                    openActions(voucherAsk.result, true)
-                    setVoucherAsk(null)
-                  }}
-                >
-                  <Ticket size={15} /> Use voucher — FREE entry
-                </button>
+                  {" "}Use it for this buy-in?
+                </p>
+                <div className="host-voucher-ask__actions">
+                  <button
+                    type="button"
+                    className="host-scan-modal__cancel"
+                    onClick={() => {
+                      setVoucher(null)
+                      openActions(voucherAsk.result, false)
+                      setVoucherAsk(null)
+                    }}
+                  >
+                    No — normal fee
+                  </button>
+                  <button
+                    type="button"
+                    className="host-voucher-ask__yes"
+                    autoFocus
+                    onClick={() => {
+                      setVoucher(voucherAsk.voucher)
+                      openActions(voucherAsk.result, true)
+                      setVoucherAsk(null)
+                    }}
+                  >
+                    <Ticket size={15} /> {askDeficit > 0 ? `Use voucher — pay ${money(askDeficit)}` : "Use voucher — FREE entry"}
+                  </button>
+                </div>
               </div>
-            </div>
-          </section>
-        </div>
-      ) : null}
+            </section>
+          </div>
+        )
+      })() : null}
 
       {scan ? (
         <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setUseVoucher(false); focusScan() } }}>
@@ -534,11 +563,18 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
               </p>
             ) : null}
 
-            {useVoucher && voucher && !scan.entry ? (
-              <p className="host-booking-banner host-booking-banner--voucher">
-                <Ticket size={14} /> Buy-in covered by voucher {voucher.code} — $0 due for the entry.
-              </p>
-            ) : null}
+            {useVoucher && voucher && !scan.entry ? (() => {
+              const buyInOption = scan.options.find((option) => option.action === "buy_in")
+              const deficit = buyInOption ? voucherDeficitCents(voucher, buyInOption.price_cents) : 0
+              return (
+                <p className="host-booking-banner host-booking-banner--voucher">
+                  <Ticket size={14} />
+                  {deficit > 0
+                    ? ` Voucher ${voucher.code} covers $${(((buyInOption?.price_cents ?? 0) - deficit) / 100).toLocaleString()} of the buy-in — collect the ${money(deficit)} difference.`
+                    : ` Buy-in covered by voucher ${voucher.code} — $0 due for the entry.`}
+                </p>
+              )
+            })() : null}
 
             <div className="host-scan-modal__options" role="group" aria-label="Tick the actions to take">
               {scan.options.filter((option) => mode !== "cash" || option.action !== "addon").map((option) => {

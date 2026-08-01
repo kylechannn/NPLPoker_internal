@@ -220,6 +220,7 @@ final class DeltaSyncService
 
                 'wheel_prizes' => [
                     'cloud_id' => (int) $row['id'],
+                    'wheel' => $this->str($row['wheel'] ?? null, 10) ?? 'normal',
                     'label' => $this->str($row['label'] ?? null, 200) ?? '',
                     'line_one' => $this->str($row['line_one'] ?? null, 20) ?? '',
                     'line_two' => $this->str($row['line_two'] ?? null, 20) ?? '',
@@ -229,6 +230,7 @@ final class DeltaSyncService
                     'benefit_type' => $this->str($row['benefit_type'] ?? null, 20) ?? 'voucher',
                     'voucher_type' => $this->str($row['voucher_type'] ?? null, 40),
                     'points_amount' => isset($row['points_amount']) ? (int) $row['points_amount'] : null,
+                    'value_cents' => isset($row['value_cents']) ? (int) $row['value_cents'] : null,
                     'cloud_updated_at' => $row['updated_at'] ?? null,
                     'created_at' => $now,
                     'updated_at' => $now,

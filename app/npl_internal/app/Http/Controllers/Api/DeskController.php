@@ -422,8 +422,10 @@ final class DeskController
             'seat_number' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:64'],
             // Set only after the cloud confirmed the voucher redemption —
-            // it books the buy-in at zero with the code on the action.
+            // it books the buy-in with the code on the action, charging only
+            // what the voucher's entry-fee limit leaves uncovered.
             'voucher_code' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'voucher_limit_cents' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ]);
 
         $result = $this->desk->apply($id, $validated['player_npl_id'], $validated['action'], $validated);

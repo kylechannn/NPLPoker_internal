@@ -6,17 +6,21 @@ import type { WheelHue, WheelPrize } from "./wheelPrizes"
  * cloud, which draws the winner and awards the prize.
  */
 
+export type WheelTier = "normal" | "golden"
+
 export type WheelSegment = {
   id: number
   segment_index: number
+  wheel?: WheelTier
   label: string
   lines: [string, string]
   hue: string
   weight: number
   weight_percent: number
-  benefit_type: "voucher" | "loyalty_points"
+  benefit_type: "voucher" | "loyalty_points" | "golden_wheel"
   voucher_type: string | null
   points_amount: number | null
+  value_cents?: number | null
 }
 
 export type WheelPlayer = {
@@ -32,18 +36,24 @@ export type WheelEligibility = {
   eligible: boolean
   spins_available: number | null
   reason: string | null
+  /** Golden draws won earlier but never taken (crash/closed app). */
+  pending_golden?: { parent_reference: string, spun_at: string | null }[]
 } | null
 
 export type SpinResult = {
   spin_id: number
   reference: string
   duplicate: boolean
+  wheel?: WheelTier
+  /** "golden_wheel" = this spin unlocked the golden wheel — draw again there. */
+  follow_up?: "golden_wheel" | null
+  value_cents?: number | null
   segment_index: number
   wheel_prize_id: number
   prize: {
     label: string
     lines: [string, string]
-    benefit_type: "voucher" | "loyalty_points"
+    benefit_type: "voucher" | "loyalty_points" | "golden_wheel"
     points_amount: number | null
   }
   player: { npl_id: string, display_name: string }
@@ -86,7 +96,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const wheelApi = {
-  segments: () => request<{ segments: WheelSegment[] }>("/api/v1/wheel"),
+  segments: (wheel: WheelTier = "normal") =>
+    request<{ wheel?: WheelTier, segments: WheelSegment[] }>(`/api/v1/wheel?wheel=${wheel}`),
 
   lookup: (nplId: string) =>
     request<{ player: WheelPlayer, eligibility: WheelEligibility }>("/api/v1/wheel/lookup", {
@@ -94,9 +105,14 @@ export const wheelApi = {
       body: JSON.stringify({ npl_id: nplId }),
     }),
 
-  spin: (reference: string, nplId: string, venueId: number | null) =>
+  spin: (reference: string, nplId: string, venueId: number | null, chain?: { wheel: WheelTier, parentReference: string }) =>
     request<{ spin: SpinResult }>("/api/v1/wheel/spin", {
       method: "POST",
-      body: JSON.stringify({ reference, npl_id: nplId, venue_id: venueId }),
+      body: JSON.stringify({
+        reference,
+        npl_id: nplId,
+        venue_id: venueId,
+        ...(chain ? { wheel: chain.wheel, parent_reference: chain.parentReference } : {}),
+      }),
     }),
 } as const

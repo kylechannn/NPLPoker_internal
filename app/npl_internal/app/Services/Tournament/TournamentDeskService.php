@@ -71,8 +71,14 @@ final class TournamentDeskService
             ]);
         }
 
-        // Everything downstream keys on the NPL ID, whichever was scanned.
-        $nplId = (string) $player->npl_id;
+        // Everything downstream keys on the NPL ID, whichever was scanned —
+        // NORMALISED, because apply() writes entries uppercased while the
+        // mirror stores the player's own casing, and SQLite compares TEXT
+        // case-sensitively. Keying on the mirror casing here meant an
+        // online-registered "SteveP" never matched his "STEVEP" entry: the
+        // scan offered only buy-in forever, and rebuy/add-on/jackpot stayed
+        // locked after he bought in.
+        $nplId = $this->normaliseId((string) $player->npl_id);
 
         $entry = DB::table('tournament_entries')
             ->where('tournament_session_id', $sessionId)
@@ -110,9 +116,12 @@ final class TournamentDeskService
             return null;
         }
 
+        // Mirror rows keep the cloud's mixed casing; callers pass the
+        // normalised (uppercase) id — compare case-insensitively or a
+        // player's booked online seat is silently ignored.
         $booking = DB::table('mirror_session_tables')
             ->where('session_id', $session->game_session_id)
-            ->where('player_npl_id', $nplId)
+            ->whereRaw('UPPER(player_npl_id) = ?', [$this->normaliseId($nplId)])
             ->whereIn('registration_status', ['registered', 'waitlisted'])
             ->first();
 
@@ -325,13 +334,25 @@ final class TournamentDeskService
 
     private function buyIn(int $sessionId, object $session, string $nplId, array $options): array
     {
-        $player = DB::table('mirror_players')->where('npl_id', $nplId)->first();
+        // $nplId arrives normalised (uppercase); the mirror keeps the
+        // player's own casing — a case-sensitive match loses the name.
+        $player = DB::table('mirror_players')->whereRaw('UPPER(npl_id) = ?', [$nplId])->first();
 
-        // The entry was covered by a cloud-redeemed voucher: book it at zero
-        // and keep the code on the action for the audit trail.
+        // The entry was covered by a cloud-redeemed voucher: charge only what
+        // the voucher's entry-fee limit leaves uncovered (no limit = free),
+        // and keep the code + covered amount on the action for the audit
+        // trail. The limit rides in from the cloud voucher via the UI.
         $voucherCode = isset($options['voucher_code']) && $options['voucher_code'] !== ''
             ? (string) $options['voucher_code']
             : null;
+
+        $voucherLimit = isset($options['voucher_limit_cents']) && $options['voucher_limit_cents'] !== null
+            ? max(0, (int) $options['voucher_limit_cents'])
+            : null;
+
+        $buyInPrice = (int) $session->buy_in_price_cents;
+        $voucherPrice = $voucherLimit === null ? 0 : max(0, $buyInPrice - $voucherLimit);
+        $coveredCents = $buyInPrice - $voucherPrice;
 
         $tableNumber = isset($options['table_number']) ? (int) $options['table_number'] : null;
         $seatNumber = isset($options['seat_number']) ? (int) $options['seat_number'] : null;
@@ -351,7 +372,7 @@ final class TournamentDeskService
             $tableNumber,
             $seatNumber,
             $voucherCode !== null
-                ? ['price_cents' => 0, 'meta' => ['voucher_code' => $voucherCode]]
+                ? ['price_cents' => $voucherPrice, 'meta' => ['voucher_code' => $voucherCode, 'voucher_covered_cents' => $coveredCents]]
                 : [],
         );
     }

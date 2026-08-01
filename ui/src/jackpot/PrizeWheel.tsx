@@ -12,11 +12,17 @@ export type SpinOutcome = {
   voucherExpiresAt: string | null
   pointsAmount: number | null
   playerName: string
+  /** The cloud reference of this spin — a golden follow-up quotes it. */
+  reference: string | null
+  /** Set when the spin landed on the golden segment: open the golden wheel. */
+  followUp: 'golden_wheel' | null
 }
 
 type PrizeWheelProps = {
   /** Live catalog segments; falls back to the preview fixture. */
   prizes?: WheelPrize[]
+  /** The all-golden follow-up wheel — golden chrome, same physics. */
+  golden?: boolean
   /**
    * When provided the wheel is REAL: this asks the cloud (via the local
    * host) to draw, and the rotor lands on the returned segment. Without it
@@ -185,7 +191,7 @@ function strokePolyline(ctx: CanvasRenderingContext2D, points: Point[]) {
   ctx.stroke()
 }
 
-export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult, onSettled }: PrizeWheelProps) {
+export default function PrizeWheel({ prizes = wheelPrizes, golden = false, requestSpin, onResult, onSettled }: PrizeWheelProps) {
   const SEGMENT_ANGLE = 360 / Math.max(1, prizes.length)
   const [rotation, setRotation] = useState(0)
   const [spinning, setSpinning] = useState(false)
@@ -502,7 +508,7 @@ export default function PrizeWheel({ prizes = wheelPrizes, requestSpin, onResult
 
   return (
     <div
-      className={`npl-wheel-stage${spinning ? ' npl-wheel-stage--spinning' : ''}`}
+      className={`npl-wheel-stage${spinning ? ' npl-wheel-stage--spinning' : ''}${golden ? ' npl-wheel-stage--golden' : ''}`}
       onMouseMove={handleStageMouseMove}
       onMouseLeave={handleStageMouseLeave}
     >

@@ -14,16 +14,22 @@ import "@fontsource/inter/700.css"
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import { ScanLine, RefreshCw, ShieldCheck, Undo2 } from "lucide-react"
 import PrizeWheel, { type SpinOutcome } from "./PrizeWheel"
-import { toWheelPrizes, wheelApi, type WheelEligibility, type WheelPlayer, type WheelSegment } from "./wheelApi"
+import { toWheelPrizes, wheelApi, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier } from "./wheelApi"
+import type { WheelPrize } from "./wheelPrizes"
 import "./jackpot-wheel.css"
 
 /**
  * The Jackpot Wheel tab: scan the player first — exactly like registration —
  * then the wheel opens. Only this desk spins for real: the cloud draws the
  * winner and the prize lands in the player's inbox automatically.
+ *
+ * Landing on the golden segment does not end the turn: the stage flips to
+ * the all-golden wheel and the SAME player draws again — that second draw
+ * is the prize that pays (and what comes off the jackpot).
  */
 export default function JackpotWheelWorkspace() {
   const [segments, setSegments] = useState<WheelSegment[] | null>(null)
+  const [goldenSegments, setGoldenSegments] = useState<WheelSegment[]>([])
   const [segmentsError, setSegmentsError] = useState(false)
   const [scanValue, setScanValue] = useState("")
   const [scanBusy, setScanBusy] = useState(false)
@@ -31,6 +37,9 @@ export default function JackpotWheelWorkspace() {
   const [player, setPlayer] = useState<WheelPlayer | null>(null)
   const [eligibility, setEligibility] = useState<WheelEligibility>(null)
   const [spinError, setSpinError] = useState<string | null>(null)
+  // Which tier the stage is showing; golden carries the funding spin's ref.
+  const [activeWheel, setActiveWheel] = useState<WheelTier>("normal")
+  const [goldenParentRef, setGoldenParentRef] = useState<string | null>(null)
   // The completed draw — once set, the bottom card flips to the reward
   // summary and the Done button, which is the only way off the page.
   const [outcome, setOutcome] = useState<SpinOutcome | null>(null)
@@ -47,6 +56,14 @@ export default function JackpotWheelWorkspace() {
       .catch(() => {
         if (!cancelled) setSegmentsError(true)
       })
+    wheelApi.segments("golden")
+      .then((result) => {
+        if (!cancelled) setGoldenSegments(result.segments)
+      })
+      .catch(() => {
+        // The golden wheel is optional — a miss only matters if a spin
+        // actually lands on the golden segment, and the cloud gates that.
+      })
     return () => {
       cancelled = true
     }
@@ -62,15 +79,21 @@ export default function JackpotWheelWorkspace() {
     try {
       const result = await wheelApi.lookup(nplId)
 
+      // A golden draw won earlier but never taken (crash, closed app)
+      // resumes first — it is already paid for, eligibility or not.
+      const pendingGolden = result.eligibility?.pending_golden?.[0] ?? null
+
       // The cloud gate speaks before the wheel opens: an ineligible player
       // stays on the scan page with the reason on screen.
-      if (result.eligibility && !result.eligibility.eligible) {
+      if (!pendingGolden && result.eligibility && !result.eligibility.eligible) {
         setScanError(result.eligibility.reason ?? "This player cannot spin right now.")
         return
       }
 
       setPlayer(result.player)
       setEligibility(result.eligibility)
+      setActiveWheel(pendingGolden ? "golden" : "normal")
+      setGoldenParentRef(pendingGolden ? pendingGolden.parent_reference : null)
       setScanValue("")
       setSpinError(null)
       referenceRef.current = null
@@ -87,6 +110,8 @@ export default function JackpotWheelWorkspace() {
     setScanError(null)
     setSpinError(null)
     setOutcome(null)
+    setActiveWheel("normal")
+    setGoldenParentRef(null)
     referenceRef.current = null
   }
 
@@ -99,7 +124,14 @@ export default function JackpotWheelWorkspace() {
     const venueId = storedVenue ? Number(storedVenue) || null : null
 
     try {
-      const { spin } = await wheelApi.spin(referenceRef.current, player.npl_id, venueId)
+      const { spin } = await wheelApi.spin(
+        referenceRef.current,
+        player.npl_id,
+        venueId,
+        activeWheel === "golden" && goldenParentRef
+          ? { wheel: "golden", parentReference: goldenParentRef }
+          : undefined,
+      )
       referenceRef.current = null
 
       // Don't reveal here — the wheel is still spinning. The card flips
@@ -111,12 +143,29 @@ export default function JackpotWheelWorkspace() {
         voucherExpiresAt: spin.voucher?.expires_at ?? null,
         pointsAmount: spin.points_amount,
         playerName: spin.player.display_name,
+        reference: spin.reference ?? null,
+        followUp: spin.follow_up === "golden_wheel" ? "golden_wheel" : null,
       }
     } catch (error) {
       // Keep the reference: pressing SPIN again retries the SAME spin.
       setSpinError(error instanceof Error ? error.message : "The spin could not be completed. Nothing was drawn.")
       return null
     }
+  }
+
+  /**
+   * The rotor landed. A golden-segment hit flips the stage to the golden
+   * wheel instead of finishing — the follow-up draw is the real prize.
+   */
+  function handleSettled(settled: SpinOutcome) {
+    if (settled.followUp === "golden_wheel" && settled.reference) {
+      setActiveWheel("golden")
+      setGoldenParentRef(settled.reference)
+      setSpinError(null)
+      referenceRef.current = null
+      return
+    }
+    setOutcome(settled)
   }
 
   if (!player) {
@@ -165,28 +214,46 @@ export default function JackpotWheelWorkspace() {
     )
   }
 
-  const prizes = toWheelPrizes(segments ?? [])
+  // The golden face alternates two gold tones so its all-gold segments
+  // still read as separate prizes.
+  const goldenPrizes: WheelPrize[] = toWheelPrizes(goldenSegments).map((prize, index) => ({
+    ...prize,
+    hue: index % 2 === 0 ? "gold" : "goldDeep",
+  }))
+  const prizes = activeWheel === "golden" ? goldenPrizes : toWheelPrizes(segments ?? [])
+  const isGolden = activeWheel === "golden"
 
   // Scanned → the wheel takes the whole window. The player rides as a card
   // at the bottom middle; after the draw the card flips to the reward and
   // Done is the only exit — it clears everything back to the scan input.
   return (
-    <div className="wheel-fullscreen" role="dialog" aria-modal="true" aria-label={`Jackpot Wheel — ${player.display_name}`}>
-      {outcome === null ? (
+    <div
+      className={isGolden ? "wheel-fullscreen wheel-fullscreen--golden" : "wheel-fullscreen"}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${isGolden ? "Golden Wheel" : "Jackpot Wheel"} — ${player.display_name}`}
+    >
+      {outcome === null && !isGolden ? (
         <button type="button" className="wheel-fullscreen__leave" onClick={resetToScan}>
           <Undo2 size={15} /> Change player
         </button>
+      ) : null}
+
+      {isGolden && outcome === null ? (
+        <p className="wheel-golden-banner" role="status">✨ GOLDEN WHEEL — one more spin, {player.display_name}! ✨</p>
       ) : null}
 
       <div className="wheel-fullscreen__stage">
         {prizes.length === 0 ? (
           <section className="wheel-scan-card">
             <p className="wheel-scan-card__note">
-              The wheel has no prizes yet. Compose it in the admin console (Jackpot Control), then run a Manual update here.
+              {isGolden
+                ? "The golden wheel has no prizes on this machine yet — run a Manual update, then scan the player again to take the golden spin."
+                : "The wheel has no prizes yet. Compose it in the admin console (Jackpot Control), then run a Manual update here."}
             </p>
           </section>
         ) : (
-          <PrizeWheel prizes={prizes} requestSpin={requestSpin} onSettled={setOutcome} />
+          <PrizeWheel key={activeWheel} prizes={prizes} golden={isGolden} requestSpin={requestSpin} onSettled={handleSettled} />
         )}
       </div>
 
@@ -208,7 +275,9 @@ export default function JackpotWheelWorkspace() {
             {player.state_code ? ` · ${player.state_code}` : ""}
           </span>
           {outcome === null ? (
-            eligibility?.mode === "jackpot_entry" && eligibility.spins_available !== null ? (
+            isGolden ? (
+              <em className="wheel-player-card__golden">✨ Golden spin ready — this one pays</em>
+            ) : eligibility?.mode === "jackpot_entry" && eligibility.spins_available !== null ? (
               <em>{eligibility.spins_available} spin{eligibility.spins_available === 1 ? "" : "s"} available</em>
             ) : (
               <em>Ready to spin</em>

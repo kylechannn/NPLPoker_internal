@@ -23,16 +23,24 @@ final class WheelController extends Controller
 {
     public function __construct(private readonly CloudClient $cloud) {}
 
-    /** The wheel as last pulled by Manual update. */
-    public function segments(): JsonResponse
+    /** The wheel as last pulled by Manual update — one tier at a time. */
+    public function segments(Request $request): JsonResponse
     {
-        $rows = DB::table('mirror_wheel_prizes')->orderBy('sort_order')->orderBy('cloud_id')->get();
+        $wheel = $request->query('wheel') === 'golden' ? 'golden' : 'normal';
+
+        $rows = DB::table('mirror_wheel_prizes')
+            ->where('wheel', $wheel)
+            ->orderBy('sort_order')
+            ->orderBy('cloud_id')
+            ->get();
         $totalWeight = max(1, (int) $rows->sum('weight'));
 
         return $this->ok([
+            'wheel' => $wheel,
             'segments' => $rows->values()->map(fn (object $row, int $index): array => [
                 'id' => (int) $row->cloud_id,
                 'segment_index' => $index,
+                'wheel' => $row->wheel,
                 'label' => $row->label,
                 'lines' => [$row->line_one, $row->line_two],
                 'hue' => $row->hue,
@@ -41,6 +49,7 @@ final class WheelController extends Controller
                 'benefit_type' => $row->benefit_type,
                 'voucher_type' => $row->voucher_type,
                 'points_amount' => $row->points_amount !== null ? (int) $row->points_amount : null,
+                'value_cents' => $row->value_cents !== null ? (int) $row->value_cents : null,
             ])->all(),
         ]);
     }
@@ -101,15 +110,21 @@ final class WheelController extends Controller
             'npl_id' => ['required', 'string', 'max:32'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
             'game_session_id' => ['sometimes', 'nullable', 'integer'],
+            // Golden follow-up draw, funded by the normal spin that landed
+            // on the golden segment.
+            'wheel' => ['sometimes', 'in:normal,golden'],
+            'parent_reference' => ['sometimes', 'nullable', 'string', 'min:8', 'max:64'],
         ]);
 
         try {
-            $result = $this->cloud->postJson('/api/v1/internal/wheel/spins', [
+            $result = $this->cloud->postJson('/api/v1/internal/wheel/spins', array_filter([
                 'reference' => $validated['reference'],
                 'npl_id' => trim($validated['npl_id']),
                 'venue_id' => $validated['venue_id'] ?? null,
                 'game_session_id' => $validated['game_session_id'] ?? null,
-            ], $validated['reference']);
+                'wheel' => $validated['wheel'] ?? null,
+                'parent_reference' => $validated['parent_reference'] ?? null,
+            ], fn ($value): bool => $value !== null), $validated['reference']);
         } catch (CloudException $e) {
             return response()->json([
                 'ok' => false,
