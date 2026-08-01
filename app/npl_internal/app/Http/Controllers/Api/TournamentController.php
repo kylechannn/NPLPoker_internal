@@ -66,6 +66,10 @@ final class TournamentController
             'jackpot_enabled' => ['sometimes', 'boolean'],
             'jackpot_price_cents' => ['sometimes', 'integer', 'min:0'],
             'jackpot_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            // Cash games cut off by TIME, not levels: minutes after Start
+            // game. Blank = open until the game finishes.
+            'cash_reg_close_min' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1440'],
+            'cash_jackpot_close_min' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1440'],
             'seats_per_table' => ['sometimes', 'integer', 'min:2', 'max:10'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
 
@@ -120,6 +124,10 @@ final class TournamentController
             'jackpot_enabled' => ['sometimes', 'boolean'],
             'jackpot_price_cents' => ['sometimes', 'integer', 'min:0'],
             'jackpot_closes_at_level' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            // Cash games cut off by TIME, not levels: minutes after Start
+            // game. Blank = open until the game finishes.
+            'cash_reg_close_min' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1440'],
+            'cash_jackpot_close_min' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1440'],
             'seats_per_table' => ['sometimes', 'integer', 'min:2', 'max:10'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
             'levels' => ['sometimes', 'array', 'min:1'],

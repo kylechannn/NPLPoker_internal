@@ -44,6 +44,28 @@ final class TournamentGateService
 
         $finished = $session->status === TournamentClockService::STATUS_FINISHED;
 
+        // Cash games have a timer, not a ladder: registration and jackpot
+        // cut off a set number of MINUTES after Start game. Rebuys stay
+        // open until the game finishes; add-ons don't exist at a cash desk.
+        if (($session->game_type ?? 'tournament') === 'cash') {
+            return [
+                self::REGISTRATION => $this->timeGate(
+                    $session->cash_reg_close_min !== null ? (int) $session->cash_reg_close_min : null,
+                    $state,
+                    $finished,
+                    'Registration',
+                ),
+                self::REBUY => $this->timeGate(null, $state, $finished, 'Rebuys'),
+                self::ADDON => $this->timeGate(null, $state, $finished, 'Add-ons'),
+                self::JACKPOT => $this->timeGate(
+                    $session->cash_jackpot_close_min !== null ? (int) $session->cash_jackpot_close_min : null,
+                    $state,
+                    $finished,
+                    'Jackpot entry',
+                ),
+            ];
+        }
+
         // Every cut-off stands alone — the desk fills each one itself, and a
         // blank means that action stays open until the tournament finishes.
         // (Rebuy/jackpot used to inherit the registration cut-off; venues
@@ -75,6 +97,47 @@ final class TournamentGateService
                 $finished,
                 'Jackpot entry',
             ),
+        ];
+    }
+
+    /**
+     * A cash-game gate: closes N minutes after Start game (measured in play
+     * time — the single placeholder level's elapsed, so pausing the timer
+     * pauses the countdown too). Null = open until the game finishes.
+     *
+     * @return array{open:bool,closes_at_level:?int,closes_in_ms:?int,reason:?string}
+     */
+    private function timeGate(?int $closesAfterMin, array $state, bool $finished, string $label): array
+    {
+        if ($finished) {
+            return [
+                'open' => false,
+                'closes_at_level' => null,
+                'closes_in_ms' => 0,
+                'reason' => $label.' closed — the game has finished.',
+            ];
+        }
+
+        if ($closesAfterMin === null) {
+            return ['open' => true, 'closes_at_level' => null, 'closes_in_ms' => null, 'reason' => null];
+        }
+
+        // Elapsed play = the placeholder level's duration minus what remains.
+        // Before Start game the level has never begun (remaining reads 0),
+        // so an unstarted clock means nothing has elapsed at all.
+        $elapsedMs = ($state['level_started_at'] ?? null) === null
+            ? 0
+            : max(0, (int) ($state['level_duration_ms'] ?? 0) - (int) ($state['remaining_ms'] ?? 0));
+        $closeMs = $closesAfterMin * 60_000;
+        $open = $elapsedMs < $closeMs;
+
+        return [
+            'open' => $open,
+            'closes_at_level' => null,
+            'closes_in_ms' => $open ? $closeMs - $elapsedMs : 0,
+            'reason' => $open
+                ? null
+                : sprintf('%s closed %d minutes after the start.', $label, $closesAfterMin),
         ];
     }
 
@@ -146,7 +209,18 @@ final class TournamentGateService
      */
     public function check(int $sessionId, string $action, bool $playerIsRegistered, ?object $session = null, ?array $state = null): array
     {
+        $session ??= $this->clock->session($sessionId);
         $gates = $this->gates($sessionId, $session, $state);
+
+        // Cash rule: the jackpot is a door you walk through ON the first
+        // buy-in — tick it together with the buy-in, or never. A player
+        // already in the game can no longer join (tournaments keep their
+        // join-later-until-the-gate-shuts behaviour).
+        if ($action === 'jackpot' && ($session->game_type ?? 'tournament') === 'cash') {
+            return $playerIsRegistered
+                ? ['allowed' => false, 'reason' => 'Jackpot is only available with the first buy-in.']
+                : $this->fromGate($gates[self::JACKPOT], 'Jackpot entry has closed.');
+        }
 
         return match ($action) {
             'buy_in' => $playerIsRegistered

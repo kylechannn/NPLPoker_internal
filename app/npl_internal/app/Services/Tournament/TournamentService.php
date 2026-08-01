@@ -156,6 +156,9 @@ final class TournamentService
                 'jackpot_enabled' => (bool) ($data['jackpot_enabled'] ?? false),
                 'jackpot_price_cents' => (int) ($data['jackpot_price_cents'] ?? 0),
                 'jackpot_closes_at_level' => $data['jackpot_closes_at_level'] ?? null,
+                // Cash time gates — minutes after Start game; null = never.
+                'cash_reg_close_min' => $isCash ? ($data['cash_reg_close_min'] ?? null) : null,
+                'cash_jackpot_close_min' => $isCash ? ($data['cash_jackpot_close_min'] ?? null) : null,
                 'seats_per_table' => (int) ($data['seats_per_table'] ?? 8),
                 'venue_id' => $data['venue_id'] ?? null,
                 'settings' => isset($data['settings']) ? json_encode($data['settings']) : null,
@@ -231,6 +234,7 @@ final class TournamentService
                 'buy_in_price_cents', 'ko_bounty_cents', 'registration_closes_at_level',
                 'addon_closes_at_level', 'rebuy_closes_at_level', 'jackpot_closes_at_level',
                 'jackpot_price_cents', 'seats_per_table', 'venue_id',
+                'cash_reg_close_min', 'cash_jackpot_close_min',
             ] as $field) {
                 if (array_key_exists($field, $data)) {
                     $update[$field] = $data[$field];

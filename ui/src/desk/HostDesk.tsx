@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Loader2, MessageSquareWarning, MonitorPlay, Play, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
+import { Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Play, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { notify } from "../notifications/store"
 import { playersApi, type PlayerComment } from "../players/playersApi"
 import {
@@ -52,6 +52,48 @@ const GATE_LABELS: Array<{ key: keyof Gates, label: string }> = [
  */
 function optionKey(option: DeskOption): string {
   return `${option.action}:${option.tier ?? "-"}`
+}
+
+/** The slice of the clock snapshot the cash timer needs. */
+type CashClockState = {
+  status?: string
+  running?: boolean
+  level_duration_ms?: number
+  remaining_ms?: number
+  server_time_ms?: number
+}
+
+/**
+ * The cash game's timer: pure elapsed play, no blinds, no levels. The
+ * snapshot is server-authoritative (elapsed = level duration − remaining);
+ * between the 5s refreshes it ticks locally while the game runs. The local
+ * backend lives on this same machine, so its clock IS our clock.
+ */
+function CashTimer({ clock, status }: { clock: CashClockState | undefined, status: string | null }) {
+  const [, forceTick] = useState(0)
+
+  useEffect(() => {
+    const handle = window.setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => window.clearInterval(handle)
+  }, [])
+
+  if (!clock) return null
+
+  const base = Math.max(0, (clock.level_duration_ms ?? 0) - (clock.remaining_ms ?? 0))
+  const drift = clock.running && clock.server_time_ms ? Math.max(0, Date.now() - clock.server_time_ms) : 0
+  const total = Math.floor((base + drift) / 1000)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  const pad = (n: number) => String(n).padStart(2, "0")
+
+  return (
+    <span className={status === "finished" ? "host-cash-timer host-cash-timer--done" : "host-cash-timer"} aria-label="Cash game timer">
+      <Clock3 size={14} />
+      <strong>{pad(hours)}:{pad(minutes)}:{pad(seconds)}</strong>
+      <small>{status === "finished" ? "FINISHED" : status === "paused" ? "PAUSED" : "PLAYING"}</small>
+    </span>
+  )
 }
 
 export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGame, mode = "tournament" }: Props) {
@@ -258,6 +300,10 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
     if (chosen.length === 0) return
 
+    // Cash rule: the jackpot may only ride the SAME submit as the first
+    // buy-in — this flag is the server's proof the pair belong together.
+    const jackpotWithBuyIn = chosen.some((option) => option.action === "buy_in")
+
     setBusy(true)
     setError(null)
 
@@ -290,7 +336,10 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           sessionId,
           scan.player.npl_id,
           option.action,
-          option.tier !== undefined ? { tier: option.tier } : {},
+          {
+            ...(option.tier !== undefined ? { tier: option.tier } : {}),
+            ...(option.action === "jackpot" && jackpotWithBuyIn ? { first_buy_in: true } : {}),
+          },
         )
         setSeating(result.seating)
         applied.push(option.label)
@@ -403,6 +452,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           >
             <Play size={15} /> Start game
           </button>
+        ) : null}
+        {mode === "cash" && clockStatus !== "draft" ? (
+          <CashTimer clock={seating?.clock as CashClockState | undefined} status={clockStatus} />
         ) : null}
         {mode !== "cash" ? <button
           className="host-desk__display"

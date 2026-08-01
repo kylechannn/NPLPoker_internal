@@ -291,7 +291,24 @@ final class TournamentDeskService
             ->where('player_npl_id', $nplId)
             ->first();
 
-        $check = $this->gates->check($sessionId, $action, $entry !== null, $session, $state);
+        $playerIsRegistered = $entry !== null;
+
+        // Cash batch nuance: the popup fires buy_in then jackpot in ONE
+        // submit, so by the time the jackpot lands the entry already exists.
+        // The first_buy_in flag (sent only when the buy-in was part of the
+        // same ticked batch) plus a freshness check lets that one legitimate
+        // pair through; any later attempt stays shut — on a cash desk the
+        // jackpot is joined with the first buy-in or never.
+        if ($action === 'jackpot'
+            && ($session->game_type ?? 'tournament') === 'cash'
+            && $playerIsRegistered
+            && (bool) ($options['first_buy_in'] ?? false)
+            && $entry->created_at !== null
+            && \Illuminate\Support\Carbon::parse($entry->created_at)->gt(now()->subMinutes(5))) {
+            $playerIsRegistered = false;
+        }
+
+        $check = $this->gates->check($sessionId, $action, $playerIsRegistered, $session, $state);
 
         if (! $check['allowed']) {
             throw ValidationException::withMessages(['action' => [$check['reason'] ?? 'That action is not available.']]);

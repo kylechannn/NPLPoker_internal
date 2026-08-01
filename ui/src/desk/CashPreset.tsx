@@ -15,6 +15,9 @@ type CashForm = {
   rebuy_chips: number
   jackpot_enabled: boolean
   jackpot_price_cents: number
+  // Time cut-offs: minutes after Start game. 0 = open until finished.
+  cash_reg_close_min: number
+  cash_jackpot_close_min: number
 }
 
 const DEFAULTS: CashForm = {
@@ -27,6 +30,8 @@ const DEFAULTS: CashForm = {
   rebuy_chips: 10000,
   jackpot_enabled: false,
   jackpot_price_cents: 500,
+  cash_reg_close_min: 0,
+  cash_jackpot_close_min: 0,
 }
 
 function remembered(): CashForm | null {
@@ -94,6 +99,8 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
           rebuy_chips: (s.rebuy_chips as number) ?? 0,
           jackpot_enabled: Boolean(s.jackpot_enabled),
           jackpot_price_cents: (s.jackpot_price_cents as number) ?? 0,
+          cash_reg_close_min: (s.cash_reg_close_min as number) ?? 0,
+          cash_jackpot_close_min: (s.cash_jackpot_close_min as number) ?? 0,
         })
         setLinkedSessionId((s.game_session_id as number | null) ?? "")
       })
@@ -126,6 +133,8 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
       max_addons_per_player: 0,
       jackpot_enabled: form.jackpot_enabled,
       jackpot_price_cents: form.jackpot_price_cents,
+      cash_reg_close_min: form.cash_reg_close_min > 0 ? form.cash_reg_close_min : null,
+      cash_jackpot_close_min: form.cash_jackpot_close_min > 0 ? form.cash_jackpot_close_min : null,
       venue_id: venue?.id ?? null,
       venue_name: venue?.name ?? null,
     }
@@ -261,6 +270,25 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
                   type="number" min={0}
                   value={dollars(form.jackpot_price_cents)}
                   onChange={(event) => set("jackpot_price_cents", Math.max(0, Number(event.target.value) || 0) * 100)}
+                />
+              </label>
+            ) : null}
+
+            <label>
+              <span>Registration closes (min after start, 0 = never)</span>
+              <input
+                type="number" min={0} max={1440}
+                value={form.cash_reg_close_min}
+                onChange={(event) => set("cash_reg_close_min", Math.max(0, Math.min(1440, Number(event.target.value) || 0)))}
+              />
+            </label>
+            {form.jackpot_enabled ? (
+              <label>
+                <span>Jackpot closes (min after start, 0 = never)</span>
+                <input
+                  type="number" min={0} max={1440}
+                  value={form.cash_jackpot_close_min}
+                  onChange={(event) => set("cash_jackpot_close_min", Math.max(0, Math.min(1440, Number(event.target.value) || 0)))}
                 />
               </label>
             ) : null}

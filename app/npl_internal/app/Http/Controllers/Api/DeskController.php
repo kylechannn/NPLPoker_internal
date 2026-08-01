@@ -426,6 +426,9 @@ final class DeskController
             // what the voucher's entry-fee limit leaves uncovered.
             'voucher_code' => ['sometimes', 'nullable', 'string', 'max:20'],
             'voucher_limit_cents' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            // Cash desks: the jackpot tick rode the same submit as the
+            // buy-in — the only moment a cash player may join it.
+            'first_buy_in' => ['sometimes', 'boolean'],
         ]);
 
         $result = $this->desk->apply($id, $validated['player_npl_id'], $validated['action'], $validated);

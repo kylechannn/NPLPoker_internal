@@ -1989,3 +1989,35 @@
   margin-right: 5px;
   color: rgba(214, 232, 255, 0.4);
 }
+
+/* Cash game timer — pure elapsed play beside the scan box. */
+.host-cash-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid rgba(120, 200, 255, 0.35);
+  border-radius: 10px;
+  background: rgba(10, 20, 44, 0.75);
+  color: #cfe6ff;
+  white-space: nowrap;
+}
+
+.host-cash-timer strong {
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #7fd8ff;
+}
+
+.host-cash-timer small {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(207, 230, 255, 0.55);
+}
+
+.host-cash-timer--done strong {
+  color: #ffd766;
+}
