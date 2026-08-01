@@ -60,6 +60,7 @@ final class DeltaSyncService
             $cursor = null;
             $watermark = $since;
             $notModified = false;
+            $freshEtag = null;
 
             do {
                 $result = $this->cloud->getJson(
@@ -79,7 +80,12 @@ final class DeltaSyncService
                 }
 
                 if ($pages === 0 && $result['etag']) {
-                    $this->touch($entity, ['etag' => $result['etag']]);
+                    // Held until the WHOLE entity applies. Persisting it here
+                    // poisoned the state once: an upsert failure left the
+                    // current-state ETag on record, so every later run got a
+                    // 304 against rows the mirror never received — the wheel
+                    // sat stale while sync reported "unchanged".
+                    $freshEtag = $result['etag'];
                 }
 
                 $payload = $result['data'];
@@ -103,13 +109,19 @@ final class DeltaSyncService
 
             $deleted = $this->reconcileDeletes($entity, $table);
 
-            $this->touch($entity, [
+            $success = [
                 'status' => 'ok',
                 'cursor' => $watermark,
                 'row_count' => DB::table($table)->count(),
                 'last_success_at' => now(),
                 'last_error' => null,
-            ]);
+            ];
+
+            if ($freshEtag !== null) {
+                $success['etag'] = $freshEtag;
+            }
+
+            $this->touch($entity, $success);
 
             return [
                 'entity' => $entity,

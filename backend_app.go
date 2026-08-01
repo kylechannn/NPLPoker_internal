@@ -57,6 +57,20 @@ func startBackendApp(ctx context.Context) (*backendApp, error) {
 
 	address := fmt.Sprintf("127.0.0.1:%d", port)
 
+	// Bring the schema up to date BEFORE serving. Code updates ship with
+	// migrations, and a query against a column that never got migrated in
+	// takes whole features down (the wheel went dark exactly this way).
+	// A no-op run costs well under a second; a failure is logged, not
+	// fatal, so an odd DB state still leaves the console usable.
+	migrate := exec.CommandContext(ctx, php, "artisan", "migrate", "--force", "--no-interaction")
+	migrate.Dir = appDir
+	migrate.Stdout = os.Stdout
+	migrate.Stderr = os.Stderr
+	configureBackgroundProcess(migrate)
+	if err := migrate.Run(); err != nil {
+		log.Printf("[npl-internal] migrate on boot failed (continuing with current schema): %v", err)
+	}
+
 	cmd := exec.CommandContext(ctx, php, "artisan", "serve", "--host=127.0.0.1", fmt.Sprintf("--port=%d", port))
 	cmd.Dir = appDir
 	cmd.Stdout = os.Stdout
