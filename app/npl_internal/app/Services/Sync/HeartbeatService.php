@@ -52,17 +52,20 @@ final class HeartbeatService
     {
         $counts = [];
 
-        foreach ([
-            'venues' => 'mirror_venues',
-            'game_sessions' => 'mirror_game_sessions',
-            'seats' => 'mirror_session_tables',
-            'players' => 'mirror_players',
-            'game_entities' => 'mirror_game_entities',
-            'relationships' => 'mirror_player_relationships',
-            'wheel_prizes' => 'mirror_wheel_prizes',
-            'staff' => 'mirror_staff',
-        ] as $label => $table) {
-            $counts[$label] = DB::table($table)->count();
+        // One source of truth: the Manual-update entity list. The two
+        // historical payload names the cloud dashboard already knows are
+        // preserved as aliases; every other entity reports under its own key.
+        $aliases = [
+            'seating' => 'seats',
+            'player_relationships' => 'relationships',
+        ];
+
+        foreach ((array) config('nplcloud.entities', []) as $entity => $definition) {
+            $table = $definition['table'] ?? null;
+            if (! is_string($table) || $table === '') {
+                continue;
+            }
+            $counts[$aliases[$entity] ?? $entity] = DB::table($table)->count();
         }
 
         $counts['avatars'] = DB::table('media_cache')->where('status', 'ok')->count();

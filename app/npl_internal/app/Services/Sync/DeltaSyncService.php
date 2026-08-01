@@ -26,20 +26,31 @@ use Throwable;
  */
 final class DeltaSyncService
 {
-    /** Local mirror shape per entity. */
-    private const TABLES = [
-        'players' => 'mirror_players',
-        'game_entities' => 'mirror_game_entities',
-        'player_relationships' => 'mirror_player_relationships',
-        'wheel_prizes' => 'mirror_wheel_prizes',
-        'staff' => 'mirror_staff',
-    ];
-
     public function __construct(private readonly CloudClient $cloud) {}
+
+    /**
+     * Local mirror table per DELTA entity — read from the ONE entity list
+     * in config/nplcloud.php, so adding an entity there is the only step
+     * (the upsert() column arm below will refuse loudly if forgotten).
+     *
+     * @return array<string, string>
+     */
+    private function tables(): array
+    {
+        $tables = [];
+
+        foreach ((array) config('nplcloud.entities', []) as $entity => $definition) {
+            if (($definition['mode'] ?? null) === 'delta' && is_string($definition['table'] ?? null)) {
+                $tables[$entity] = $definition['table'];
+            }
+        }
+
+        return $tables;
+    }
 
     public function supports(string $entity): bool
     {
-        return isset(self::TABLES[$entity]);
+        return isset($this->tables()[$entity]);
     }
 
     /**
@@ -47,7 +58,7 @@ final class DeltaSyncService
      */
     public function sync(string $entity, bool $force = false): array
     {
-        $table = self::TABLES[$entity] ?? throw new \InvalidArgumentException("Unknown delta entity [{$entity}].");
+        $table = $this->tables()[$entity] ?? throw new \InvalidArgumentException("Unknown delta entity [{$entity}].");
         $state = $this->state($entity);
 
         $this->touch($entity, ['status' => 'running', 'last_attempt_at' => now()]);
@@ -261,7 +272,9 @@ final class DeltaSyncService
                     'updated_at' => $now,
                 ],
 
-                default => [],
+                default => throw new \InvalidArgumentException(
+                    "Delta entity [{$entity}] has no column mapping in DeltaSyncService::upsert() — add one."
+                ),
             };
         }
 

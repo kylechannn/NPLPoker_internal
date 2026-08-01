@@ -21,7 +21,11 @@ detail first; the changes below are the ones that mattered.
 EdgeHost hardcoded its entity list in a React constant, a Go slice and a PHP
 array. They drifted, so "update everything" meant different things depending
 on which path triggered it. Ours lives in `config/nplcloud.php` and is served
-at `/api/v1/sync/manifest` for the host and both UIs to read.
+at `/api/v1/sync/manifest` for the host and both UIs to read. The heartbeat
+counts and the delta-sync table list DERIVE from that same config (2026-08-01)
+— the only hand-written per-entity code left is the delta column mapping in
+`DeltaSyncService::upsert()`, which now throws on a missing arm instead of
+silently writing nothing.
 
 **2. Staging + verified swap for every entity.**
 EdgeHost wiped live tables inside one transaction spanning *all* entities, so
