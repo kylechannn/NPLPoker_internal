@@ -74,7 +74,6 @@ export const syncApi = {
       body: JSON.stringify({ trigger_source: triggerSource }),
     }),
 
-  latest: () => request<{ run: SyncRun | null }>('/api/v1/sync/runs/latest'),
 
   status: (uuid: string) => request<{ run: SyncRun }>(`/api/v1/sync/runs/${uuid}`),
 
@@ -89,8 +88,6 @@ export const syncApi = {
     return current
   },
 
-  manifest: () =>
-    request<{ cloud_base: string, entities: SyncEntityState[] }>('/api/v1/sync/manifest'),
 
   avatars: (force = false) =>
     request<{ avatars: Record<string, number> }>(`/api/v1/sync/avatars${force ? '?force=1' : ''}`, {

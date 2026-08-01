@@ -199,3 +199,82 @@
   letter-spacing: 0.08em;
   background: rgba(255, 197, 61, 0.12);
 }
+
+/* Row actions: seat a wait-listed player, or remove a registration. */
+.regs__rowactions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.regs__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.regs__action:disabled { opacity: 0.55; cursor: default; }
+
+.regs__action--seat {
+  color: #052012;
+  border: 1px solid rgba(92, 233, 168, 0.5);
+  background: linear-gradient(135deg, #5ce9a8, #21bda3);
+}
+
+.regs__action--remove {
+  color: #ffb3bd;
+  border: 1px solid rgba(255, 107, 125, 0.4);
+  background: rgba(255, 107, 125, 0.12);
+}
+
+.regs__voucher {
+  display: inline-block;
+  margin-right: 6px;
+  border: 1px solid rgba(244, 197, 76, 0.55);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #ffd98a;
+  background: rgba(120, 84, 12, 0.35);
+}
+
+.regs__confirm {
+  border: 1px solid rgba(244, 197, 76, 0.4);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 10px;
+  background: rgba(80, 58, 12, 0.28);
+}
+
+.regs__confirm p {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+}
+
+.regs__confirmactions { display: flex; gap: 8px; }
+
+.regs__confirmactions button {
+  border: none;
+  border-radius: 9px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #04240f;
+  background: linear-gradient(135deg, #5ce9a8, #21bda3);
+  cursor: pointer;
+}
+
+.regs__confirmactions .regs__ghost {
+  color: #cfe0f7;
+  background: rgba(30, 48, 80, 0.55);
+  border: 1px solid rgba(120, 150, 190, 0.3);
+}

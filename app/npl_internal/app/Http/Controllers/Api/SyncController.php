@@ -11,7 +11,6 @@ use App\Services\Sync\ManualUpdateRunner;
 use App\Services\Sync\SyncService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Local sync surface consumed by the Go host and both UIs.
@@ -161,42 +160,4 @@ final class SyncController
         return response()->json(['ok' => true, 'data' => ['run' => $this->runner->latest()]]);
     }
 
-    /** What the operational UI reads: the mirrored snapshot itself. */
-    public function snapshot(Request $request): JsonResponse
-    {
-        $date = $request->string('date')->toString();
-
-        $sessions = DB::table('mirror_game_sessions')
-            ->when($date !== '', fn ($query) => $query->where('session_date', $date))
-            ->orderBy('session_date')
-            ->orderBy('start_time')
-            ->get();
-
-        $seating = DB::table('mirror_session_tables')
-            ->whereIn('session_id', $sessions->pluck('session_id'))
-            ->orderBy('table_number')
-            ->orderBy('seat_number')
-            ->get()
-            ->groupBy('session_id');
-
-        return response()->json([
-            'ok' => true,
-            'data' => [
-                'venues' => DB::table('mirror_venues')->orderBy('venue_name')->get(),
-                'sessions' => $sessions->map(fn (object $session): array => [
-                    'session_id' => (int) $session->session_id,
-                    'title' => $session->title,
-                    'category' => $session->category,
-                    'venue_name' => $session->venue_name,
-                    'session_date' => $session->session_date,
-                    'start_time' => $session->start_time,
-                    'status' => $session->status,
-                    'registrations_count' => (int) $session->registrations_count,
-                    'max_players' => $session->max_players,
-                    'image' => $session->media_key ? '/media/'.$session->media_key : null,
-                    'seating' => $seating->get($session->session_id, collect())->values(),
-                ])->values(),
-            ],
-        ]);
-    }
 }

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -12,11 +14,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -73,6 +73,10 @@ type staffLoginManager struct {
 	now           func() time.Time
 	challenges    map[string]*staffChallenge
 	sessions      map[string]*staffSession
+	// resolveStaff answers "who is this staff code" from the mirrored
+	// staff register (the cloud's roster, pulled by Manual update). A nil
+	// resolver means no register is reachable — nobody can sign in.
+	resolveStaff func(code string) (staffIdentity, error)
 }
 
 func newStaffLoginManager(publicBaseURL string) *staffLoginManager {
@@ -198,7 +202,6 @@ func (manager *staffLoginManager) mobileLoginPage(w http.ResponseWriter, r *http
 		Message:          "Confirm your identity to start a secure NPL staff session.",
 		Token:            token,
 		SecondsRemaining: secondsRemaining(challenge.ExpiresAt, manager.now().UTC()),
-		Roles:            staffRoles(),
 	})
 }
 
@@ -215,11 +218,7 @@ func (manager *staffLoginManager) approveMobileLogin(w http.ResponseWriter, r *h
 		return
 	}
 
-	identity, err := validateStaffIdentity(
-		r.FormValue("staff_id"),
-		r.FormValue("staff_name"),
-		r.FormValue("staff_role"),
-	)
+	staffCode, err := validateStaffCode(r.FormValue("staff_id"))
 	if err != nil {
 		manager.renderMobileFormError(w, token, challenge, err.Error())
 		return
@@ -248,6 +247,32 @@ func (manager *staffLoginManager) approveMobileLogin(w http.ResponseWriter, r *h
 			return
 		}
 		manager.renderMobileFormError(w, token, challenge, "The 6-digit pairing code does not match NPL OS.")
+		return
+	}
+	manager.mu.Unlock()
+
+	// Pairing proven — now the register speaks. The lookup runs OUTSIDE
+	// the lock (it is an HTTP call to the bundled backend), and only the
+	// cloud-mirrored roster can put a name on this desk.
+	if manager.resolveStaff == nil {
+		manager.renderMobileFormError(w, token, challenge, "The staff register is unavailable on this install — start the full NPL OS and run Manual update.")
+		return
+	}
+	identity, resolveErr := manager.resolveStaff(staffCode)
+	if resolveErr != nil {
+		manager.renderMobileFormError(w, token, challenge, resolveErr.Error())
+		return
+	}
+
+	manager.mu.Lock()
+	now = manager.now().UTC()
+	manager.expireChallengeLocked(challenge, now)
+	// Re-check after the unlocked lookup: a rival approval or expiry in
+	// the meantime must still win — the challenge stays single-use.
+	if challenge.Status != "waiting" && challenge.Status != "scanned" {
+		state = challenge.Status
+		manager.mu.Unlock()
+		manager.renderMobileError(w, http.StatusGone, staffStateMessage(state))
 		return
 	}
 
@@ -367,7 +392,6 @@ func (manager *staffLoginManager) renderMobileFormError(
 		Message:          message,
 		Token:            token,
 		SecondsRemaining: secondsRemaining(challenge.ExpiresAt, manager.now().UTC()),
-		Roles:            staffRoles(),
 		Error:            true,
 	})
 }
@@ -387,7 +411,6 @@ type mobileLoginView struct {
 	Message          string
 	Token            string
 	SecondsRemaining int
-	Roles            []string
 	Error            bool
 	Approved         bool
 	Staff            *staffIdentity
@@ -426,9 +449,7 @@ var mobileLoginTemplate = template.Must(template.New("staff-login").Parse(`<!doc
       {{if .Token}}
       <form method="post" action="/staff-login/approve" autocomplete="off">
         <input type="hidden" name="token" value="{{.Token}}">
-        <div class="field"><label for="staff-name">Full name</label><input id="staff-name" name="staff_name" maxlength="50" required autocomplete="name" placeholder="Your staff name"></div>
-        <div class="field"><label for="staff-id">Staff ID</label><input id="staff-id" name="staff_id" maxlength="24" required autocapitalize="characters" placeholder="e.g. NPL-2048"></div>
-        <div class="field"><label for="staff-role">Operational role</label><select id="staff-role" name="staff_role" required>{{range .Roles}}<option value="{{.}}">{{.}}</option>{{end}}</select></div>
+        <div class="field"><label for="staff-id">Staff ID</label><input id="staff-id" name="staff_id" maxlength="24" required autocapitalize="characters" placeholder="e.g. NPL-2048"><small>Your ID on the club's staff register — name and role come from the register.</small></div>
         <div class="field code"><label for="pairing-code">6-digit pairing code</label><input id="pairing-code" name="pairing_code" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" required placeholder="000000"><small>Enter the code shown beside the QR on NPL OS.</small></div>
         <button type="submit">Approve staff sign-in</button>
       </form>
@@ -450,46 +471,78 @@ func (manager *staffLoginManager) renderMobilePage(w http.ResponseWriter, status
 	_ = mobileLoginTemplate.Execute(w, view)
 }
 
-func validateStaffIdentity(id, name, role string) (staffIdentity, error) {
+func validateStaffCode(id string) (string, error) {
 	id = strings.ToUpper(strings.TrimSpace(id))
-	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
-	role = strings.TrimSpace(role)
 
-	if utf8.RuneCountInString(name) < 2 || utf8.RuneCountInString(name) > 50 {
-		return staffIdentity{}, errors.New("Enter the staff member's full name.")
-	}
 	if len(id) < 3 || len(id) > 24 {
-		return staffIdentity{}, errors.New("Enter a valid staff ID.")
+		return "", errors.New("Enter a valid staff ID.")
 	}
 	for _, character := range id {
 		if (character < 'A' || character > 'Z') &&
 			(character < '0' || character > '9') &&
 			character != '-' && character != '_' && character != '.' {
-			return staffIdentity{}, errors.New("Staff ID may use letters, numbers, hyphens, underscores, and dots.")
+			return "", errors.New("Staff ID may use letters, numbers, hyphens, underscores, and dots.")
 		}
 	}
-	allowedRole := false
-	for _, candidate := range staffRoles() {
-		if role == candidate {
-			allowedRole = true
-			break
-		}
-	}
-	if !allowedRole {
-		return staffIdentity{}, errors.New("Choose a valid operational role.")
-	}
-	return staffIdentity{
-		ID:       id,
-		Name:     name,
-		Role:     role,
-		Initials: staffInitials(name),
-	}, nil
+
+	return id, nil
 }
 
-func staffRoles() []string {
-	roles := []string{"Dealer", "Floor Manager", "Operations", "Registration", "Tournament Director"}
-	sort.Strings(roles)
-	return roles
+// rosterResolver looks a staff code up in the bundled backend's mirrored
+// staff register (POST /api/v1/staff/resolve). The cloud's roster is the
+// only source of names — Manual update carries it onto this machine.
+func rosterResolver(backend *backendApp) func(string) (staffIdentity, error) {
+	client := &http.Client{Timeout: 8 * time.Second}
+
+	return func(code string) (staffIdentity, error) {
+		if backend == nil {
+			return staffIdentity{}, errors.New("The staff register is unavailable on this install.")
+		}
+
+		payload, err := json.Marshal(map[string]string{"staff_code": code})
+		if err != nil {
+			return staffIdentity{}, errors.New("The staff lookup could not be prepared.")
+		}
+
+		response, err := client.Post(backend.target.String()+"/api/v1/staff/resolve", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			return staffIdentity{}, errors.New("The staff register could not be reached — is the local service still starting?")
+		}
+		defer response.Body.Close()
+
+		var body struct {
+			Ok   bool `json:"ok"`
+			Data struct {
+				Staff struct {
+					StaffCode string `json:"staff_code"`
+					Name      string `json:"name"`
+					Role      string `json:"role"`
+				} `json:"staff"`
+			} `json:"data"`
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&body); err != nil || !body.Ok {
+			message := strings.TrimSpace(body.Error.Message)
+			if message == "" {
+				message = "This staff ID is not on the register. Ask the club admin, then run Manual update."
+			}
+			return staffIdentity{}, errors.New(message)
+		}
+
+		name := strings.Join(strings.Fields(body.Data.Staff.Name), " ")
+		if name == "" {
+			return staffIdentity{}, errors.New("The register entry is incomplete — ask the club admin to fix it.")
+		}
+
+		return staffIdentity{
+			ID:       strings.ToUpper(strings.TrimSpace(body.Data.Staff.StaffCode)),
+			Name:     name,
+			Role:     strings.TrimSpace(body.Data.Staff.Role),
+			Initials: staffInitials(name),
+		}, nil
+	}
 }
 
 func staffInitials(name string) string {

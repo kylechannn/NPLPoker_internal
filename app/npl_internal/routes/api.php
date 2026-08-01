@@ -27,41 +27,31 @@ Route::prefix('v1/sync')->controller(SyncController::class)->group(function (): 
     Route::get('realtime', 'realtime');
     Route::get('runs/latest', 'latest');
     Route::get('runs/{uuid}', 'status');
-    Route::get('snapshot', 'snapshot');
     Route::post('avatars', 'avatars');
 });
 
 Route::get('/media/{key}', [MediaController::class, 'show'])->where('key', '[A-Za-z0-9]+');
 
+// Staff register (mirrored by Manual update): the Go host resolves a typed
+// staff ID here during QR pairing — unknown IDs cannot sign in.
+Route::post('v1/staff/resolve', [\App\Http\Controllers\Api\StaffController::class, 'resolve']);
+
 /*
  * Tournament clock — the poker adaptation of EdgeHost's Sichuan module.
  * The clock is server-authoritative so every display agrees.
+ * (Only the routes the UI actually calls exist — the desk endpoints own
+ * registration/actions/finish, and templates never grew a UI.)
  */
-Route::prefix('v1/tournament-templates')->controller(\App\Http\Controllers\Api\TournamentController::class)->group(function (): void {
-    Route::get('/', 'templates');
-    Route::post('/', 'saveTemplate');
-    Route::delete('{templateId}', 'deleteTemplate')->whereNumber('templateId');
-});
-
 Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\TournamentController::class)->group(function (): void {
-    Route::get('/', 'index');
     Route::post('/', 'store');
     Route::get('{id}', 'show')->whereNumber('id');
     Route::put('{id}', 'update')->whereNumber('id');
-    Route::put('{id}/structure', 'updateStructure')->whereNumber('id');
 
-    Route::get('{id}/clock', 'clock')->whereNumber('id');
     Route::post('{id}/start', 'start')->whereNumber('id');
     Route::post('{id}/pause', 'pause')->whereNumber('id');
     Route::post('{id}/resume', 'resume')->whereNumber('id');
     Route::post('{id}/next-level', 'nextLevel')->whereNumber('id');
     Route::post('{id}/previous-level', 'previousLevel')->whereNumber('id');
-    Route::post('{id}/adjust-time', 'adjustTime')->whereNumber('id');
-    Route::post('{id}/finish', 'finish')->whereNumber('id');
-
-    Route::get('{id}/players', 'players')->whereNumber('id');
-    Route::post('{id}/register', 'register')->whereNumber('id');
-    Route::post('{id}/actions', 'act')->whereNumber('id');
 });
 
 /*
@@ -94,19 +84,18 @@ Route::prefix('v1/vouchers')->controller(\App\Http\Controllers\Api\WheelControll
  */
 Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::class)->group(function (): void {
     Route::get('venues', 'venues');
-    Route::get('dashboard', 'dashboard');
     Route::get('upcoming-sessions', 'upcomingSessions');
     Route::get('all-sessions', 'allSessions');
     Route::get('sessions/{gameSessionId}/roster', 'sessionRoster')->whereNumber('gameSessionId');
     Route::get('sessions/{gameSessionId}/online-registrations', 'onlineRegistrations')->whereNumber('gameSessionId');
     Route::delete('sessions/{gameSessionId}/tables/{tableNumber}', 'cancelCloudTable')->whereNumber('gameSessionId')->whereNumber('tableNumber');
     Route::delete('sessions/{gameSessionId}/registrations/{nplId}', 'removeCloudRegistration')->whereNumber('gameSessionId');
+    Route::post('sessions/{gameSessionId}/registrations/{nplId}/promote', 'promoteCloudRegistration')->whereNumber('gameSessionId');
     Route::post('structure-preview', 'previewStructure');
 
     Route::post('{id}/scan', 'scan')->whereNumber('id');
     Route::post('{id}/act', 'act')->whereNumber('id');
     Route::get('{id}/seating', 'seating')->whereNumber('id');
-    Route::get('{id}/gates', 'gates')->whereNumber('id');
     Route::post('{id}/eliminate', 'eliminate')->whereNumber('id');
     Route::post('{id}/reinstate', 'reinstate')->whereNumber('id');
     Route::post('{id}/seat', 'seat')->whereNumber('id');
@@ -124,6 +113,7 @@ Route::prefix('v1/players')->controller(\App\Http\Controllers\Api\PlayersControl
     Route::post('update', 'updatePlayer');
     Route::post('password', 'setPassword');
     Route::get('vouchers', 'vouchers');
+    Route::get('activity', 'activity');
     Route::post('vouchers/{cloudVoucherId}/mark-used', 'markVoucherUsed')->whereNumber('cloudVoucherId');
     Route::post('register-code', 'registerCode');
     Route::post('register', 'register');

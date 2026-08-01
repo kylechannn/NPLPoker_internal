@@ -334,12 +334,14 @@ class TournamentClockTest extends TestCase
         $this->assertSame(40000, $service->players($id)[0]['chips']);
     }
 
-    public function test_the_clock_endpoint_serves_state_every_display_can_tick_from(): void
+    public function test_the_clock_state_carries_everything_a_display_ticks_from(): void
     {
+        // The dedicated clock route is gone (displays read the clock inside
+        // desk seating) — the STATE contract is what matters.
         $id = $this->tournament();
         $this->postJson("/api/v1/tournaments/{$id}/start")->assertOk();
 
-        $clock = $this->getJson("/api/v1/tournaments/{$id}/clock")->assertOk()->json('data.clock');
+        $clock = app(TournamentClockService::class)->state($id);
 
         // Everything a client needs to render a smooth local countdown.
         $this->assertTrue($clock['running']);

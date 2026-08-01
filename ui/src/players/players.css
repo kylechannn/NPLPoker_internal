@@ -584,3 +584,9 @@
   color: #241a02;
   background: linear-gradient(160deg, #ffd766, #eab308);
 }
+
+.players__activitysummary {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: #8fa9cf;
+}

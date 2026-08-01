@@ -116,12 +116,38 @@ export default function RegistrationsWorkspace({ venue }: { venue: Venue | null 
 function RegistrationsModal({ session, onClose }: { session: SessionSummary, onClose: () => void }) {
   const [rows, setRows] = useState<OnlineRegistration[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // One in-flight action at a time; a confirm step guards both actions.
+  const [busyNpl, setBusyNpl] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<{ action: "promote" | "remove", row: OnlineRegistration } | null>(null)
 
-  useEffect(() => {
+  const load = () => {
     deskApi.onlineRegistrations(session.session_id)
       .then(setRows)
       .catch((e) => setError(e instanceof Error ? e.message : "The registration record could not be loaded."))
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.session_id])
+
+  async function runAction(action: "promote" | "remove", row: OnlineRegistration) {
+    setBusyNpl(row.npl_id)
+    setError(null)
+    try {
+      if (action === "promote") {
+        await deskApi.promoteCloudRegistration(session.session_id, row.npl_id)
+      } else {
+        await deskApi.removeCloudRegistration(session.session_id, row.npl_id)
+      }
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The change could not be applied.")
+    } finally {
+      setBusyNpl(null)
+      setConfirm(null)
+    }
+  }
 
   return (
     <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Online registrations — ${session.title ?? session.session_id}`}>
@@ -148,7 +174,7 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
           ) : rows !== null ? (
             <table className="regs__table">
               <thead>
-                <tr><th>#</th><th>Name</th><th>NPL ID</th><th>Status</th><th>Registered</th></tr>
+                <tr><th>#</th><th>Name</th><th>NPL ID</th><th>Status</th><th>Registered</th><th /></tr>
               </thead>
               <tbody>
                 {rows.map((row, index) => (
@@ -157,6 +183,9 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
                     <td>
                       {row.pre_registered ? (
                         <span className="regs__pre" title="Pre-registered — seat secured at club check-in">PRE</span>
+                      ) : null}
+                      {row.covered_by_voucher ? (
+                        <span className="regs__voucher" title={`Entry paid online with voucher ${row.covered_by_voucher.code} — do not charge again`}>VOUCHER</span>
                       ) : null}
                       {row.display_name}
                     </td>
@@ -173,12 +202,50 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
                         ? new Date(row.registered_at).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
                         : "—"}
                     </td>
+                    <td className="regs__rowactions">
+                      {row.status === "waitlisted" ? (
+                        <button
+                          type="button"
+                          className="regs__action regs__action--seat"
+                          disabled={busyNpl !== null}
+                          onClick={() => setConfirm({ action: "promote", row })}
+                        >
+                          {busyNpl === row.npl_id ? <Loader2 size={12} className="host-spin" /> : null} Seat
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="regs__action regs__action--remove"
+                        disabled={busyNpl !== null}
+                        onClick={() => setConfirm({ action: "remove", row })}
+                      >
+                        Remove
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : null}
         </div>
+
+        {confirm ? (
+          <div className="regs__confirm" role="alertdialog" aria-label="Confirm change">
+            <p>
+              {confirm.action === "promote"
+                ? `Seat ${confirm.row.display_name} from the wait list? They get the first free seat and an inbox notice.`
+                : `Remove ${confirm.row.display_name}'s online registration? Their wait list moves up and they get an inbox notice.`}
+            </p>
+            <div className="regs__confirmactions">
+              <button type="button" disabled={busyNpl !== null} onClick={() => void runAction(confirm.action, confirm.row)}>
+                {confirm.action === "promote" ? "Seat player" : "Remove registration"}
+              </button>
+              <button type="button" className="regs__ghost" disabled={busyNpl !== null} onClick={() => setConfirm(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="membership-modal__actions">
           <button type="button" onClick={onClose}>Close</button>

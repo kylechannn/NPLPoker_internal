@@ -75,6 +75,12 @@ return [
             'mode' => 'delta',
             'table' => 'mirror_wheel_prizes',
         ],
+
+        'staff' => [
+            'label' => 'Staff register',
+            'table' => 'mirror_staff',
+            'mode' => 'delta',
+        ],
         'seating' => [
             'label' => 'Tables & seats',
             // Fanned out per session by the sync service — see SyncService.

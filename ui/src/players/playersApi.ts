@@ -44,6 +44,27 @@ export type DeskVoucher = {
   last_redemption: { handled_by: string | null, source: string | null, redeemed_at: string | null } | null
 }
 
+export type ActivitySession = {
+  tournament_uid: string
+  name: string
+  game_type: 'tournament' | 'cash'
+  finished_at: string | null
+  venue_name: string | null
+  buy_ins: number
+  rebuys: number
+  addons: number
+  in_jackpot: boolean
+  paid_cents: number
+  position: number | null
+  field_size: number | null
+  points: number | null
+}
+
+export type ActivityResult = {
+  sessions: ActivitySession[]
+  summary: { sessions: number, total_paid_cents: number, best_position: number | null }
+}
+
 export type RegisteredPlayer = {
   id: number
   npl_id: string
@@ -107,6 +128,11 @@ export const playersApi = {
   vouchers: (nplId: string) =>
     request<{ result: { vouchers: DeskVoucher[] } }>(`/api/v1/players/vouchers?npl_id=${encodeURIComponent(nplId)}`)
       .then((data) => ({ vouchers: data.result.vouchers })),
+
+  /** Venue activity from the cloud's finished-game records. */
+  activity: (nplId: string) =>
+    request<{ result: ActivityResult }>(`/api/v1/players/activity?npl_id=${encodeURIComponent(nplId)}`)
+      .then((data) => data.result),
 
   markVoucherUsed: (voucherId: number, nplId: string, handledBy: string | null) =>
     request<{ result: { voucher: DeskVoucher } }>(`/api/v1/players/vouchers/${voucherId}/mark-used`, {

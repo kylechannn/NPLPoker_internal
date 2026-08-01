@@ -195,7 +195,7 @@ final class WheelController extends Controller
         } catch (CloudException) {
             // Offline is not an error at the desk — the prompt just does not
             // appear and the normal fee flow continues untouched.
-            return $this->ok(['entitled' => false, 'voucher' => null, 'offline' => true]);
+            return $this->ok(['entitled' => false, 'voucher' => null, 'already_covered' => null, 'offline' => true]);
         }
 
         $data = (array) ($result['data'] ?? []);
@@ -203,6 +203,9 @@ final class WheelController extends Controller
         return $this->ok([
             'entitled' => (bool) ($data['entitled'] ?? false),
             'voucher' => $data['voucher'] ?? null,
+            // The player's ONLINE registration already consumed a voucher —
+            // the desk must price the entry as paid, not charge again.
+            'already_covered' => $data['already_covered'] ?? null,
             'offline' => false,
         ]);
     }

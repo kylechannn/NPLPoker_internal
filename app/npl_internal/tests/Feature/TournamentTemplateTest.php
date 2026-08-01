@@ -133,34 +133,6 @@ class TournamentTemplateTest extends TestCase
         $this->assertSame('New Default', $templates->default()['name']);
     }
 
-    public function test_templates_are_managed_over_the_api(): void
-    {
-        $this->postJson('/api/v1/tournament-templates', [
-            'name' => 'Turbo',
-            'description' => 'Fast weekly',
-            'is_default' => true,
-            'settings' => ['starting_stack' => 12000],
-            'levels' => [['type' => 'blind', 'small_blind' => 100, 'big_blind' => 200, 'duration_min' => 10]],
-        ])->assertStatus(201)->assertJsonPath('data.template.name', 'Turbo');
-
-        $body = $this->getJson('/api/v1/tournament-templates')->assertOk()->json('data');
-        $this->assertCount(1, $body['templates']);
-        $this->assertSame('Turbo', $body['default']['name']);
-
-        // Creating from a template id, over HTTP.
-        $created = $this->postJson('/api/v1/tournaments', [
-            'registration_closes_at_level' => 1,
-            'name' => 'Tonight',
-            'template_id' => $body['templates'][0]['id'],
-        ])->assertStatus(201)->json('data');
-
-        $this->assertSame(12000, $created['session']['starting_stack']);
-        $this->assertSame(10, $created['levels'][0]['duration_min']);
-
-        $this->deleteJson('/api/v1/tournament-templates/'.$body['templates'][0]['id'])->assertOk();
-        $this->assertSame([], $this->getJson('/api/v1/tournament-templates')->json('data.templates'));
-    }
-
     public function test_the_broadcast_command_publishes_every_live_tournament(): void
     {
         $service = app(TournamentService::class);

@@ -209,6 +209,9 @@ func newHandlerWithBackend(
 	networkMonitor := newNetworkQualityMonitor(resources.networkQualityCacheTime)
 	licenses := newLicenseManager()
 	staffLogin := newStaffLoginManager(staffGatewayURL)
+	// Staff identities come from the cloud's register, mirrored locally by
+	// Manual update — the pairing phone types a staff ID, never a name.
+	staffLogin.resolveStaff = rosterResolver(backend)
 	staffLogin.register(mux)
 
 	mux.HandleFunc("GET /api/license/status", func(w http.ResponseWriter, _ *http.Request) {

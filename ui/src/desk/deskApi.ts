@@ -112,6 +112,16 @@ export type SessionSummary = {
   max_players: number | null
 }
 
+/** An online registration already paid with a voucher — the desk collects
+ *  only the over-limit difference, and never redeems a second time. */
+export type OnlineCoverage = {
+  voucher_id?: number
+  code: string
+  type: string
+  title?: string | null
+  entry_fee_limit_cents: number | null
+}
+
 export type OnlineRegistration = {
   npl_id: string
   display_name: string
@@ -122,6 +132,12 @@ export type OnlineRegistration = {
   waitlist_position: number | null
   table_number: number | null
   seat_number: number | null
+  /** Entry already paid online with a voucher — never charge it again. */
+  covered_by_voucher?: {
+    code: string
+    type: string
+    entry_fee_limit_cents: number | null
+  } | null
 }
 
 export type Venue = {
@@ -221,7 +237,7 @@ export const deskApi = {
 
   /** Live cloud check on scan: does this player enter free? */
   voucherEntitlement: (nplId: string, venueId: number | null, gameSessionId: number | null = null) =>
-    request<{ entitled: boolean, voucher: DeskVoucher | null, offline: boolean }>('/api/v1/vouchers/entitlement', {
+    request<{ entitled: boolean, voucher: DeskVoucher | null, already_covered?: OnlineCoverage | null, offline: boolean }>('/api/v1/vouchers/entitlement', {
       method: 'POST',
       body: JSON.stringify({ npl_id: nplId, venue_id: venueId, game_session_id: gameSessionId }),
     }),
@@ -237,11 +253,6 @@ export const deskApi = {
   upcomingSessions: (venueId: number | null) =>
     request<{ venue_id: number | null, sessions: UpcomingSession[] }>(
       `/api/v1/desk/upcoming-sessions${venueId ? `?venue_id=${venueId}` : ''}`,
-    ),
-
-  dashboard: (venueId: number | null) =>
-    request<{ venue_id: number | null, sessions: Array<Record<string, unknown>>, players_mirrored: number }>(
-      `/api/v1/desk/dashboard${venueId ? `?venue_id=${venueId}` : ''}`,
     ),
 
   /** Every synced session — the Registrations tab groups these by date. */
@@ -300,6 +311,13 @@ export const deskApi = {
     request<{ result: Record<string, unknown> }>(
       `/api/v1/desk/sessions/${gameSessionId}/registrations/${encodeURIComponent(nplId)}`,
       { method: 'DELETE' },
+    ),
+
+  /** Move a wait-listed player into the first free seat, cloud-side. */
+  promoteCloudRegistration: (gameSessionId: number, nplId: string) =>
+    request<{ result: Record<string, unknown> }>(
+      `/api/v1/desk/sessions/${gameSessionId}/registrations/${encodeURIComponent(nplId)}/promote`,
+      { method: 'POST', body: JSON.stringify({}) },
     ),
 
   /** Finish the game: record top placements and push standings to the cloud. */

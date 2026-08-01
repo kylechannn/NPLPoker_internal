@@ -7,7 +7,7 @@ import {
   deskApi,
   money,
   type DeskOption,
-  type DeskVoucher,
+  type DeskVoucher, type OnlineCoverage,
   type Gates,
   type ScanResult,
   type SeatedPlayer,
@@ -112,6 +112,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [voucher, setVoucher] = useState<DeskVoucher | null>(null)
+  // The entry was ALREADY paid online with a voucher: price the buy-in at
+  // the difference only, and never redeem anything at the desk.
+  const [coveredOnline, setCoveredOnline] = useState<OnlineCoverage | null>(null)
   // The pre-popup question: a free-entry voucher was detected on scan and
   // the operator has not answered yet. The registration popup waits.
   const [voucherAsk, setVoucherAsk] = useState<{ result: ScanResult, voucher: DeskVoucher } | null>(null)
@@ -177,6 +180,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     setBusy(true)
     setError(null)
     setVoucher(null)
+    setCoveredOnline(null)
     voucherRefRef.current = null
 
     try {
@@ -194,6 +198,13 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             activeVenueId(),
             seating?.game_session_id ?? null,
           )
+          // Paid online already — no question to ask: open the popup with
+          // the buy-in priced at the covered rate, redeem NOTHING here.
+          if (check.already_covered) {
+            setCoveredOnline(check.already_covered)
+            openActions(result, false)
+            return
+          }
           if (check.entitled && check.voucher) {
             setVoucherAsk({ result, voucher: check.voucher })
             return
@@ -251,9 +262,19 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     return Math.max(0, buyInCents - limit)
   }
 
+  /** Same maths for an online-covered entry: limit covers, rest is owed. */
+  function coveredDeficitCents(coverage: OnlineCoverage, buyInCents: number): number {
+    const limit = coverage.entry_fee_limit_cents ?? null
+    if (limit === null) return 0
+    return Math.max(0, buyInCents - limit)
+  }
+
   /** What this option actually charges — the accepted voucher covers buy-in
    *  up to its limit; anything above is still collected. */
   function priceFor(option: DeskOption): number {
+    if (option.action === "buy_in" && coveredOnline) {
+      return coveredDeficitCents(coveredOnline, option.price_cents)
+    }
     if (useVoucher && voucher && option.action === "buy_in") {
       return voucherDeficitCents(voucher, option.price_cents)
     }
@@ -312,6 +333,23 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
     try {
       for (const option of chosen) {
+        // Paid ONLINE already: the voucher was consumed at registration —
+        // book the entry at the covered price with the code on the action,
+        // and redeem nothing (a second redemption would double-spend).
+        if (option.action === "buy_in" && coveredOnline) {
+          const deficit = coveredDeficitCents(coveredOnline, option.price_cents)
+          const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+            voucher_code: coveredOnline.code,
+            voucher_limit_cents: coveredOnline.entry_fee_limit_cents ?? null,
+          })
+          setSeating(result.seating)
+          applied.push(deficit > 0
+            ? `Buy-in (paid online with ${coveredOnline.code} + ${money(deficit)} difference)`
+            : `Buy-in (paid online — voucher ${coveredOnline.code})`)
+          total += deficit
+          continue
+        }
+
         // A voucher-covered buy-in redeems on the cloud FIRST (idempotent
         // by reference — a retry can never consume twice), then books the
         // entry locally at zero with the code on the action.
@@ -356,6 +394,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       setScan(null)
       setPicked(new Set())
       setVoucher(null)
+      setCoveredOnline(null)
       setUseVoucher(false)
     } catch (e) {
       // Whatever landed before the failure is real: re-scan so the popup
@@ -545,7 +584,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       })() : null}
 
       {scan ? (
-        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setUseVoucher(false); focusScan() } }}>
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setCoveredOnline(null); setUseVoucher(false); focusScan() } }}>
           <section
             className="host-scan-modal__panel"
             role="dialog"
@@ -614,6 +653,19 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                     : `Booked online — table ${scan.booking.table_number}. Buy-in confirms their entry.`}
               </p>
             ) : null}
+
+            {coveredOnline && !scan.entry ? (() => {
+              const buyInOption = scan.options.find((option) => option.action === "buy_in")
+              const deficit = buyInOption ? coveredDeficitCents(coveredOnline, buyInOption.price_cents) : 0
+              return (
+                <p className="host-booking-banner host-booking-banner--voucher">
+                  <Ticket size={14} />
+                  {deficit > 0
+                    ? ` Entry PAID ONLINE with voucher ${coveredOnline.code} — collect only the ${money(deficit)} difference. Do not charge the full buy-in.`
+                    : ` Entry PAID ONLINE with voucher ${coveredOnline.code} — $0 due for the buy-in. Do not charge again.`}
+                </p>
+              )
+            })() : null}
 
             {useVoucher && voucher && !scan.entry ? (() => {
               const buyInOption = scan.options.find((option) => option.action === "buy_in")

@@ -145,6 +145,21 @@ final class PlayersController extends Controller
         ]));
     }
 
+    /**
+     * The player's venue activity — recent sessions with money and
+     * placement, straight from the cloud's book of record.
+     */
+    public function activity(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'npl_id' => ['required', 'string', 'max:60'],
+        ]);
+
+        return $this->cloudCall(fn (): array => $this->cloud->getJson('/api/v1/internal/players/activity', [
+            'npl_id' => (string) $validated['npl_id'],
+        ]));
+    }
+
     public function markVoucherUsed(Request $request, int $cloudVoucherId): JsonResponse
     {
         return $this->cloudCall(fn (): array => $this->cloud->postJson(

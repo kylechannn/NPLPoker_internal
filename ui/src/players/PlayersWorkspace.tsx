@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import {
-  CloudOff, IdCard, KeyRound, Loader2, MessageSquarePlus, MessageSquareText,
+  CloudOff, History, IdCard, KeyRound, Loader2, MessageSquarePlus, MessageSquareText,
   Pencil, Search, Ticket, Trash2, UserPlus, Users,
 } from "lucide-react"
 import type { Venue } from "../desk/deskApi"
-import { playersApi, type CommentsResult, type DeskVoucher, type RosterPlayer } from "./playersApi"
+import { playersApi, type ActivityResult, type CommentsResult, type DeskVoucher, type RosterPlayer } from "./playersApi"
 import { notify } from "../notifications/store"
 import "./players.css"
 
 const AUTHOR_KEY = "npl.commentAuthor"
 
-type Action = "edit" | "password" | "comments" | "vouchers"
+type Action = "edit" | "password" | "comments" | "vouchers" | "activity"
 
 /**
  * Players: search the synced roster and act on a player — edit details,
@@ -108,6 +108,9 @@ export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
                   <button type="button" title="Vouchers" onClick={() => setAction({ kind: "vouchers", player })}>
                     <Ticket size={15} />
                   </button>
+                  <button type="button" title="Venue activity" onClick={() => setAction({ kind: "activity", player })}>
+                    <History size={15} />
+                  </button>
                 </span>
               </li>
             ))}
@@ -126,6 +129,9 @@ export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
       ) : null}
       {action?.kind === "vouchers" ? (
         <VouchersModal player={action.player} onClose={() => setAction(null)} />
+      ) : null}
+      {action?.kind === "activity" ? (
+        <ActivityModal player={action.player} onClose={() => setAction(null)} />
       ) : null}
 
       {registerOpen ? (
@@ -394,6 +400,83 @@ function CommentsModal({ player, venueId, onClose }: { player: RosterPlayer, ven
 }
 
 // ------------------------------------------------------------ vouchers --
+
+/**
+ * The player's venue record: recent finished games from the cloud's book
+ * of record — money in, jackpot, and placement where one was recorded.
+ */
+function ActivityModal({ player, onClose }: { player: RosterPlayer, onClose: () => void }) {
+  const [activity, setActivity] = useState<ActivityResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    playersApi.activity(player.npl_id)
+      .then(setActivity)
+      .catch((e) => setError(e instanceof Error ? e.message : "The activity record could not be loaded."))
+  }, [player.npl_id])
+
+  const money = (cents: number) => `$${(cents / 100).toLocaleString("en-AU", {
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`
+
+  return (
+    <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Venue activity — ${player.display_name}`}>
+      <div className="membership-modal__card membership-modal__card--wide players__commentsmodal">
+        <h4><History size={15} /> Venue activity — {player.display_name} <small className="players__modalsub">{player.npl_id}</small></h4>
+
+        {error ? <p className="players__error" role="alert">{error}</p> : null}
+
+        {activity ? (
+          <p className="players__activitysummary">
+            {activity.summary.sessions} finished game{activity.summary.sessions === 1 ? "" : "s"}
+            {" · "}{money(activity.summary.total_paid_cents)} paid
+            {activity.summary.best_position !== null ? ` · best finish #${activity.summary.best_position}` : ""}
+          </p>
+        ) : null}
+
+        <div className="players__commentsscroll">
+          {activity === null && !error ? (
+            <p className="players__empty"><Loader2 size={15} className="host-spin" /> Loading from the cloud…</p>
+          ) : activity !== null && activity.sessions.length === 0 ? (
+            <p className="players__empty">No finished games on record for this player yet.</p>
+          ) : activity !== null ? (
+            <table className="regs__table">
+              <thead>
+                <tr><th>Finished</th><th>Game</th><th>Type</th><th>Entries</th><th>Jackpot</th><th>Paid</th><th>Result</th></tr>
+              </thead>
+              <tbody>
+                {activity.sessions.map((session) => (
+                  <tr key={session.tournament_uid}>
+                    <td>{session.finished_at ? session.finished_at.replace("T", " ").slice(0, 16) : "—"}</td>
+                    <td>{session.name}</td>
+                    <td>{session.game_type === "cash" ? "Cash" : "Tournament"}</td>
+                    <td>
+                      {session.buy_ins > 0 ? `Buy-in` : "—"}
+                      {session.rebuys > 0 ? ` +${session.rebuys}R` : ""}
+                      {session.addons > 0 ? ` +${session.addons}A` : ""}
+                    </td>
+                    <td>{session.in_jackpot ? "In" : "—"}</td>
+                    <td>{money(session.paid_cents)}</td>
+                    <td>
+                      {session.position !== null
+                        ? `#${session.position}${session.field_size !== null ? ` / ${session.field_size}` : ""}${session.points !== null && session.points > 0 ? ` · ${session.points} pts` : ""}`
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </div>
+
+        <div className="membership-modal__actions">
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function VouchersModal({ player, onClose }: { player: RosterPlayer, onClose: () => void }) {
   const [vouchers, setVouchers] = useState<DeskVoucher[] | null>(null)

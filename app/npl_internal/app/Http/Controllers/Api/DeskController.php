@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Services\Tournament\BlindStructureGenerator;
 use App\Services\Tournament\TournamentDeskService;
-use App\Services\Tournament\TournamentGateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +23,6 @@ final class DeskController
 {
     public function __construct(
         private readonly TournamentDeskService $desk,
-        private readonly TournamentGateService $gates,
         private readonly BlindStructureGenerator $structures,
         private readonly \App\Services\Cloud\CloudClient $cloud,
         private readonly \App\Services\Sync\SyncService $sync,
@@ -46,57 +44,6 @@ final class DeskController
             ->all();
 
         return $this->ok(['venues' => $venues]);
-    }
-
-    /**
-     * Everything the dashboard shows for one venue. Scoping here rather than
-     * filtering in the browser means a laptop at one club never holds
-     * another club's roster in memory.
-     */
-    public function dashboard(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'venue_id' => ['sometimes', 'nullable', 'integer'],
-        ]);
-
-        $venueId = $validated['venue_id'] ?? null;
-
-        $sessions = DB::table('tournament_sessions')
-            ->when($venueId !== null, fn ($query) => $query->where('venue_id', $venueId))
-            ->orderByDesc('id')
-            ->limit(25)
-            ->get()
-            ->map(fn (object $row): array => [
-                'id' => (int) $row->id,
-                'uuid' => $row->uuid,
-                'name' => $row->name,
-                'status' => $row->status,
-                'venue_id' => $row->venue_id !== null ? (int) $row->venue_id : null,
-                'venue_name' => $row->venue_name,
-                'started_at' => $row->started_at,
-                'entries' => (int) DB::table('tournament_entries')
-                    ->where('tournament_session_id', $row->id)
-                    ->count(),
-                'active' => (int) DB::table('tournament_entries')
-                    ->where('tournament_session_id', $row->id)
-                    ->where('status', 'active')
-                    ->count(),
-            ])
-            ->all();
-
-        $upcoming = DB::table('mirror_game_sessions')
-            ->when($venueId !== null, fn ($query) => $query->where('venue_id', $venueId))
-            ->orderBy('session_date')
-            ->limit(10)
-            ->get()
-            ->all();
-
-        return $this->ok([
-            'venue_id' => $venueId,
-            'sessions' => $sessions,
-            'upcoming' => $upcoming,
-            'players_mirrored' => (int) DB::table('mirror_players')->count(),
-        ]);
     }
 
     /**
@@ -266,6 +213,30 @@ final class DeskController
             $gameSessionId,
             rawurlencode($nplId),
         ), $gameSessionId);
+    }
+
+    /** Staff move a wait-listed player into the first free seat, cloud-side. */
+    public function promoteCloudRegistration(int $gameSessionId, string $nplId): JsonResponse
+    {
+        try {
+            $result = $this->cloud->postJson(sprintf(
+                '/api/v1/internal/sessions/%d/registrations/%s/promote',
+                $gameSessionId,
+                rawurlencode($nplId),
+            ), []);
+        } catch (\App\Services\Cloud\CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => [
+                    'code' => $e->errorCode,
+                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                        ? 'The NPL cloud could not be reached — promoting needs a connection. Try again when the link is green.'
+                        : $e->getMessage(),
+                ],
+            ], 502);
+        }
+
+        return $this->ok(['result' => $result['data'] ?? $result]);
     }
 
     private function cloudDeskCall(string $path, ?int $gameSessionId = null): JsonResponse
@@ -478,12 +449,6 @@ final class DeskController
             $validated['table_number'],
             $validated['seat_number'],
         ));
-    }
-
-    /** Gate state on its own — what a display polls to show the countdown. */
-    public function gates(int $id): JsonResponse
-    {
-        return $this->ok(['gates' => $this->gates->gates($id)]);
     }
 
     private function ok(array $data, int $status = 200): JsonResponse

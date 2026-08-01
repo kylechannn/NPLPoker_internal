@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,11 @@ import (
 
 func TestStaffQRChallengeApprovalIsSingleUse(t *testing.T) {
 	manager := newStaffLoginManager("http://192.168.10.25:8790")
+	// The register answers instead of the phone form: only the roster
+	// (mirrored from the cloud) can put a name on the desk.
+	manager.resolveStaff = func(code string) (staffIdentity, error) {
+		return staffIdentity{ID: code, Name: "Alex Morgan", Role: "Floor Manager", Initials: "AM"}, nil
+	}
 	mux := http.NewServeMux()
 	manager.register(mux)
 
@@ -48,8 +54,6 @@ func TestStaffQRChallengeApprovalIsSingleUse(t *testing.T) {
 		"token":        {token},
 		"pairing_code": {created.PairingCode},
 		"staff_id":     {"npl-2048"},
-		"staff_name":   {"Alex Morgan"},
-		"staff_role":   {"Floor Manager"},
 	}
 	approveRequest := httptest.NewRequest(
 		http.MethodPost,
@@ -126,8 +130,6 @@ func TestWrongPairingCodeDoesNotApproveChallenge(t *testing.T) {
 		"token":        {loginURL.Query().Get("t")},
 		"pairing_code": {"999999"},
 		"staff_id":     {"NPL-2048"},
-		"staff_name":   {"Alex Morgan"},
-		"staff_role":   {"Floor Manager"},
 	}
 	request := httptest.NewRequest(http.MethodPost, "/staff-login/approve", strings.NewReader(form.Encode()))
 	request.Header.Set("X-NPL-Gateway", "staff")
@@ -137,6 +139,49 @@ func TestWrongPairingCodeDoesNotApproveChallenge(t *testing.T) {
 
 	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "does not match") {
 		t.Fatalf("expected pairing rejection, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUnknownStaffCodeCannotSignIn(t *testing.T) {
+	manager := newStaffLoginManager("http://192.168.10.25:8790")
+	manager.resolveStaff = func(code string) (staffIdentity, error) {
+		return staffIdentity{}, errors.New("This staff ID is not on the register. Ask the club admin, then run Manual update.")
+	}
+	mux := http.NewServeMux()
+	manager.register(mux)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/staff-login/challenges", nil)
+	createRequest.Header.Set("X-NPL-Gateway", "desktop")
+	createResponse := httptest.NewRecorder()
+	mux.ServeHTTP(createResponse, createRequest)
+	var created staffChallengeCreateResponse
+	_ = json.Unmarshal(createResponse.Body.Bytes(), &created)
+	loginURL, _ := url.Parse(created.LoginURL)
+
+	form := url.Values{
+		"token":        {loginURL.Query().Get("t")},
+		"pairing_code": {created.PairingCode},
+		"staff_id":     {"GHOST-1"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/staff-login/approve", strings.NewReader(form.Encode()))
+	request.Header.Set("X-NPL-Gateway", "staff")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "not on the register") {
+		t.Fatalf("expected roster rejection, got %d: %s", response.Code, response.Body.String())
+	}
+
+	// The challenge is still pending — a register fix + retry can succeed.
+	statusRequest := httptest.NewRequest(http.MethodGet, "/api/staff-login/challenges/"+created.ID, nil)
+	statusRequest.Header.Set("X-NPL-Gateway", "desktop")
+	statusResponse := httptest.NewRecorder()
+	mux.ServeHTTP(statusResponse, statusRequest)
+	var status staffChallengeStatusResponse
+	_ = json.Unmarshal(statusResponse.Body.Bytes(), &status)
+	if status.Status != "waiting" && status.Status != "scanned" {
+		t.Fatalf("expected challenge still pending after roster miss, got %s", status.Status)
 	}
 }
 

@@ -435,171 +435,6 @@ function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boole
   )
 }
 
-function StaffLoginDialog({
-  challenge,
-  loading,
-  error,
-  secondsRemaining,
-  onClose,
-  onRegenerate,
-}: {
-  challenge: StaffLoginChallenge | null
-  loading: boolean
-  error: string | null
-  secondsRemaining: number
-  onClose: () => void
-  onRegenerate: () => void
-}) {
-  const statusLabel = challenge?.status === "scanned"
-    ? "Phone connected"
-    : challenge?.status === "approved"
-      ? "Sign-in approved"
-      : challenge?.status === "expired"
-        ? "Request expired"
-        : challenge?.status === "locked"
-          ? "Request locked"
-          : "Waiting for scan"
-
-  let gatewayLabel = "Private venue network"
-  if (challenge?.login_url) {
-    try {
-      gatewayLabel = new URL(challenge.login_url).origin.replace(/^https?:\/\//, "")
-    } catch {
-      gatewayLabel = "Private venue network"
-    }
-  }
-
-  const terminal = challenge?.status === "expired" ||
-    challenge?.status === "cancelled" ||
-    challenge?.status === "locked"
-
-  return (
-    <div className="modal-scrim staff-login-scrim" role="presentation" onMouseDown={onClose}>
-      <section
-        className="staff-login-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="staff-login-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="staff-login-dialog__header">
-          <span className="staff-login-dialog__icon"><QrCode size={24} /></span>
-          <div>
-            <p>Secure staff access</p>
-            <h2 id="staff-login-title">Scan to sign in on a staff phone</h2>
-          </div>
-          <button className="staff-login-dialog__close" type="button" aria-label="Close staff login" onClick={onClose}>
-            <X size={20} />
-          </button>
-        </header>
-
-        {loading ? (
-          <div className="staff-login-dialog__loading" role="status">
-            <RefreshCw size={30} />
-            <strong>Creating a protected login request</strong>
-            <span>Detecting the private venue gateway…</span>
-          </div>
-        ) : error ? (
-          <div className="staff-login-dialog__error">
-            <AlertTriangle size={30} />
-            <h3>Staff QR is not available</h3>
-            <p>{error}</p>
-            <button className="primary-button" type="button" onClick={onRegenerate}>
-              <RefreshCw size={17} /> Try again
-            </button>
-          </div>
-        ) : challenge?.status === "approved" && challenge.staff ? (
-          <div className="staff-login-approved">
-            <span className="staff-login-approved__check"><CheckCircle2 size={48} /></span>
-            <p>Phone session active</p>
-            <h3>{challenge.staff.name}</h3>
-            <span>{challenge.staff.role} · {challenge.staff.id}</span>
-            <div className="staff-login-approved__security">
-              <ShieldCheck size={18} />
-              <span>The one-time QR has been consumed and cannot be replayed.</span>
-            </div>
-            <button className="primary-button" type="button" onClick={onClose}>Done</button>
-          </div>
-        ) : challenge ? (
-          <>
-            <div className="staff-login-dialog__body">
-              <div className={terminal ? "staff-qr-card staff-qr-card--inactive" : "staff-qr-card"}>
-                {!terminal ? (
-                  <QRCodeSVG
-                    value={challenge.login_url}
-                    size={236}
-                    level="M"
-                    marginSize={2}
-                    bgColor="#ffffff"
-                    fgColor="#07142b"
-                    title="NPL one-time staff login QR code"
-                  />
-                ) : (
-                  <div className="staff-qr-card__inactive">
-                    <QrCode size={54} />
-                    <span>Generate a new request</span>
-                  </div>
-                )}
-                <div className={`staff-qr-status staff-qr-status--${challenge.status}`}>
-                  <i />
-                  <span>{statusLabel}</span>
-                </div>
-              </div>
-
-              <div className="staff-login-instructions">
-                <div className="staff-login-instructions__step">
-                  <span>1</span>
-                  <div>
-                    <strong>Scan with the staff phone</strong>
-                    <p>The phone must be connected to the same private venue network.</p>
-                  </div>
-                </div>
-                <div className="staff-login-instructions__step">
-                  <span>2</span>
-                  <div>
-                    <strong>Enter this pairing code</strong>
-                    <p className="staff-pairing-code" aria-label={`Pairing code ${challenge.pairing_code}`}>
-                      {challenge.pairing_code}
-                    </p>
-                  </div>
-                </div>
-                <div className="staff-login-instructions__step">
-                  <span>3</span>
-                  <div>
-                    <strong>Confirm staff identity</strong>
-                    <p>NPL OS will show the approved staff member automatically.</p>
-                  </div>
-                </div>
-
-                <div className="staff-gateway-status">
-                  <Smartphone size={18} />
-                  <div>
-                    <span>Private staff gateway</span>
-                    <strong>{gatewayLabel}</strong>
-                  </div>
-                  <ShieldCheck size={18} />
-                </div>
-              </div>
-            </div>
-
-            <footer className="staff-login-dialog__footer">
-              <div>
-                <span className={secondsRemaining <= 30 ? "staff-login-timer staff-login-timer--urgent" : "staff-login-timer"}>
-                  {terminal ? statusLabel : `${Math.floor(secondsRemaining / 60)}:${String(secondsRemaining % 60).padStart(2, "0")} remaining`}
-                </span>
-                <small>One-time token · 5 attempt limit · 8-hour phone session</small>
-              </div>
-              <button className="secondary-button" type="button" onClick={onRegenerate}>
-                <RefreshCw size={17} /> New QR
-              </button>
-            </footer>
-          </>
-        ) : null}
-      </section>
-    </div>
-  )
-}
-
 function SidebarStaffQR({
   visible,
   challenge,
@@ -761,11 +596,21 @@ export default function App() {
   const [staffLoginError, setStaffLoginError] = useState<string | null>(null)
   const [staffChallenge, setStaffChallenge] = useState<StaffLoginChallenge | null>(null)
   const [staffSecondsRemaining, setStaffSecondsRemaining] = useState(0)
-  const [activeStaff, setActiveStaff] = useState<StaffIdentity>({
-    id: "NPL-1001",
-    name: "Kyle Chen",
-    role: "Floor Manager",
-    initials: "KC",
+  // The signed-in staff member — ONLY a QR pairing verified against the
+  // cloud's staff register can set this. Persisted so a reload at the desk
+  // doesn't sign the operator out mid-shift.
+  const [activeStaff, setActiveStaff] = useState<StaffIdentity | null>(() => {
+    try {
+      const stored = window.localStorage.getItem("npl.activeStaff")
+      if (!stored) return null
+      const parsed: unknown = JSON.parse(stored)
+      if (parsed && typeof parsed === "object" && typeof (parsed as StaffIdentity).name === "string") {
+        return parsed as StaffIdentity
+      }
+    } catch {
+      // Corrupt storage = signed out.
+    }
+    return null
   })
 
   const loadHealth = useCallback(async () => {
@@ -874,6 +719,7 @@ export default function App() {
         setStaffSecondsRemaining(status.seconds_remaining)
         if (status.status === "approved" && status.staff) {
           setActiveStaff(status.staff)
+          window.localStorage.setItem("npl.activeStaff", JSON.stringify(status.staff))
           setNotice(`${status.staff.name} signed in securely from a staff phone.`)
         }
       } catch {
@@ -1104,28 +950,26 @@ export default function App() {
         />
 
         <div className="operator-card">
-          <div className="operator-avatar">{activeStaff.initials}</div>
+          <div className="operator-avatar">{activeStaff ? activeStaff.initials : "—"}</div>
           <div>
-            <strong>{activeStaff.name}</strong>
-            <span>{activeStaff.role}</span>
+            <strong>{activeStaff ? activeStaff.name : "Not signed in"}</strong>
+            <span>{activeStaff ? `${activeStaff.role} · ${activeStaff.id}` : "Pair a staff phone to sign in"}</span>
           </div>
-          <button
-            className="operator-action"
-            type="button"
-            aria-label="Sign out staff phone session"
-            title="Clear paired staff"
-            onClick={() => {
-              setActiveStaff({
-                id: "NPL-LOCAL",
-                name: "Local operator",
-                role: "Staff access ready",
-                initials: "NPL",
-              })
-              setNotice("The paired staff identity was cleared from this console.")
-            }}
-          >
-            <LogOut size={16} />
-          </button>
+          {activeStaff ? (
+            <button
+              className="operator-action"
+              type="button"
+              aria-label="Sign out staff phone session"
+              title="Sign out"
+              onClick={() => {
+                setActiveStaff(null)
+                window.localStorage.removeItem("npl.activeStaff")
+                setNotice("The staff sign-in was cleared from this console.")
+              }}
+            >
+              <LogOut size={16} />
+            </button>
+          ) : null}
         </div>
       </aside>
 
