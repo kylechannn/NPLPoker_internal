@@ -7,6 +7,7 @@ namespace App\Services\Sync;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -54,7 +55,7 @@ final class DeltaSyncService
     }
 
     /**
-     * @return array{entity: string, status: string, upserted: int, deleted: int, pages: int, not_modified: bool}
+     * @return array{entity: string, status: string, upserted: int, deleted: int, pages: int, not_modified: bool, healed?: bool}
      */
     public function sync(string $entity, bool $force = false): array
     {
@@ -119,7 +120,20 @@ final class DeltaSyncService
                 $hasMore = (bool) ($payload['has_more'] ?? false);
             } while ($hasMore && $pages < 200);
 
-            $deleted = $this->reconcileDeletes($entity, $table);
+            ['deleted' => $deleted, 'missing' => $missing] = $this->reconcileDeletes($entity, $table);
+
+            // Self-heal: the cloud holds ids this mirror never received —
+            // rows behind our watermark (e.g. imported with backdated
+            // timestamps). The backend is the book of record: re-pull the
+            // WHOLE entity once, ignoring watermark and ETag.
+            if ($missing > 0 && ! $force) {
+                Log::info('delta self-heal: cloud rows missing locally — forcing a full re-pull', [
+                    'entity' => $entity,
+                    'missing' => $missing,
+                ]);
+
+                return $this->sync($entity, force: true) + ['healed' => true];
+            }
 
             $success = [
                 'status' => 'ok',
@@ -154,12 +168,19 @@ final class DeltaSyncService
      * Delete anything the cloud no longer lists. Cheap: the id feed is a few
      * bytes per row, so this stays affordable even for a big player table.
      */
-    private function reconcileDeletes(string $entity, string $table): int
+    /**
+     * Delete reconciliation, plus the coverage check: how many ids the
+     * cloud holds that this mirror does NOT (rows the delta never
+     * delivered — the caller force-resyncs when that number is not zero).
+     *
+     * @return array{deleted: int, missing: int}
+     */
+    private function reconcileDeletes(string $entity, string $table): array
     {
         $result = $this->cloud->getJson("/api/v1/internal/sync/{$entity}/ids");
 
         if ($result['not_modified']) {
-            return 0;
+            return ['deleted' => 0, 'missing' => 0];
         }
 
         $liveIds = array_map('intval', (array) ($result['data']['ids'] ?? []));
@@ -184,7 +205,11 @@ final class DeltaSyncService
             }
         });
 
-        return $deleted;
+        // After deleting the complement, every remaining local row is in the
+        // cloud's list — so coverage is a plain count difference.
+        $missing = count($liveIds) - (int) DB::table($table)->count();
+
+        return ['deleted' => $deleted, 'missing' => max(0, $missing)];
     }
 
     private function upsert(string $table, string $entity, array $rows): int
