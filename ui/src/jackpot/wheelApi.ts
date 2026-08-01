@@ -99,6 +99,10 @@ export const wheelApi = {
   segments: (wheel: WheelTier = "normal") =>
     request<{ wheel?: WheelTier, segments: WheelSegment[] }>(`/api/v1/wheel?wheel=${wheel}`),
 
+  /** The live jackpot pool, cached a minute host-side; null when offline. */
+  pool: () =>
+    request<{ pool: { amount_cents: number | null } | null }>("/api/v1/wheel/pool"),
+
   lookup: (nplId: string) =>
     request<{ player: WheelPlayer, eligibility: WheelEligibility }>("/api/v1/wheel/lookup", {
       method: "POST",

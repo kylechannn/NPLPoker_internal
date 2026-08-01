@@ -24,6 +24,12 @@ type PrizeWheelProps = {
   /** The all-golden follow-up wheel — golden chrome, same physics. */
   golden?: boolean
   /**
+   * One draw per scan: once the workspace has its outcome the hub locks —
+   * no second real spin can be fired (the golden follow-up remounts a
+   * fresh, unlocked wheel).
+   */
+  locked?: boolean
+  /**
    * When provided the wheel is REAL: this asks the cloud (via the local
    * host) to draw, and the rotor lands on the returned segment. Without it
    * the wheel is a local, award-nothing simulation.
@@ -191,7 +197,7 @@ function strokePolyline(ctx: CanvasRenderingContext2D, points: Point[]) {
   ctx.stroke()
 }
 
-export default function PrizeWheel({ prizes = wheelPrizes, golden = false, requestSpin, onResult, onSettled }: PrizeWheelProps) {
+export default function PrizeWheel({ prizes = wheelPrizes, golden = false, locked = false, requestSpin, onResult, onSettled }: PrizeWheelProps) {
   const SEGMENT_ANGLE = 360 / Math.max(1, prizes.length)
   const [rotation, setRotation] = useState(0)
   const [spinning, setSpinning] = useState(false)
@@ -442,7 +448,7 @@ export default function PrizeWheel({ prizes = wheelPrizes, golden = false, reque
   }
 
   async function spin() {
-    if (spinning || drawing) return
+    if (spinning || drawing || locked) return
 
     setModalOpen(false)
     setWinner(null)
@@ -620,7 +626,7 @@ export default function PrizeWheel({ prizes = wheelPrizes, golden = false, reque
 
         <span className="npl-wheel-pointer" aria-hidden="true" />
 
-        <button type="button" className="npl-wheel-hub" onClick={() => void spin()} disabled={busy}>
+        <button type="button" className="npl-wheel-hub" onClick={() => void spin()} disabled={busy || locked}>
           <strong>{busy ? '···' : real ? 'SPIN' : 'SIM'}</strong>
           <small>{drawing ? 'DRAWING' : spinning ? 'SPINNING' : real ? 'SPIN TO WIN' : 'RUN PREVIEW'}</small>
         </button>

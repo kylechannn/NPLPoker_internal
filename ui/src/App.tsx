@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
 import HostWorkspace from "./desk/HostWorkspace"
+import ExportWorkspace from "./export/ExportWorkspace"
 import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
 import MembershipWorkspace from "./membership/MembershipWorkspace"
 import PlayersWorkspace from "./players/PlayersWorkspace"
@@ -25,6 +26,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FileSpreadsheet,
   Gauge,
   IdCard,
   KeyRound,
@@ -134,6 +136,7 @@ type NavId =
   | "players"
   | "membership"
   | "jackpot"
+  | "export"
 
 
 
@@ -155,6 +158,10 @@ const navigation: Array<{
   {
     label: "Club",
     items: [{ id: "membership", label: "Club Membership ID", icon: IdCard }],
+  },
+  {
+    label: "Reports",
+    items: [{ id: "export", label: "Export", icon: FileSpreadsheet }],
   },
 ]
 
@@ -201,6 +208,11 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     eyebrow: "Club programme",
     title: "Jackpot Wheel",
     description: "Spin the venue jackpot wheel and track the live prize pool.",
+  },
+  export: {
+    eyebrow: "Reports",
+    title: "Export",
+    description: "Every finished game summarised from the NPL cloud's records, with attendance and CSV downloads.",
   },
 }
 
@@ -1224,6 +1236,8 @@ export default function App() {
               <OverviewWorkspace venue={activeVenue} onNavigate={chooseSection} onNotice={setNotice} />
             ) : activeSection === "cashgame" ? (
               <HostWorkspace venue={activeVenue} mode="cash" />
+            ) : activeSection === "export" ? (
+              <ExportWorkspace venue={activeVenue} />
             ) : (
               <RegistrationsWorkspace venue={activeVenue} />
             )}

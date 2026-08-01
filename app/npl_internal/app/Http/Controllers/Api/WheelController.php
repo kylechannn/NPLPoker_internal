@@ -54,6 +54,38 @@ final class WheelController extends Controller
         ]);
     }
 
+    /**
+     * The live jackpot pool — the same public figure the website and the
+     * phone apps show, cached for a minute so the big clock can wear it
+     * without hammering the cloud. Offline = last cached value, else null.
+     */
+    public function pool(): JsonResponse
+    {
+        $cached = \Illuminate\Support\Facades\Cache::remember('jackpot.pool', 60, function (): ?array {
+            try {
+                $response = \Illuminate\Support\Facades\Http::timeout(6)
+                    ->acceptJson()
+                    ->get(rtrim((string) config('nplcloud.base'), '/').'/api/v1/content/jackpot');
+
+                if (! $response->ok()) {
+                    return null;
+                }
+
+                $data = (array) $response->json('data');
+
+                return [
+                    'amount_cents' => isset($data['amount_cents']) && $data['amount_cents'] !== null
+                        ? (int) $data['amount_cents']
+                        : null,
+                ];
+            } catch (\Throwable) {
+                return null;
+            }
+        });
+
+        return $this->ok(['pool' => $cached]);
+    }
+
     /** Scan gate: resolve the player who is about to spin. */
     public function lookup(Request $request): JsonResponse
     {

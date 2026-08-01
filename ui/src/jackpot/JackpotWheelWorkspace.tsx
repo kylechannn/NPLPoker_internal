@@ -133,6 +133,9 @@ export default function JackpotWheelWorkspace() {
 
   async function requestSpin(): Promise<SpinOutcome | null> {
     if (!player) return null
+    // One draw per scan — a settled outcome means the wheel is done
+    // (the golden follow-up runs on a freshly-mounted, unlocked wheel).
+    if (outcome !== null) return null
 
     setSpinError(null)
     referenceRef.current ??= `WS-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
@@ -287,7 +290,7 @@ export default function JackpotWheelWorkspace() {
             </p>
           </section>
         ) : (
-          <PrizeWheel key={activeWheel} prizes={prizes} golden={isGolden} requestSpin={requestSpin} onSettled={handleSettled} />
+          <PrizeWheel key={activeWheel} prizes={prizes} golden={isGolden} locked={outcome !== null} requestSpin={requestSpin} onSettled={handleSettled} />
         )}
       </div>
 

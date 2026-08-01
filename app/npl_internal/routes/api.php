@@ -70,8 +70,16 @@ Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\Tournament
  */
 Route::prefix('v1/wheel')->controller(\App\Http\Controllers\Api\WheelController::class)->group(function (): void {
     Route::get('/', 'segments');
+    Route::get('pool', 'pool');
     Route::post('lookup', 'lookup');
     Route::post('spin', 'spin');
+});
+
+// Finished-game reports, read back FROM THE CLOUD (the book of record) —
+// the Export tab never trusts the local database for money figures.
+Route::prefix('v1/reports')->controller(\App\Http\Controllers\Api\ReportProxyController::class)->group(function (): void {
+    Route::get('sessions', 'index');
+    Route::get('sessions/{uid}', 'show');
 });
 
 // Entry-voucher hooks for the desk: live cloud checks, never mirrored.

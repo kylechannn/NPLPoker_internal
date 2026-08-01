@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Copy, Minus, Square, X } from "lucide-react"
 import { countdown, deskApi, type Gates, type Seating } from "./deskApi"
+import { wheelApi } from "../jackpot/wheelApi"
 import "./timer.css"
 
 type ClockState = {
@@ -90,6 +91,9 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   // round: a short flash and a two-tone chime.
   const [levelFlash, setLevelFlash] = useState(false)
   const prevLevelRef = useRef<number | null>(null)
+  // The live jackpot pool, worn as the gold crown of the big display.
+  // Null (offline / no jackpot running) simply hides the badge.
+  const [jackpotCents, setJackpotCents] = useState<number | null>(null)
 
   useEffect(() => {
     document.title = WINDOW_TITLE
@@ -98,6 +102,30 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   useEffect(() => {
     if (mode !== "max") setZoomed(false)
   }, [mode])
+
+  // The pool figure moves slowly (the host caches it a minute anyway), so
+  // one refresh a minute keeps the badge honest without touching the 5s
+  // clock sync.
+  useEffect(() => {
+    let cancelled = false
+
+    async function pullPool() {
+      try {
+        const { pool } = await wheelApi.pool()
+        if (!cancelled) setJackpotCents(pool?.amount_cents ?? null)
+      } catch {
+        if (!cancelled) setJackpotCents(null)
+      }
+    }
+
+    void pullPool()
+    const handle = window.setInterval(() => void pullPool(), 60_000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(handle)
+    }
+  }, [])
 
   useEffect(() => {
     const levelNo = clock?.current_level?.level_no ?? null
@@ -269,6 +297,13 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
 
   const tone = paused ? "paused" : isBreak ? "break" : clock?.running ? "live" : "idle"
 
+  const jackpotLabel = jackpotCents !== null
+    ? `$${(jackpotCents / 100).toLocaleString(undefined, {
+        minimumFractionDigits: jackpotCents % 100 === 0 ? 0 : 2,
+        maximumFractionDigits: 2,
+      })}`
+    : null
+
   // Sichuan's one run button, with poker's third state: Start when the
   // clock has never run, Pause while it runs, Resume after a pause.
   const run = clock?.status === "finished"
@@ -402,6 +437,12 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 <div className="scx-title">{clock?.name ?? "Tournament"}</div>
                 <span className="scx-chip">Level {level?.level_no ?? "—"} / {clock?.level_count ?? "—"}</span>
               </div>
+              {jackpotLabel ? (
+                <div className="scx-jackpot" role="status">
+                  <span className="scx-jackpot__label">Jackpot</span>
+                  <span className="scx-jackpot__amount">{jackpotLabel}</span>
+                </div>
+              ) : null}
               <div className="scx-head__side scx-head__side--end">
                 <span className="scx-chip">Next: {nextLabel}</span>
                 {run ? (

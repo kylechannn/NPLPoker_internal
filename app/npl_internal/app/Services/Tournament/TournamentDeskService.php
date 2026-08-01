@@ -595,6 +595,13 @@ final class TournamentDeskService
             $queued = ! $pushed;
         }
 
+        // The book of record: EVERY finished session — cash included, linked
+        // to a cloud game session or not — pushes its financial summary and
+        // the full attendance sheet. The Export tab reads these back from
+        // the cloud, so a reinstalled laptop loses nothing.
+        $this->outbox->enqueue('session_report', 'create', $this->buildSessionReport($sessionId, $session));
+        $this->outbox->drain();
+
         return [
             'finished' => true,
             'pushed' => $pushed,
@@ -602,6 +609,73 @@ final class TournamentDeskService
             'name' => (string) $session->name,
             'venue_name' => $session->venue_name !== null ? (string) $session->venue_name : null,
             'recorded' => $recorded,
+        ];
+    }
+
+    /**
+     * One finished session's summary + attendance, built from the local
+     * money ledger (tournament_actions is the truth for amounts).
+     */
+    private function buildSessionReport(int $sessionId, object $session): array
+    {
+        $entries = DB::table('tournament_entries')
+            ->where('tournament_session_id', $sessionId)
+            ->get();
+
+        $actions = DB::table('tournament_actions')
+            ->where('tournament_session_id', $sessionId)
+            ->whereIn('action', ['buy_in', 'rebuy', 'addon', 'jackpot'])
+            ->get()
+            ->groupBy('player_npl_id');
+
+        $attendance = [];
+        $totals = ['buy_in' => 0, 'rebuy' => 0, 'addon' => 0, 'jackpot' => 0];
+        $counts = ['buy_in' => 0, 'rebuy' => 0, 'addon' => 0, 'jackpot' => 0];
+
+        foreach ($entries as $entry) {
+            $mine = $actions->get($entry->player_npl_id) ?? collect();
+            $paid = 0;
+            $byAction = ['buy_in' => 0, 'rebuy' => 0, 'addon' => 0, 'jackpot' => 0];
+
+            foreach ($mine as $action) {
+                $paid += max(0, (int) $action->price_cents);
+                $byAction[$action->action] = ($byAction[$action->action] ?? 0) + 1;
+                $totals[$action->action] = ($totals[$action->action] ?? 0) + max(0, (int) $action->price_cents);
+                $counts[$action->action] = ($counts[$action->action] ?? 0) + 1;
+            }
+
+            $attendance[] = [
+                'npl_id' => $entry->player_npl_id,
+                'display_name' => $entry->player_name,
+                'buy_ins' => max(1, (int) ($byAction['buy_in'] ?? 0)),
+                'rebuys' => (int) ($byAction['rebuy'] ?? 0),
+                'addons' => (int) ($byAction['addon'] ?? 0),
+                'in_jackpot' => (bool) $entry->in_jackpot,
+                'paid_cents' => $paid,
+            ];
+        }
+
+        return [
+            'tournament_uid' => (string) $session->uuid,
+            'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
+            'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+            'game_type' => ($session->game_type ?? 'tournament') === 'cash' ? 'cash' : 'tournament',
+            'name' => (string) $session->name,
+            'started_at' => $session->started_at !== null ? \Illuminate\Support\Carbon::parse($session->started_at)->toIso8601String() : null,
+            'finished_at' => now()->toIso8601String(),
+            'summary' => [
+                'entries' => (int) $counts['buy_in'],
+                'unique_players' => $entries->count(),
+                'rebuys' => (int) $counts['rebuy'],
+                'addons' => (int) $counts['addon'],
+                'jackpot_entries' => (int) $counts['jackpot'],
+                'buyin_cents' => (int) $totals['buy_in'],
+                'rebuy_cents' => (int) $totals['rebuy'],
+                'addon_cents' => (int) $totals['addon'],
+                'jackpot_cents' => (int) $totals['jackpot'],
+                'gross_cents' => (int) ($totals['buy_in'] + $totals['rebuy'] + $totals['addon'] + $totals['jackpot']),
+            ],
+            'attendance' => $attendance,
         ];
     }
 
