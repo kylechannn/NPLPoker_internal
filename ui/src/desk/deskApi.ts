@@ -79,9 +79,17 @@ export type Seating = {
     total_players?: number
     active_players?: number
     total_chips?: number
+    total_rebuys?: number
+    total_addons?: number
+    average_stack?: number
   }
   gates: Gates
   clock: Record<string, unknown>
+  /** Room-display extras from the preset — either can be absent. */
+  display?: {
+    chip_denominations: string | null
+    prize_pool_text: string | null
+  }
 }
 
 export type OnlineBooking = {

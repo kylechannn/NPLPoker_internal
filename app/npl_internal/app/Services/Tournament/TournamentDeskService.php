@@ -1085,6 +1085,25 @@ final class TournamentDeskService
             ],
             'gates' => $this->gates->gates($sessionId, $session, $state),
             'clock' => $state,
+            // Room-display extras the preset configures: the chip
+            // denominations in play and the prize pool line, switchable
+            // on the big clock's side panel.
+            'display' => $this->displayConfig($session),
+        ];
+    }
+
+    /** @return array{chip_denominations: ?string, prize_pool_text: ?string} */
+    private function displayConfig(object $session): array
+    {
+        $settings = json_decode((string) ($session->settings ?? ''), true);
+        $settings = is_array($settings) ? $settings : [];
+
+        $denoms = trim((string) ($settings['chip_denominations'] ?? ''));
+        $prize = trim((string) ($settings['prize_pool_text'] ?? ''));
+
+        return [
+            'chip_denominations' => $denoms !== '' ? $denoms : null,
+            'prize_pool_text' => $prize !== '' ? $prize : null,
         ];
     }
 

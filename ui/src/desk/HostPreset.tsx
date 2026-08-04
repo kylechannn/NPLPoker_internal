@@ -39,6 +39,9 @@ const DEFAULTS = {
   max_addons_per_player: 1,
   jackpot_enabled: true,
   jackpot_price_cents: 1000,
+  // Room-display extras: what the big clock's side panel shows.
+  chip_denominations: "",
+  prize_pool_text: "",
 }
 
 // Last night's setup is next night's starting point — venues run the same
@@ -209,6 +212,8 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
           max_addons_per_player: (s.max_addons_per_player as number) ?? current.max_addons_per_player,
           jackpot_enabled: (s.jackpot_enabled as boolean) ?? current.jackpot_enabled,
           jackpot_price_cents: (s.jackpot_price_cents as number) ?? current.jackpot_price_cents,
+          chip_denominations: (((s.settings as Record<string, unknown> | null)?.chip_denominations as string | undefined) ?? current.chip_denominations),
+          prize_pool_text: (((s.settings as Record<string, unknown> | null)?.prize_pool_text as string | undefined) ?? current.prize_pool_text),
         }))
         setCutOffs({
           registration: (s.registration_closes_at_level as number | null) ?? "",
@@ -355,6 +360,10 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
           addon_closes_at_level: optional(cutOffs.addon),
           jackpot_closes_at_level: optional(cutOffs.jackpot),
           venue_id: venue?.id ?? null,
+          settings: {
+            chip_denominations: form.chip_denominations.trim(),
+            prize_pool_text: form.prize_pool_text.trim(),
+          },
           levels,
         })
 
@@ -379,6 +388,10 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
         rebuy_closes_at_level: optional(cutOffs.rebuy),
         addon_closes_at_level: optional(cutOffs.addon),
         jackpot_closes_at_level: optional(cutOffs.jackpot),
+        settings: {
+          chip_denominations: form.chip_denominations.trim(),
+          prize_pool_text: form.prize_pool_text.trim(),
+        },
         levels,
       })
 
@@ -595,6 +608,27 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
                     <input
                       type="number" min={2} max={10} value={form.seats_per_table}
                       onChange={(e) => update("seats_per_table", Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                <div className="prep-field-grid">
+                  <div className="prep-field">
+                    <label>Chip denominations (room clock)</label>
+                    <input
+                      type="text"
+                      value={form.chip_denominations}
+                      placeholder="25, 100, 500, 1000, 5000"
+                      onChange={(e) => update("chip_denominations", e.target.value)}
+                    />
+                  </div>
+                  <div className="prep-field">
+                    <label>Prize pool (room clock)</label>
+                    <input
+                      type="text"
+                      value={form.prize_pool_text}
+                      placeholder="$10,000 GTD"
+                      onChange={(e) => update("prize_pool_text", e.target.value)}
                     />
                   </div>
                 </div>

@@ -24,12 +24,27 @@ type ClockState = {
   next_level: ClockState["current_level"]
   remaining_ms: number
   level_duration_ms: number
+  next_break?: {
+    index: number
+    label: string
+    in_ms: number
+    on_break: boolean
+  } | null
 }
 
 type Summary = {
   total_players?: number
   active_players?: number
+  entries?: number
   total_chips?: number
+  total_rebuys?: number
+  total_addons?: number
+  average_stack?: number
+}
+
+type DisplayExtras = {
+  chip_denominations: string | null
+  prize_pool_text: string | null
 }
 
 const SYNC_MS = 5000
@@ -76,6 +91,9 @@ function chime(isBreak: boolean) {
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
   const [summary, setSummary] = useState<Summary>({})
+  const [extras, setExtras] = useState<DisplayExtras>({ chip_denominations: null, prize_pool_text: null })
+  // The side panel wears one of two faces; the director flips it live.
+  const [sideView, setSideView] = useState<"denoms" | "prize">("denoms")
   const [gates, setGates] = useState<Gates | null>(null)
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
@@ -161,7 +179,15 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         setSummary({
           total_players: seating.counts.total_players ?? seating.counts.entries,
           active_players: seating.counts.active_players ?? seating.counts.active,
+          entries: seating.counts.entries,
           total_chips: seating.counts.total_chips,
+          total_rebuys: seating.counts.total_rebuys,
+          total_addons: seating.counts.total_addons,
+          average_stack: seating.counts.average_stack,
+        })
+        setExtras({
+          chip_denominations: seating.display?.chip_denominations ?? null,
+          prize_pool_text: seating.display?.prize_pool_text ?? null,
         })
         setGates(seating.gates)
         setSyncedAt(Date.now())
@@ -304,6 +330,27 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       })}`
     : null
 
+  // Players remaining against total entries, the way the room reads it:
+  // 50/65 — everyone still in versus everyone who bought a seat.
+  const playersLabel = summary.active_players !== undefined && summary.entries !== undefined
+    ? `${summary.active_players.toLocaleString()}/${summary.entries.toLocaleString()}`
+    : summary.active_players?.toLocaleString() ?? "—"
+
+  const nextBreak = clock?.next_break ?? null
+  const nextBreakLabel = nextBreak
+    ? (nextBreak.on_break ? "Now" : countdown(Math.max(0, nextBreak.in_ms - (clock?.running ? elapsed : 0))))
+    : null
+
+  const denomLines = extras.chip_denominations
+    ? extras.chip_denominations.split(/\r?\n|,/).map((line) => line.trim()).filter(Boolean)
+    : []
+  const hasSidePanel = denomLines.length > 0 || Boolean(extras.prize_pool_text)
+  const activeSideView: "denoms" | "prize" = sideView === "denoms" && denomLines.length > 0
+    ? "denoms"
+    : extras.prize_pool_text
+      ? "prize"
+      : "denoms"
+
   // Sichuan's one run button, with poker's third state: Start when the
   // clock has never run, Pause while it runs, Resume after a pause.
   const run = clock?.status === "finished"
@@ -392,6 +439,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               </div>
               {paused ? <div className="scm-paused">Paused</div> : null}
               <div className="scm-next">Next · {nextLabel}</div>
+              {nextBreakLabel && !isBreak ? <div className="scm-next">Break · {nextBreakLabel}</div> : null}
             </div>
 
             <div className="scm-foot">
@@ -460,7 +508,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               </div>
             </div>
 
-            <div className="scx-center">
+            <div className={`scx-center${hasSidePanel && !zoomed ? " scx-center--rail" : ""}`}>
+              <div className="scx-main">
               <div className={`scx-panel${zoomed ? " scx-panel--zoomed" : ""}`}>
                 <button
                   type="button"
@@ -501,6 +550,44 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   ) : null}
                 </div>
               ) : null}
+              </div>
+
+              {!zoomed && hasSidePanel ? (
+                <aside className="scx-panel scx-panel--side">
+                  <div className="scx-side__tabs">
+                    <button
+                      type="button"
+                      className={activeSideView === "denoms" ? "scx-side__tab scx-side__tab--on" : "scx-side__tab"}
+                      disabled={denomLines.length === 0}
+                      onClick={() => setSideView("denoms")}
+                    >
+                      Chips
+                    </button>
+                    <button
+                      type="button"
+                      className={activeSideView === "prize" ? "scx-side__tab scx-side__tab--on" : "scx-side__tab"}
+                      disabled={!extras.prize_pool_text}
+                      onClick={() => setSideView("prize")}
+                    >
+                      Prize Pool
+                    </button>
+                  </div>
+
+                  {activeSideView === "denoms" ? (
+                    <div className="scx-side__body">
+                      <div className="scx-plabel">Chip Values</div>
+                      <ul className="scx-denoms">
+                        {denomLines.map((line) => <li key={line}>{line}</li>)}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="scx-side__body">
+                      <div className="scx-plabel">Prize Pool</div>
+                      <div className="scx-prize">{extras.prize_pool_text}</div>
+                    </div>
+                  )}
+                </aside>
+              ) : null}
             </div>
 
             <div className="scx-stats">
@@ -509,17 +596,31 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 <div className="scx-stat__value">{wallTime}</div>
               </div>
               <div className="scx-stat">
-                <div className="scx-stat__label">Total Players</div>
-                <div className="scx-stat__value">{summary.total_players?.toLocaleString() ?? "—"}</div>
+                <div className="scx-stat__label">Players</div>
+                <div className="scx-stat__value">{playersLabel}</div>
               </div>
               <div className="scx-stat">
-                <div className="scx-stat__label">Active Players</div>
-                <div className="scx-stat__value">{summary.active_players?.toLocaleString() ?? "—"}</div>
+                <div className="scx-stat__label">Avg Stack</div>
+                <div className="scx-stat__value">{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</div>
               </div>
               <div className="scx-stat">
-                <div className="scx-stat__label">Total Stacks</div>
+                <div className="scx-stat__label">Total Chips</div>
                 <div className="scx-stat__value">{summary.total_chips ? summary.total_chips.toLocaleString() : "—"}</div>
               </div>
+              <div className="scx-stat">
+                <div className="scx-stat__label">Rebuys</div>
+                <div className="scx-stat__value">{summary.total_rebuys?.toLocaleString() ?? "—"}</div>
+              </div>
+              <div className="scx-stat">
+                <div className="scx-stat__label">Add-ons</div>
+                <div className="scx-stat__value">{summary.total_addons?.toLocaleString() ?? "—"}</div>
+              </div>
+              {nextBreakLabel ? (
+                <div className="scx-stat">
+                  <div className="scx-stat__label">Next Break</div>
+                  <div className="scx-stat__value">{nextBreakLabel}</div>
+                </div>
+              ) : null}
               {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
                 <div className="scx-stat">
                   <div className="scx-stat__label">Reg Closes</div>

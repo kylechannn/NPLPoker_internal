@@ -98,9 +98,55 @@ final class TournamentClockService
             'server_time_ms' => (int) (microtime(true) * 1000),
 
             'registration_open' => $this->registrationOpen($session, $index, $levels),
+            // What the room actually asks the floor: "when is the break?"
+            'next_break' => $this->nextBreak($levels, $index, $remainingMs, $session),
             'started_at' => $this->iso($session->started_at),
             'finished_at' => $this->iso($session->finished_at),
         ];
+    }
+
+    /**
+     * The next break on the ladder, with wall-clock time until it starts:
+     * what's left of the current level plus every full level in between
+     * (breaks are levels, so the sum is exact). Null when none remains.
+     */
+    private function nextBreak(array $levels, int $index, int $remainingMs, object $session): ?array
+    {
+        if ($session->status === self::STATUS_FINISHED) {
+            return null;
+        }
+
+        $current = $levels[$index] ?? null;
+
+        if ($current !== null && $current->type === 'break') {
+            return [
+                'index' => $index,
+                'label' => $current->note ?: 'Break',
+                'in_ms' => 0,
+                'on_break' => true,
+            ];
+        }
+
+        // Before the first start the clock has no anchor — count the whole
+        // current level rather than a zero remainder.
+        $accumMs = $session->status === self::STATUS_DRAFT
+            ? ($current !== null ? ((int) $current->duration_min) * 60_000 : 0)
+            : $remainingMs;
+
+        for ($i = $index + 1, $n = count($levels); $i < $n; $i++) {
+            if ($levels[$i]->type === 'break') {
+                return [
+                    'index' => $i,
+                    'label' => $levels[$i]->note ?: 'Break',
+                    'in_ms' => $accumMs,
+                    'on_break' => false,
+                ];
+            }
+
+            $accumMs += ((int) $levels[$i]->duration_min) * 60_000;
+        }
+
+        return null;
     }
 
     public function start(int $sessionId): array

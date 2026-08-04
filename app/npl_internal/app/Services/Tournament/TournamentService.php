@@ -220,10 +220,18 @@ final class TournamentService
 
         $name = trim((string) ($data['name'] ?? ''));
 
-        DB::transaction(function () use ($sessionId, $data, $levels, $tiers, $rebuyTiers, $name): void {
+        DB::transaction(function () use ($sessionId, $session, $data, $levels, $tiers, $rebuyTiers, $name): void {
             $update = [
                 'updated_at' => now(),
             ];
+
+            // Free-form settings (room-display extras like chip
+            // denominations and the prize pool line) merge over what is
+            // already stored, so partial edits never wipe other keys.
+            if (isset($data['settings']) && is_array($data['settings'])) {
+                $existing = json_decode((string) ($session->settings ?? ''), true);
+                $update['settings'] = json_encode(array_merge(is_array($existing) ? $existing : [], $data['settings']));
+            }
 
             if ($name !== '') {
                 $update['name'] = $name;
@@ -314,6 +322,11 @@ final class TournamentService
                 'jackpot_enabled' => (bool) $session->jackpot_enabled,
                 'jackpot_price_cents' => (int) $session->jackpot_price_cents,
                 'seats_per_table' => (int) $session->seats_per_table,
+                'settings' => (function () use ($session): array {
+                    $decoded = json_decode((string) ($session->settings ?? ''), true);
+
+                    return is_array($decoded) ? $decoded : [];
+                })(),
             ],
             'clock' => $this->clock->state($sessionId),
             'levels' => array_map(
