@@ -93,7 +93,12 @@ final class TournamentBroadcaster
         }
     }
 
-    private function uid(int $sessionId): string
+    /**
+     * The cloud-facing identity of a local session. Public because the
+     * Admin QR must encode EXACTLY the uid the broadcasts use — composing
+     * it anywhere else risks the two drifting apart.
+     */
+    public function uid(int $sessionId): string
     {
         $device = $this->license->deviceId() ?: 'unknown';
         $uuid = DB::table('tournament_sessions')->where('id', $sessionId)->value('uuid');

@@ -142,6 +142,26 @@ final class TournamentController
     }
 
     /**
+     * The Admin QR payload: how the iOS admin app addresses this session
+     * on the cloud. The uid comes from the broadcaster's own rule so the
+     * QR always matches what the cloud has on file.
+     */
+    public function adminQr(int $id): JsonResponse
+    {
+        $session = $this->clock->session($id);
+
+        return $this->ok([
+            'qr' => [
+                'tournament_uid' => $this->broadcaster->uid($id),
+                'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
+                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+                'venue_name' => $session->venue_name,
+                'name' => $session->name,
+            ],
+        ]);
+    }
+
+    /**
      * Room-display extras — editable at ANY stage, running included. The
      * prize pool grows with every rebuy, so the director must be able to
      * keep the screen current without unlocking the rest of the settings.

@@ -48,6 +48,8 @@ Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\Tournament
     Route::put('{id}', 'update')->whereNumber('id');
     // Chips/prize rail text only — allowed while running, unlike update.
     Route::put('{id}/display', 'display')->whereNumber('id');
+    // What the iOS admin scanner reads: this session's cloud identity.
+    Route::get('{id}/admin-qr', 'adminQr')->whereNumber('id');
 
     Route::post('{id}/start', 'start')->whereNumber('id');
     Route::post('{id}/pause', 'pause')->whereNumber('id');

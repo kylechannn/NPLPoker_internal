@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Play, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
+import { Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Play, QrCode, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
 import { notify } from "../notifications/store"
 import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
 import {
   countdown,
   deskApi,
   money,
+  type AdminQr,
   type DeskOption,
   type DeskVoucher, type OnlineCoverage,
   type Gates,
@@ -129,10 +131,27 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   // Roster matches for whatever is typed in the scan box — the desk can
   // find and register a player by name as well as by card or NPL ID.
   const [nameHits, setNameHits] = useState<RosterPlayer[]>([])
+  // The Admin QR dialog: the ONLY way the iOS admin app enters a session.
+  const [adminQr, setAdminQr] = useState<AdminQr | null>(null)
+  const [qrOpen, setQrOpen] = useState(false)
+  const [qrError, setQrError] = useState<string | null>(null)
 
   const focusScan = useCallback(() => {
     window.setTimeout(() => scanRef.current?.focus(), 0)
   }, [])
+
+  const openAdminQr = useCallback(() => {
+    setQrOpen(true)
+    setQrError(null)
+    deskApi.adminQr(sessionId)
+      .then((res) => setAdminQr(res.qr))
+      .catch((e) => setQrError(e instanceof Error ? e.message : "The QR could not be loaded."))
+  }, [sessionId])
+
+  const closeAdminQr = useCallback(() => {
+    setQrOpen(false)
+    focusScan()
+  }, [focusScan])
 
   useEffect(() => {
     const term = value.trim()
@@ -578,6 +597,15 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           <MonitorPlay size={15} /> Room clock
         </button> : null}
 
+        <button
+          className="host-desk__display"
+          type="button"
+          title="Show the QR the NPL admin app scans to open this session"
+          onClick={openAdminQr}
+        >
+          <QrCode size={15} /> Admin QR
+        </button>
+
         {onFinishGame ? (
           <button className="host-desk__finish" type="button" onClick={onFinishGame}>Finish game</button>
         ) : null}
@@ -586,6 +614,53 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
       {flash ? <p className="host-desk__flash" role="status">{flash}</p> : null}
+
+      {qrOpen ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={closeAdminQr}>
+          <section className="host-scan-modal__panel host-adminqr" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+            <h3>Admin QR</h3>
+            <p className="host-adminqr__hint">
+              Scan with the NPL Poker admin app — the scanner is the only way into a session.
+            </p>
+
+            {adminQr ? (
+              <>
+                <div className="host-adminqr__code">
+                  <QRCodeSVG
+                    value={JSON.stringify({
+                      npl: "session",
+                      uid: adminQr.tournament_uid,
+                      gs: adminQr.game_session_id,
+                      name: adminQr.name,
+                      venue: adminQr.venue_name,
+                    })}
+                    size={240}
+                    level="M"
+                    marginSize={2}
+                    bgColor="#ffffff"
+                    fgColor="#07142b"
+                    title="Admin session QR"
+                  />
+                </div>
+                <p className="host-adminqr__meta">
+                  <strong>{adminQr.name ?? "This session"}</strong>
+                  {adminQr.venue_name ? <span> · {adminQr.venue_name}</span> : null}
+                </p>
+                <p className="host-adminqr__uid">{adminQr.tournament_uid}</p>
+              </>
+            ) : qrError ? (
+              <p className="host-adminqr__error">{qrError}</p>
+            ) : (
+              <p className="host-adminqr__hint">Loading…</p>
+            )}
+
+            <footer className="host-scan-modal__footer">
+              <span className="host-scan-modal__total" />
+              <button type="button" className="host-scan-modal__cancel" onClick={closeAdminQr}>Close</button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {voucherAsk ? (() => {
         const askBuyIn = voucherAsk.result.options.find((option) => option.action === "buy_in")

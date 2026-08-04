@@ -2069,3 +2069,49 @@
 .host-cash-timer--done strong {
   color: #ffd766;
 }
+
+/* ---- admin QR ---- */
+
+.host-adminqr {
+  text-align: center;
+}
+
+.host-adminqr h3 {
+  margin: 0;
+}
+
+.host-adminqr__hint {
+  margin: 6px 0 0;
+  color: #9fb3d1;
+  font-size: 13px;
+}
+
+/* White quiet-zone card so any phone camera locks on instantly. */
+.host-adminqr__code {
+  display: grid;
+  place-items: center;
+  width: fit-content;
+  margin: 14px auto 10px;
+  padding: 12px;
+  background: #ffffff;
+  border-radius: 14px;
+}
+
+.host-adminqr__meta {
+  margin: 0;
+  color: #e7f0ff;
+  font-size: 14px;
+}
+
+.host-adminqr__uid {
+  margin: 4px 0 0;
+  color: #6f87ad;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+
+.host-adminqr__error {
+  margin: 16px 0;
+  color: #ff9d9d;
+  font-size: 13px;
+}

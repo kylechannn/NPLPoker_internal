@@ -595,4 +595,23 @@ class TournamentDeskTest extends TestCase
         $this->assertSame('Prize pool $2,600', $display['prize_pool_text']);
         $this->assertSame("Green 25\nBlack 100\nPurple 500", $display['chip_denominations']);
     }
+
+    // ----------------------------------------------------------- admin qr --
+
+    public function test_the_admin_qr_carries_the_broadcast_identity(): void
+    {
+        $id = $this->tournament(['game_session_id' => 555]);
+
+        $qr = $this->getJson("/api/v1/tournaments/{$id}/admin-qr")->assertOk()->json('data.qr');
+
+        $this->assertSame(555, $qr['game_session_id']);
+        $this->assertSame('Thursday Deepstack', $qr['name']);
+        $this->assertSame('St George Club', $qr['venue_name']);
+
+        // The uid must be EXACTLY what the clock broadcasts to the cloud —
+        // the broadcaster's rule, not a re-derivation.
+        $uuid = (string) DB::table('tournament_sessions')->where('id', $id)->value('uuid');
+        $device = app(\App\Services\Cloud\LicenseKeyProvider::class)->deviceId() ?: 'unknown';
+        $this->assertSame(sprintf('npl:%s:%s', $device, substr($uuid, 0, 8)), $qr['tournament_uid']);
+    }
 }

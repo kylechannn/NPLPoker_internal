@@ -240,6 +240,15 @@ export type DeskVoucher = {
   entry_fee_limit_cents?: number | null
 }
 
+/** This session's cloud identity — what the Admin QR encodes. */
+export type AdminQr = {
+  tournament_uid: string
+  game_session_id: number | null
+  venue_id: number | null
+  venue_name: string | null
+  name: string | null
+}
+
 export const deskApi = {
   venues: () => request<{ venues: Venue[] }>('/api/v1/desk/venues'),
 
@@ -306,6 +315,10 @@ export const deskApi = {
       `/api/v1/tournaments/${sessionId}/display`,
       { method: 'PUT', body: JSON.stringify(payload) },
     ),
+
+  /** The Admin QR payload: how the iOS admin app addresses this session. */
+  adminQr: (sessionId: number) =>
+    request<{ qr: AdminQr }>(`/api/v1/tournaments/${sessionId}/admin-qr`),
 
   scan: (sessionId: number, nplId: string) =>
     request<ScanResult>(`/api/v1/desk/${sessionId}/scan`, {
