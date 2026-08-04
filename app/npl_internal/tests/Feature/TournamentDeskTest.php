@@ -544,4 +544,55 @@ class TournamentDeskTest extends TestCase
         $this->assertSame(0, $levels[1]['bb_ante']);
         $this->assertSame($levels[2]['big_blind'], $levels[2]['bb_ante']);
     }
+
+    // ------------------------------------------------------------ display --
+
+    public function test_the_chips_prize_rail_survives_the_http_layer_and_updates_mid_game(): void
+    {
+        // Through HTTP on purpose: request validation once silently dropped
+        // `settings`, so rail text typed at prep never reached the room clock.
+        $id = (int) $this->postJson('/api/v1/tournaments', [
+            'name' => 'Rail Night',
+            'starting_stack' => 20000,
+            'registration_closes_at_level' => 2,
+            'settings' => [
+                'chip_denominations' => "Green 25\nBlack 100",
+                'prize_pool_text' => 'Prize pool $2,000',
+            ],
+            'levels' => [
+                ['type' => 'blind', 'small_blind' => 100, 'big_blind' => 200, 'duration_min' => 20],
+                ['type' => 'blind', 'small_blind' => 200, 'big_blind' => 400, 'duration_min' => 20],
+            ],
+        ])->assertStatus(201)->json('data.session.id');
+
+        $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
+        $this->assertSame("Green 25\nBlack 100", $display['chip_denominations']);
+        $this->assertSame('Prize pool $2,000', $display['prize_pool_text']);
+
+        // A draft edit reworks one line...
+        $this->putJson("/api/v1/tournaments/{$id}", [
+            'settings' => ['chip_denominations' => "Green 25\nBlack 100\nPurple 500"],
+        ])->assertOk();
+
+        $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
+        $this->assertSame("Green 25\nBlack 100\nPurple 500", $display['chip_denominations']);
+        // ...without wiping the other (the settings bag merges, never replaces).
+        $this->assertSame('Prize pool $2,000', $display['prize_pool_text']);
+
+        // Once running the full settings edit stays locked, but the rail
+        // stays live — the prize pool grows with every rebuy.
+        app(TournamentClockService::class)->start($id);
+
+        $this->putJson("/api/v1/tournaments/{$id}", [
+            'settings' => ['prize_pool_text' => 'nope'],
+        ])->assertStatus(422);
+
+        $this->putJson("/api/v1/tournaments/{$id}/display", [
+            'prize_pool_text' => 'Prize pool $2,600',
+        ])->assertOk();
+
+        $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
+        $this->assertSame('Prize pool $2,600', $display['prize_pool_text']);
+        $this->assertSame("Green 25\nBlack 100\nPurple 500", $display['chip_denominations']);
+    }
 }

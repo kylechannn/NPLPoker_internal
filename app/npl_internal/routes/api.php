@@ -46,6 +46,8 @@ Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\Tournament
     Route::post('/', 'store');
     Route::get('{id}', 'show')->whereNumber('id');
     Route::put('{id}', 'update')->whereNumber('id');
+    // Chips/prize rail text only — allowed while running, unlike update.
+    Route::put('{id}/display', 'display')->whereNumber('id');
 
     Route::post('{id}/start', 'start')->whereNumber('id');
     Route::post('{id}/pause', 'pause')->whereNumber('id');

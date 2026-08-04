@@ -275,6 +275,37 @@ final class TournamentService
         return $this->show($sessionId);
     }
 
+    /**
+     * The chips/prize rail text, merged into the settings bag whatever the
+     * session status — unlike updateDraft, this stays open after Start so
+     * the director can keep the prize pool current as rebuys land.
+     */
+    public function updateDisplay(int $sessionId, array $data): array
+    {
+        $session = $this->clock->session($sessionId);
+
+        $existing = json_decode((string) ($session->settings ?? ''), true);
+        $merged = array_merge(
+            is_array($existing) ? $existing : [],
+            array_intersect_key($data, ['chip_denominations' => true, 'prize_pool_text' => true]),
+        );
+
+        DB::table('tournament_sessions')->where('id', $sessionId)->update([
+            'settings' => json_encode($merged),
+            'updated_at' => now(),
+        ]);
+
+        $denoms = trim((string) ($merged['chip_denominations'] ?? ''));
+        $prize = trim((string) ($merged['prize_pool_text'] ?? ''));
+
+        return [
+            'display' => [
+                'chip_denominations' => $denoms !== '' ? $denoms : null,
+                'prize_pool_text' => $prize !== '' ? $prize : null,
+            ],
+        ];
+    }
+
     /** Structure edits are refused once play has started. */
     public function updateStructure(int $sessionId, array $levels): array
     {

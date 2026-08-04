@@ -300,6 +300,13 @@ export const deskApi = {
       body: JSON.stringify(payload),
     }),
 
+  /** Chips/prize rail text — editable ANY time, running included. */
+  updateTournamentDisplay: (sessionId: number, payload: { chip_denominations?: string | null, prize_pool_text?: string | null }) =>
+    request<{ display: { chip_denominations: string | null, prize_pool_text: string | null } }>(
+      `/api/v1/tournaments/${sessionId}/display`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+    ),
+
   scan: (sessionId: number, nplId: string) =>
     request<ScanResult>(`/api/v1/desk/${sessionId}/scan`, {
       method: 'POST',

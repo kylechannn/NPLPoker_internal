@@ -94,6 +94,9 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [extras, setExtras] = useState<DisplayExtras>({ chip_denominations: null, prize_pool_text: null })
   // The side panel wears one of two faces; the director flips it live.
   const [sideView, setSideView] = useState<"denoms" | "prize">("denoms")
+  // The rail's text, edited right on the room clock — open at any stage,
+  // because the prize pool grows with every rebuy.
+  const [editor, setEditor] = useState<null | { denoms: string, prize: string, saving: boolean, error: string | null }>(null)
   const [gates, setGates] = useState<Gates | null>(null)
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
@@ -204,6 +207,36 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       window.clearInterval(handle)
     }
   }, [sessionId, refreshKey])
+
+  function openEditor() {
+    setEditor({
+      denoms: extras.chip_denominations ?? "",
+      prize: extras.prize_pool_text ?? "",
+      saving: false,
+      error: null,
+    })
+  }
+
+  async function saveEditor() {
+    if (!editor || editor.saving) return
+    setEditor({ ...editor, saving: true, error: null })
+
+    try {
+      const { display } = await deskApi.updateTournamentDisplay(sessionId, {
+        chip_denominations: editor.denoms.trim(),
+        prize_pool_text: editor.prize.trim(),
+      })
+      setExtras({
+        chip_denominations: display.chip_denominations ?? null,
+        prize_pool_text: display.prize_pool_text ?? null,
+      })
+      setEditor(null)
+    } catch (e) {
+      setEditor((cur) => cur
+        ? { ...cur, saving: false, error: e instanceof Error ? e.message : "The text could not be saved." }
+        : cur)
+    }
+  }
 
   async function control(action: "start" | "pause" | "resume" | "next" | "prev") {
     if (busy) return
@@ -571,6 +604,14 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                     >
                       Prize Pool
                     </button>
+                    <button
+                      type="button"
+                      className="scx-side__tab scx-side__tab--edit"
+                      title="Edit the chips and prize text"
+                      onClick={openEditor}
+                    >
+                      ✎
+                    </button>
                   </div>
 
                   {activeSideView === "denoms" ? (
@@ -632,10 +673,55 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   <div className="scx-stat__value">Closed</div>
                 </div>
               ) : null}
+              {!hasSidePanel && !zoomed ? (
+                // Nothing configured yet: a quiet way in, gone once the
+                // rail is up (the rail then carries its own edit pencil).
+                <button type="button" className="scx-stat scx-stat--setup" onClick={openEditor}>
+                  <div className="scx-stat__label">Room Display</div>
+                  <div className="scx-stat__value">＋ Chips / Prize</div>
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
+
+      {editor ? (
+        <div className="scx-editor" role="dialog" aria-modal="true" aria-label="Chips and prize display">
+          <div className="scx-editor__card">
+            <div className="scx-editor__title">Room Display</div>
+
+            <label className="scx-editor__label" htmlFor="scx-denoms-input">
+              Chip denominations — one per line, e.g. "Green — 25"
+            </label>
+            <textarea
+              id="scx-denoms-input"
+              rows={5}
+              value={editor.denoms}
+              disabled={editor.saving}
+              onChange={(e) => setEditor((cur) => (cur ? { ...cur, denoms: e.target.value } : cur))}
+            />
+
+            <label className="scx-editor__label" htmlFor="scx-prize-input">Prize pool</label>
+            <textarea
+              id="scx-prize-input"
+              rows={3}
+              value={editor.prize}
+              disabled={editor.saving}
+              onChange={(e) => setEditor((cur) => (cur ? { ...cur, prize: e.target.value } : cur))}
+            />
+
+            {editor.error ? <div className="scx-editor__error">{editor.error}</div> : null}
+
+            <div className="scx-editor__actions">
+              <button type="button" onClick={() => setEditor(null)} disabled={editor.saving}>Cancel</button>
+              <button type="button" className="scx-editor__save" onClick={() => void saveEditor()} disabled={editor.saving}>
+                {editor.saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {error ? <p className="rc-stale">{error}</p> : null}
     </div>

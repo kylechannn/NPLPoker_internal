@@ -913,3 +913,124 @@
 @media (prefers-reduced-motion: reduce) {
   .scx-jackpot::after { animation: none; opacity: 0; }
 }
+
+/* ---- chips/prize rail editor ---- */
+
+/* The pencil stays small — a director's control, not a display element. */
+.scx-side__tab--edit {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 6px 8px;
+}
+
+/* Nothing configured yet: a quiet way into the editor from the stat rail. */
+.scx-stat--setup {
+  min-width: 170px;
+  text-align: center;
+  border: 1px dashed rgba(71, 85, 105, 0.7);
+  border-radius: 12px;
+  padding: 4px 10px 8px;
+  background: rgba(15, 23, 42, 0.4);
+  color: inherit;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 120ms var(--rc-ease);
+}
+
+.scx-stat--setup:hover {
+  border-color: #34d399;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.scx-stat--setup:active { transform: scale(0.97); }
+
+.scx-stat--setup .scx-stat__value {
+  font-size: 20px;
+  color: #cbd5e1;
+}
+
+.scx-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.scx-editor__card {
+  display: grid;
+  gap: 8px;
+  width: min(440px, 100%);
+  padding: 18px 20px;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 14px;
+  background: #0f172a;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.8);
+}
+
+.scx-editor__title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #6ee7b7;
+}
+
+.scx-editor__label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.scx-editor__card textarea {
+  resize: vertical;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.scx-editor__card textarea:focus {
+  outline: none;
+  border-color: #34d399;
+}
+
+.scx-editor__error {
+  font-size: 12px;
+  color: #fca5a5;
+}
+
+.scx-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.scx-editor__actions button {
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.6);
+  transition: background-color 140ms ease, transform 120ms var(--rc-ease);
+}
+
+.scx-editor__actions button:active { transform: scale(0.97); }
+
+.scx-editor__actions .scx-editor__save {
+  border-color: #34d399;
+  color: #052e16;
+  background: #34d399;
+}
+
+.scx-editor__actions button:disabled {
+  opacity: 0.55;
+}
