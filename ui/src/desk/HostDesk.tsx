@@ -14,6 +14,7 @@ import {
   type ScanResult,
   type SeatedPlayer,
   type Seating,
+  type ServiceRequestRow,
 } from "./deskApi"
 
 function activeVenueId(): number | null {
@@ -135,6 +136,13 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [adminQr, setAdminQr] = useState<AdminQr | null>(null)
   const [qrOpen, setQrOpen] = useState(false)
   const [qrError, setQrError] = useState<string | null>(null)
+  // Phone requests, as the main control sees them: the open queue and
+  // the recent history, refreshed by the same 15s pull that applies.
+  const [servicePending, setServicePending] = useState<ServiceRequestRow[]>([])
+  const [serviceRecent, setServiceRecent] = useState<ServiceRequestRow[]>([])
+  const [serviceOpen, setServiceOpen] = useState(false)
+  const [serviceBusyId, setServiceBusyId] = useState<number | null>(null)
+  const [serviceError, setServiceError] = useState<string | null>(null)
 
   const focusScan = useCallback(() => {
     window.setTimeout(() => scanRef.current?.focus(), 0)
@@ -152,6 +160,26 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     setQrOpen(false)
     focusScan()
   }, [focusScan])
+
+  const serviceKindLabel = (kind: string) =>
+    kind === "buy_in" ? "Buy-In" : kind === "rebuy" ? "Rebuy" : kind === "addon" ? "Add-on" : "Assistance"
+
+  const handleService = async (requestId: number) => {
+    if (serviceBusyId !== null) return
+    setServiceBusyId(requestId)
+    setServiceError(null)
+
+    try {
+      const result = await deskApi.serviceHandle(sessionId, requestId)
+      setSeating(result.seating)
+      setServicePending((rows) => rows.filter((row) => row.id !== requestId))
+      setFlash(`Handled — ${result.handled.npl_id}`)
+    } catch (e) {
+      setServiceError(e instanceof Error ? e.message : "The request could not be handled.")
+    } finally {
+      setServiceBusyId(null)
+    }
+  }
 
   useEffect(() => {
     const term = value.trim()
@@ -211,13 +239,15 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     const pull = async () => {
       try {
         const result = await deskApi.serviceSync(sessionId)
+        setServicePending(result.pending)
+        setServiceRecent(result.recent)
         for (const row of result.applied) {
-          const label = row.kind === "buy_in" ? "buy-in" : "rebuy"
+          const label = row.kind === "buy_in" ? "buy-in" : row.kind === "addon" ? "add-on" : "rebuy"
           const where = row.table_number ? ` (Table ${row.table_number})` : ""
           setFlash(`Phone ${label} applied — ${row.npl_id}${where}`)
         }
         for (const row of result.failed) {
-          notify("system", `Phone ${row.kind === "buy_in" ? "buy-in" : "rebuy"} refused`, `${row.npl_id}: ${row.error}`, "warning")
+          notify("system", `Phone ${row.kind.replace("_", "-")} refused`, `${row.npl_id}: ${row.error}`, "warning")
         }
         if (result.applied.length > 0) void refresh()
       } catch {
@@ -631,6 +661,18 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           <QrCode size={15} /> Admin QR
         </button>
 
+        <button
+          className="host-desk__display host-desk__requests"
+          type="button"
+          title="Phone requests from seated players — the desk can handle any of them"
+          onClick={() => { setServiceOpen(true); setServiceError(null) }}
+        >
+          <MessageSquareWarning size={15} /> Requests
+          {servicePending.length > 0 ? (
+            <span className="host-desk__requests-badge">{servicePending.length}</span>
+          ) : null}
+        </button>
+
         {onFinishGame ? (
           <button className="host-desk__finish" type="button" onClick={onFinishGame}>Finish game</button>
         ) : null}
@@ -639,6 +681,80 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
       {flash ? <p className="host-desk__flash" role="status">{flash}</p> : null}
+
+      {serviceOpen ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { setServiceOpen(false); focusScan() }}>
+          <section className="host-scan-modal__panel host-svc" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+            <h3>Phone Requests</h3>
+            <p className="host-svc__hint">
+              Pressed by seated players in the app. The desk is the main control — handling a money
+              request books it into the ledger right here.
+            </p>
+
+            {serviceError ? <p className="host-svc__error" role="alert">{serviceError}</p> : null}
+
+            {servicePending.length === 0 ? (
+              <p className="host-svc__quiet">No open requests — the tables are quiet.</p>
+            ) : (
+              <ul className="host-svc__list">
+                {servicePending.map((row) => (
+                  <li key={row.id} className="host-svc__row">
+                    <div className="host-svc__who">
+                      <span className={`host-svc__kind host-svc__kind--${row.kind}`}>{serviceKindLabel(row.kind)}</span>
+                      <strong>{row.display_name ?? row.npl_id}</strong>
+                      <span className="host-svc__npl">{row.npl_id}</span>
+                      {row.entry_voucher_label ? (
+                        <span className="host-svc__voucher">{row.entry_voucher_label}</span>
+                      ) : null}
+                    </div>
+                    <div className="host-svc__meta">
+                      {row.table_number ? `Table ${row.table_number}${row.seat_number ? ` · Seat ${row.seat_number}` : ""}` : "Unseated"}
+                      {row.claimed_by_name ? ` · ${row.claimed_by_name} is on it` : ""}
+                    </div>
+                    {row.note ? <div className="host-svc__note">"{row.note}"</div> : null}
+                    <button
+                      type="button"
+                      className="host-svc__handle"
+                      disabled={serviceBusyId !== null}
+                      onClick={() => void handleService(row.id)}
+                    >
+                      {serviceBusyId === row.id ? <Loader2 size={13} className="host-spin" /> : null}
+                      Handle here
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {serviceRecent.length > 0 ? (
+              <>
+                <h4 className="host-svc__subhead">Recently resolved</h4>
+                <ul className="host-svc__list host-svc__list--recent">
+                  {serviceRecent.map((row) => (
+                    <li key={row.id} className="host-svc__row host-svc__row--done">
+                      <div className="host-svc__who">
+                        <span className={`host-svc__kind host-svc__kind--${row.kind}`}>{serviceKindLabel(row.kind)}</span>
+                        <strong>{row.display_name ?? row.npl_id}</strong>
+                        {row.amount_cents ? <span className="host-svc__amount">{money(row.amount_cents)}</span> : null}
+                      </div>
+                      <div className="host-svc__meta">
+                        {row.resolved_by_name ? `By ${row.resolved_by_name}` : "Resolved"}
+                        {row.applied_at && !row.apply_error ? " · Booked ✓" : ""}
+                        {row.apply_error ? ` · ${row.apply_error}` : ""}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            <footer className="host-scan-modal__footer">
+              <span className="host-scan-modal__total" />
+              <button type="button" className="host-scan-modal__cancel" onClick={() => { setServiceOpen(false); focusScan() }}>Close</button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {qrOpen ? (
         <div className="host-scan-modal" role="presentation" onMouseDown={closeAdminQr}>

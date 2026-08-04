@@ -424,6 +424,24 @@ final class DeskController
         return $this->ok($puller->sync($id));
     }
 
+    /**
+     * The desk handles a phone request itself — money kinds go into the
+     * ledger here first, then the cloud learns "resolved, already applied".
+     */
+    public function serviceHandle(Request $request, int $id, \App\Services\Tournament\TableServicePuller $puller): JsonResponse
+    {
+        $validated = $request->validate([
+            'request_id' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $handled = $puller->handle($id, (int) $validated['request_id']);
+
+        return $this->ok([
+            'handled' => $handled,
+            'seating' => $this->desk->seating($id),
+        ]);
+    }
+
     public function eliminate(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([

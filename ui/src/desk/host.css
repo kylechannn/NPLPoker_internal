@@ -2115,3 +2115,145 @@
   color: #ff9d9d;
   font-size: 13px;
 }
+
+/* ---- phone requests (table service) ---- */
+
+.host-desk__requests {
+  position: relative;
+}
+
+.host-desk__requests-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff4d4d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.host-svc__hint {
+  margin: 6px 0 0;
+  color: #9fb3d1;
+  font-size: 13px;
+}
+
+.host-svc__quiet {
+  margin: 16px 0;
+  color: #6f87ad;
+  font-size: 13px;
+}
+
+.host-svc__error {
+  margin: 10px 0 0;
+  color: #ff9d9d;
+  font-size: 13px;
+}
+
+.host-svc__subhead {
+  margin: 16px 0 6px;
+  color: #9fb3d1;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.host-svc__list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.host-svc__row {
+  position: relative;
+  padding: 10px 12px;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  text-align: left;
+}
+
+.host-svc__row--done {
+  opacity: 0.75;
+}
+
+.host-svc__who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.host-svc__kind {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.host-svc__kind--buy_in { background: rgba(250, 204, 21, 0.16); color: #fde68a; }
+.host-svc__kind--rebuy { background: rgba(56, 189, 248, 0.16); color: #7dd3fc; }
+.host-svc__kind--addon { background: rgba(52, 211, 153, 0.16); color: #6ee7b7; }
+.host-svc__kind--assistance { background: rgba(248, 113, 113, 0.18); color: #fca5a5; }
+
+.host-svc__npl {
+  color: #6f87ad;
+  font-size: 11px;
+}
+
+.host-svc__voucher {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  color: #fde68a;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.host-svc__amount {
+  color: #fde68a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.host-svc__meta {
+  margin-top: 3px;
+  color: #9fb3d1;
+  font-size: 12px;
+}
+
+.host-svc__note {
+  margin-top: 4px;
+  color: #cbd5e1;
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.host-svc__handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 14px;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.16);
+  color: #d1fae5;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background-color 140ms ease, transform 120ms var(--rc-ease);
+}
+
+.host-svc__handle:active { transform: scale(0.97); }
+
+.host-svc__handle:disabled { opacity: 0.55; }

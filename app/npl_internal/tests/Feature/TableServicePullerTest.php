@@ -82,16 +82,20 @@ class TableServicePullerTest extends TestCase
         ]);
     }
 
-    private function fakeCloud(array $pendingRows): void
+    private function fakeCloud(array $applyRows, array $pendingRows = []): void
     {
         Http::fake([
-            '*/internal/table-service/pending*' => Http::response([
-                'ok' => true,
-                'data' => ['data' => $pendingRows],
-            ]),
             '*/internal/table-service/requests/*/applied' => Http::response([
                 'ok' => true,
                 'data' => ['request' => ['id' => 0]],
+            ]),
+            '*/internal/table-service/requests/*/resolve' => Http::response([
+                'ok' => true,
+                'data' => ['request' => ['id' => 0]],
+            ]),
+            '*/internal/table-service/requests*' => Http::response([
+                'ok' => true,
+                'data' => ['pending' => $pendingRows, 'apply' => $applyRows, 'recent' => []],
             ]),
             '*' => Http::response(['ok' => true, 'data' => ['tournament' => [], 'broadcast' => false]]),
         ]);
@@ -149,5 +153,63 @@ class TableServicePullerTest extends TestCase
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/table-service/requests/88/applied')
             && $request['ok'] === false);
+    }
+
+    public function test_the_desk_panel_sees_the_pending_queue_in_the_same_pull(): void
+    {
+        $id = $this->tournament();
+
+        $this->fakeCloud([], [
+            ['id' => 5, 'npl_id' => 'NPL9001', 'kind' => 'assistance', 'note' => 'Chip change', 'table_number' => 2],
+        ]);
+
+        $result = $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->json('data');
+
+        $this->assertCount(1, $result['pending']);
+        $this->assertSame('assistance', $result['pending'][0]['kind']);
+        $this->assertSame('Chip change', $result['pending'][0]['note']);
+    }
+
+    public function test_the_desk_handles_a_money_request_itself_ledger_first_then_the_cloud(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL5003', 'Riva Splash');
+
+        app(TournamentDeskService::class)->apply($id, 'NPL5003', 'buy_in', ['first_buy_in' => true]);
+        app(TournamentClockService::class)->start($id);
+
+        $this->fakeCloud([], [
+            ['id' => 91, 'npl_id' => 'NPL5003', 'kind' => 'rebuy', 'table_number' => 1],
+        ]);
+
+        $this->postJson("/api/v1/desk/{$id}/service-handle", ['request_id' => 91])
+            ->assertOk()
+            ->assertJsonPath('data.handled.kind', 'rebuy');
+
+        $this->assertDatabaseHas('tournament_actions', [
+            'action' => 'rebuy',
+            'idempotency_key' => 'tsr:91',
+        ]);
+
+        // The cloud learns it arrived already applied, priced by the desk.
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/table-service/requests/91/resolve')
+            && $request['applied'] === true
+            && $request['amount_cents'] === 5000);
+    }
+
+    public function test_the_desk_resolves_assistance_without_touching_the_ledger(): void
+    {
+        $id = $this->tournament();
+
+        $this->fakeCloud([], [
+            ['id' => 92, 'npl_id' => 'NPL9002', 'kind' => 'assistance', 'table_number' => 4],
+        ]);
+
+        $this->postJson("/api/v1/desk/{$id}/service-handle", ['request_id' => 92])->assertOk();
+
+        $this->assertSame(0, DB::table('tournament_actions')->count());
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/table-service/requests/92/resolve')
+            && $request['applied'] === false);
     }
 }

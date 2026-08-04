@@ -7,6 +7,7 @@ namespace App\Services\Tournament;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Players\PlayerResolver;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -32,23 +33,32 @@ final class TableServicePuller
         private readonly PlayerResolver $players,
     ) {}
 
-    /** @return array{applied: list<array>, failed: list<array>} */
+    /**
+     * One pull, the whole picture: the pending queue for the desk's own
+     * panel (the OS is the main control), the admin-resolved money kinds
+     * to write into the ledger, and the recent history.
+     *
+     * @return array{applied: list<array>, failed: list<array>, pending: list<array>, recent: list<array>}
+     */
     public function sync(int $sessionId): array
     {
+        $empty = ['applied' => [], 'failed' => [], 'pending' => [], 'recent' => []];
+
         if (! $this->license->isActivated()) {
-            return ['applied' => [], 'failed' => []];
+            return $empty;
         }
 
         try {
-            $response = $this->cloud->getJson('/api/v1/internal/table-service/pending', [
+            $response = $this->cloud->getJson('/api/v1/internal/table-service/requests', [
                 'uid' => $this->broadcaster->uid($sessionId),
             ]);
-            $rows = $response['data']['data'] ?? [];
+            $data = $response['data'] ?? [];
+            $rows = $data['apply'] ?? [];
         } catch (Throwable $e) {
             // Flaky internet must never break the desk — next poll retries.
             Log::info('table service pull skipped', ['session' => $sessionId, 'error' => $e->getMessage()]);
 
-            return ['applied' => [], 'failed' => []];
+            return $empty;
         }
 
         $applied = [];
@@ -59,7 +69,7 @@ final class TableServicePuller
             $nplId = trim((string) ($row['npl_id'] ?? ''));
             $kind = (string) ($row['kind'] ?? '');
 
-            if ($id === 0 || $nplId === '' || ! in_array($kind, ['buy_in', 'rebuy'], true)) {
+            if ($id === 0 || $nplId === '' || ! in_array($kind, ['buy_in', 'rebuy', 'addon'], true)) {
                 continue;
             }
 
@@ -70,7 +80,7 @@ final class TableServicePuller
             }
 
             try {
-                $this->desk->apply($sessionId, $nplId, $kind === 'buy_in' ? 'buy_in' : 'rebuy', [
+                $this->desk->apply($sessionId, $nplId, $kind, [
                     'idempotency_key' => 'tsr:'.$id,
                     'first_buy_in' => $kind === 'buy_in',
                 ]);
@@ -90,7 +100,85 @@ final class TableServicePuller
             }
         }
 
-        return ['applied' => $applied, 'failed' => $failed];
+        return [
+            'applied' => $applied,
+            'failed' => $failed,
+            'pending' => array_values((array) ($data['pending'] ?? [])),
+            'recent' => array_values((array) ($data['recent'] ?? [])),
+        ];
+    }
+
+    /**
+     * The desk handles a request itself — the OS is the main control.
+     * Money kinds are written into the LOCAL ledger first (idempotent by
+     * tsr:{id}), then the cloud is told "resolved by the desk, already
+     * applied" with the desk's own configured price on the record.
+     *
+     * @return array{id:int, kind:string, npl_id:string}
+     */
+    public function handle(int $sessionId, int $requestId): array
+    {
+        $response = $this->cloud->getJson('/api/v1/internal/table-service/requests', [
+            'uid' => $this->broadcaster->uid($sessionId),
+        ]);
+
+        $row = collect($response['data']['pending'] ?? [])->first(
+            fn ($candidate): bool => (int) ($candidate['id'] ?? 0) === $requestId,
+        );
+
+        if ($row === null) {
+            throw ValidationException::withMessages([
+                'request' => ['That request was already handled (or withdrawn).'],
+            ]);
+        }
+
+        $nplId = trim((string) ($row['npl_id'] ?? ''));
+        $kind = (string) ($row['kind'] ?? '');
+        $money = in_array($kind, ['buy_in', 'rebuy', 'addon'], true);
+
+        $amountCents = null;
+
+        if ($money) {
+            if ($nplId === '' || $this->players->resolve($nplId) === null) {
+                throw ValidationException::withMessages([
+                    'request' => ['That player could not be resolved — check the connection and retry.'],
+                ]);
+            }
+
+            // Same funnel as a scan: gates and caps speak here, and their
+            // sentence goes straight back to the operator.
+            $this->desk->apply($sessionId, $nplId, $kind, [
+                'idempotency_key' => 'tsr:'.$requestId,
+                'first_buy_in' => $kind === 'buy_in',
+            ]);
+
+            $amountCents = $this->configuredPrice($sessionId, $kind);
+        }
+
+        $this->cloud->postJson(
+            '/api/v1/internal/table-service/requests/'.$requestId.'/resolve',
+            ['applied' => $money, 'amount_cents' => $amountCents],
+            'tsr-desk:'.$requestId,
+        );
+
+        return ['id' => $requestId, 'kind' => $kind, 'npl_id' => $nplId];
+    }
+
+    /** The desk's own configured price for a kind — what goes on the record. */
+    private function configuredPrice(int $sessionId, string $kind): ?int
+    {
+        $session = DB::table('tournament_sessions')->where('id', $sessionId)->first();
+
+        if ($session === null) {
+            return null;
+        }
+
+        return match ($kind) {
+            'buy_in' => (int) ($session->buy_in_price_cents ?? 0),
+            'rebuy' => (int) (TournamentService::rebuyTiers($session)[0]['price_cents'] ?? 0),
+            'addon' => (int) (TournamentService::addonTiers($session)[0]['price_cents'] ?? 0),
+            default => null,
+        };
     }
 
     private function ack(int $requestId, bool $ok, ?string $error): void

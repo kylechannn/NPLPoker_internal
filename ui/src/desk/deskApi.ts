@@ -240,6 +240,25 @@ export type DeskVoucher = {
   entry_fee_limit_cents?: number | null
 }
 
+/** One table-service request as the cloud describes it. */
+export type ServiceRequestRow = {
+  id: number
+  kind: string
+  status: string
+  note: string | null
+  npl_id: string
+  display_name: string | null
+  table_number: number | null
+  seat_number: number | null
+  amount_cents: number | null
+  claimed_by_name: string | null
+  entry_voucher_label: string | null
+  resolved_by_name: string | null
+  applied_at: string | null
+  apply_error: string | null
+  created_at: string | null
+}
+
 /** This session's cloud identity — what the Admin QR encodes. */
 export type AdminQr = {
   tournament_uid: string
@@ -320,12 +339,21 @@ export const deskApi = {
   adminQr: (sessionId: number) =>
     request<{ qr: AdminQr }>(`/api/v1/tournaments/${sessionId}/admin-qr`),
 
-  /** Pull admin-phone rebuys/buy-ins into the local ledger. */
+  /** One pull: apply admin-resolved money kinds + the desk's own queue. */
   serviceSync: (sessionId: number) =>
     request<{
       applied: { id: number, npl_id: string, kind: string, table_number: number | null }[]
       failed: { id: number, npl_id: string, kind: string, error: string }[]
+      pending: ServiceRequestRow[]
+      recent: ServiceRequestRow[]
     }>(`/api/v1/desk/${sessionId}/service-sync`, { method: 'POST', body: JSON.stringify({}) }),
+
+  /** The desk handles a phone request itself — ledger first, then cloud. */
+  serviceHandle: (sessionId: number, requestId: number) =>
+    request<{ handled: { id: number, kind: string, npl_id: string }, seating: Seating }>(
+      `/api/v1/desk/${sessionId}/service-handle`,
+      { method: 'POST', body: JSON.stringify({ request_id: requestId }) },
+    ),
 
   scan: (sessionId: number, nplId: string) =>
     request<ScanResult>(`/api/v1/desk/${sessionId}/scan`, {
