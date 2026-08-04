@@ -663,6 +663,7 @@
 }
 
 .host-desk__scanbox {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -671,6 +672,53 @@
   border: 1px solid rgba(74, 222, 155, 0.45);
   border-radius: 11px;
   background: var(--host-sunken);
+}
+
+/* Name matches under the scan box — pick one to run the normal scan flow. */
+.host-desk__namehits {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: grid;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid rgba(74, 222, 155, 0.4);
+  border-radius: 11px;
+  background: rgba(10, 20, 38, 0.97);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+.host-desk__namehit {
+  display: grid;
+  gap: 2px;
+  padding: 9px 14px;
+  border: none;
+  border-bottom: 1px solid rgba(120, 150, 200, 0.12);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.host-desk__namehit:last-child { border-bottom: none; }
+
+.host-desk__namehit:hover {
+  background: rgba(74, 222, 155, 0.12);
+}
+
+.host-desk__namehit strong {
+  font-size: 0.92rem;
+}
+
+.host-desk__namehit small {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  opacity: 0.65;
 }
 
 .host-desk__scanbox input {

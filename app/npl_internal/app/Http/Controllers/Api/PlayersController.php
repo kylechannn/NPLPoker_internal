@@ -32,12 +32,22 @@ final class PlayersController extends Controller
         $query = strtoupper(trim((string) ($validated['query'] ?? '')));
         $venueId = isset($validated['venue_id']) ? (int) $validated['venue_id'] : null;
 
+        // Per-word matching: every word of the query must land somewhere in
+        // the identifiers or names — "West As" finds "West Ashfield", and
+        // "Jo Sm" finds John Smith, whatever the word order.
+        $tokens = $query !== '' ? (preg_split('/\s+/', $query, -1, PREG_SPLIT_NO_EMPTY) ?: []) : [];
+
         $players = DB::table('mirror_players')
-            ->when($query !== '', fn ($builder) => $builder->where(fn ($where) => $where
-                ->whereRaw('UPPER(npl_id) LIKE ?', ["%{$query}%"])
-                ->orWhereRaw('UPPER(public_player_code) LIKE ?', ["%{$query}%"])
-                ->orWhereRaw('UPPER(display_name) LIKE ?', ["%{$query}%"])
-                ->orWhereRaw('UPPER(first_name || \' \' || last_name) LIKE ?', ["%{$query}%"])))
+            ->when($tokens !== [], fn ($builder) => $builder->where(function ($where) use ($tokens) {
+                foreach ($tokens as $token) {
+                    $like = "%{$token}%";
+                    $where->where(fn ($word) => $word
+                        ->whereRaw('UPPER(npl_id) LIKE ?', [$like])
+                        ->orWhereRaw('UPPER(public_player_code) LIKE ?', [$like])
+                        ->orWhereRaw('UPPER(display_name) LIKE ?', [$like])
+                        ->orWhereRaw('UPPER(first_name || \' \' || last_name) LIKE ?', [$like]));
+                }
+            }))
             ->orderBy('display_name')
             ->limit(50)
             ->get();

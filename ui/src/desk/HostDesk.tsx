@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Play, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { notify } from "../notifications/store"
-import { playersApi, type PlayerComment } from "../players/playersApi"
+import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
 import {
   countdown,
   deskApi,
@@ -126,10 +126,39 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   // The scan popup's ticked actions, keyed action:tier. One submit fires
   // them all, buy-in always first.
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  // Roster matches for whatever is typed in the scan box — the desk can
+  // find and register a player by name as well as by card or NPL ID.
+  const [nameHits, setNameHits] = useState<RosterPlayer[]>([])
 
   const focusScan = useCallback(() => {
     window.setTimeout(() => scanRef.current?.focus(), 0)
   }, [])
+
+  useEffect(() => {
+    const term = value.trim()
+
+    if (term.length < 3) {
+      setNameHits([])
+      return
+    }
+
+    let cancelled = false
+    const handle = window.setTimeout(() => {
+      void playersApi
+        .search(term, null)
+        .then((result) => {
+          if (!cancelled) setNameHits((result.players ?? []).slice(0, 8))
+        })
+        .catch(() => {
+          if (!cancelled) setNameHits([])
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [value])
 
   const refresh = useCallback(async () => {
     try {
@@ -440,17 +469,46 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             ref={scanRef}
             value={value}
             autoFocus
-            placeholder="Scan a player card or type an NPL ID, then Enter"
-            aria-label="Scan a player"
+            placeholder="Scan a card, or type an NPL ID or a NAME, then Enter"
+            aria-label="Scan or search a player"
             onChange={(e) => setValue(e.target.value.toUpperCase())}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault()
+                setNameHits([])
                 void submitScan(value)
+              }
+              if (e.key === "Escape") {
+                setNameHits([])
               }
             }}
           />
           {busy ? <Loader2 size={16} className="host-spin" /> : null}
+
+          {nameHits.length > 0 && !busy ? (
+            <div className="host-desk__namehits" role="listbox" aria-label="Matching players">
+              {nameHits.map((hit) => (
+                <button
+                  key={hit.npl_id}
+                  type="button"
+                  className="host-desk__namehit"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setValue("")
+                    setNameHits([])
+                    void submitScan(hit.npl_id)
+                  }}
+                >
+                  <strong>{hit.display_name}</strong>
+                  <small>
+                    {hit.npl_id}
+                    {hit.public_player_code ? ` · ${hit.public_player_code}` : ""}
+                    {hit.state_code ? ` · ${hit.state_code}` : ""}
+                  </small>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </label>
 
         <div className="host-desk__gates">
