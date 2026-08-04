@@ -69,6 +69,8 @@ final class TournamentBroadcaster
 
                 'players_total' => $summary['total_players'],
                 'players_active' => $summary['active_players'],
+                'rebuys_count' => (int) ($summary['total_rebuys'] ?? 0),
+                'addons_count' => (int) ($summary['total_addons'] ?? 0),
                 'average_stack' => $summary['average_stack'],
                 'total_chips' => $summary['total_chips'],
                 'registration_open' => $state['registration_open'],
