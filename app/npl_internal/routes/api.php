@@ -100,6 +100,8 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::post('{id}/scan', 'scan')->whereNumber('id');
     Route::post('{id}/act', 'act')->whereNumber('id');
     Route::get('{id}/seating', 'seating')->whereNumber('id');
+    // Apply admin-phone rebuys/buy-ins into the local ledger.
+    Route::post('{id}/service-sync', 'serviceSync')->whereNumber('id');
     Route::post('{id}/eliminate', 'eliminate')->whereNumber('id');
     Route::post('{id}/reinstate', 'reinstate')->whereNumber('id');
     Route::post('{id}/seat', 'seat')->whereNumber('id');

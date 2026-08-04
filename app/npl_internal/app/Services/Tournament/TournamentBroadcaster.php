@@ -81,6 +81,14 @@ final class TournamentBroadcaster
                 // apps can run the same countdown the room is watching,
                 // including the pauses.
                 'gates' => $this->gates->gates($sessionId, $session, $state),
+                // The desk's own prices — the admin phone's resolve sheet
+                // prefills from these ("based on that session's setting").
+                'pricing' => [
+                    'buy_in_cents' => (int) ($session->buy_in_price_cents ?? 0),
+                    'starting_stack' => (int) ($session->starting_stack ?? 0),
+                    'rebuy_tiers' => TournamentService::rebuyTiers($session),
+                    'addon_tiers' => TournamentService::addonTiers($session),
+                ],
                 'started_at' => $state['started_at'],
                 'finished_at' => $state['finished_at'],
             ]);

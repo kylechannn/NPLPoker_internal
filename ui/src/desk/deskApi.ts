@@ -320,6 +320,13 @@ export const deskApi = {
   adminQr: (sessionId: number) =>
     request<{ qr: AdminQr }>(`/api/v1/tournaments/${sessionId}/admin-qr`),
 
+  /** Pull admin-phone rebuys/buy-ins into the local ledger. */
+  serviceSync: (sessionId: number) =>
+    request<{
+      applied: { id: number, npl_id: string, kind: string, table_number: number | null }[]
+      failed: { id: number, npl_id: string, kind: string, error: string }[]
+    }>(`/api/v1/desk/${sessionId}/service-sync`, { method: 'POST', body: JSON.stringify({}) }),
+
   scan: (sessionId: number, nplId: string) =>
     request<ScanResult>(`/api/v1/desk/${sessionId}/scan`, {
       method: 'POST',

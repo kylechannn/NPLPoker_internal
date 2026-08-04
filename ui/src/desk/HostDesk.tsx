@@ -205,6 +205,31 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     return () => window.clearInterval(handle)
   }, [refresh])
 
+  // Phone requests the admin resolved at the table: pull them into the
+  // local ledger every 15s and tell the operator what just landed.
+  useEffect(() => {
+    const pull = async () => {
+      try {
+        const result = await deskApi.serviceSync(sessionId)
+        for (const row of result.applied) {
+          const label = row.kind === "buy_in" ? "buy-in" : "rebuy"
+          const where = row.table_number ? ` (Table ${row.table_number})` : ""
+          setFlash(`Phone ${label} applied — ${row.npl_id}${where}`)
+        }
+        for (const row of result.failed) {
+          notify("system", `Phone ${row.kind === "buy_in" ? "buy-in" : "rebuy"} refused`, `${row.npl_id}: ${row.error}`, "warning")
+        }
+        if (result.applied.length > 0) void refresh()
+      } catch {
+        // Offline is fine — the next pull retries.
+      }
+    }
+
+    void pull()
+    const handle = window.setInterval(() => void pull(), 15000)
+    return () => window.clearInterval(handle)
+  }, [sessionId, refresh])
+
   useEffect(() => {
     if (!flash) return
     const handle = window.setTimeout(() => setFlash(null), 2500)

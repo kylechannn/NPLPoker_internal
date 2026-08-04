@@ -415,6 +415,15 @@ final class DeskController
         return $this->ok($this->desk->seating($id));
     }
 
+    /**
+     * Pull phone requests the admin resolved at the table and apply them
+     * to the local ledger. Called on a timer while the desk is open.
+     */
+    public function serviceSync(int $id, \App\Services\Tournament\TableServicePuller $puller): JsonResponse
+    {
+        return $this->ok($puller->sync($id));
+    }
+
     public function eliminate(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
