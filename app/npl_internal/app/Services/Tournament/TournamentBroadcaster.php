@@ -61,6 +61,9 @@ final class TournamentBroadcaster
                 'ante' => (int) ($state['current_level']['ante'] ?? 0),
                 'bb_ante' => (int) ($state['current_level']['bb_ante'] ?? 0),
                 'next_level' => $state['next_level'],
+                // {label, in_ms, on_break} — the cloud re-derives the
+                // countdown from its own clock so it ages between reports.
+                'next_break' => $state['next_break'] ?? null,
 
                 'level_started_at' => $state['level_started_at'],
                 'paused_at' => $state['paused_at'],
