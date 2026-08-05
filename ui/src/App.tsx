@@ -639,7 +639,9 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [startupPhase, setStartupPhase] = useState<"visible" | "leaving" | "hidden">("visible")
   const [notificationOpen, setNotificationOpen] = useState(false)
-  const [staffQRVisible, setStaffQRVisible] = useState(true)
+  // Hidden until asked for: the sidebar boots with NO QR of any kind — the
+  // staff login QR appears on "Show", the admin QR only with an open session.
+  const [staffQRVisible, setStaffQRVisible] = useState(false)
   const [staffLoginLoading, setStaffLoginLoading] = useState(false)
   const [staffLoginError, setStaffLoginError] = useState<string | null>(null)
   const [staffChallenge, setStaffChallenge] = useState<StaffLoginChallenge | null>(null)
@@ -766,10 +768,6 @@ export default function App() {
   useEffect(() => {
     void loadHealth()
   }, [loadHealth])
-
-  useEffect(() => {
-    void createStaffChallenge()
-  }, [createStaffChallenge])
 
   useEffect(() => {
     if (!staffQRVisible || !staffChallenge) return
