@@ -547,7 +547,7 @@ class TournamentDeskTest extends TestCase
 
     // ------------------------------------------------------------ display --
 
-    public function test_the_chips_prize_rail_survives_the_http_layer_and_updates_mid_game(): void
+    public function test_the_chip_rail_survives_the_http_layer_and_updates_mid_game(): void
     {
         // Through HTTP on purpose: request validation once silently dropped
         // `settings`, so rail text typed at prep never reached the room clock.
@@ -557,7 +557,6 @@ class TournamentDeskTest extends TestCase
             'registration_closes_at_level' => 2,
             'settings' => [
                 'chip_denominations' => "Green 25\nBlack 100",
-                'prize_pool_text' => 'Prize pool $2,000',
             ],
             'levels' => [
                 ['type' => 'blind', 'small_blind' => 100, 'big_blind' => 200, 'duration_min' => 20],
@@ -567,33 +566,71 @@ class TournamentDeskTest extends TestCase
 
         $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
         $this->assertSame("Green 25\nBlack 100", $display['chip_denominations']);
-        $this->assertSame('Prize pool $2,000', $display['prize_pool_text']);
+        // No manual prize text exists any more — prizes belong to the cloud
+        // game; an unlinked desk shows none.
+        $this->assertArrayNotHasKey('prize_pool_text', $display);
+        $this->assertNull($display['prize_breakdown']);
 
-        // A draft edit reworks one line...
+        // A draft edit reworks the rail...
         $this->putJson("/api/v1/tournaments/{$id}", [
             'settings' => ['chip_denominations' => "Green 25\nBlack 100\nPurple 500"],
         ])->assertOk();
 
         $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
         $this->assertSame("Green 25\nBlack 100\nPurple 500", $display['chip_denominations']);
-        // ...without wiping the other (the settings bag merges, never replaces).
-        $this->assertSame('Prize pool $2,000', $display['prize_pool_text']);
 
-        // Once running the full settings edit stays locked, but the rail
-        // stays live — the prize pool grows with every rebuy.
+        // Once running the full settings edit stays locked, but the chip
+        // rail stays live via the display endpoint.
         app(TournamentClockService::class)->start($id);
 
         $this->putJson("/api/v1/tournaments/{$id}", [
-            'settings' => ['prize_pool_text' => 'nope'],
+            'settings' => ['chip_denominations' => 'nope'],
         ])->assertStatus(422);
 
         $this->putJson("/api/v1/tournaments/{$id}/display", [
-            'prize_pool_text' => 'Prize pool $2,600',
+            'chip_denominations' => "Green 25\nBlack 100\nPurple 500\nYellow 1000",
         ])->assertOk();
 
         $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
-        $this->assertSame('Prize pool $2,600', $display['prize_pool_text']);
-        $this->assertSame("Green 25\nBlack 100\nPurple 500", $display['chip_denominations']);
+        $this->assertSame("Green 25\nBlack 100\nPurple 500\nYellow 1000", $display['chip_denominations']);
+    }
+
+    public function test_the_prize_breakdown_rides_in_from_the_linked_cloud_game(): void
+    {
+        // The mirror row is what Manual Update writes: the cloud game's
+        // payout ladder arrives with the session, never typed at the desk.
+        DB::table('mirror_game_sessions')->insert([
+            'session_id' => 9001,
+            'source_type' => 'daily_game',
+            'source_id' => 77,
+            'category' => 'daily_game',
+            'title' => 'Friday Deepstack',
+            'session_date' => now()->toDateString(),
+            'status' => 'scheduled',
+            'registrations_count' => 0,
+            'is_open_for_registration' => true,
+            'prize_breakdown' => json_encode([
+                ['place' => '1st', 'prize' => '$1,000'],
+                ['place' => '2nd', 'prize' => '$500'],
+            ]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $id = $this->tournament(['game_session_id' => 9001]);
+
+        $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
+        $this->assertSame([
+            ['place' => '1st', 'prize' => '$1,000'],
+            ['place' => '2nd', 'prize' => '$500'],
+        ], $display['prize_breakdown']);
+
+        // The display endpoint can no longer smuggle prize text in.
+        $response = $this->putJson("/api/v1/tournaments/{$id}/display", [
+            'chip_denominations' => 'Green 25',
+            'prize_pool_text' => 'nope',
+        ])->assertOk()->json('data.display');
+        $this->assertArrayNotHasKey('prize_pool_text', $response);
     }
 
     // ----------------------------------------------------------- admin qr --

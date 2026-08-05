@@ -85,11 +85,17 @@ export type Seating = {
   }
   gates: Gates
   clock: Record<string, unknown>
-  /** Room-display extras from the preset — either can be absent. */
+  /** Room-display extras — chips typed at the desk, prizes from the cloud game. */
   display?: {
     chip_denominations: string | null
-    prize_pool_text: string | null
+    prize_breakdown: PrizeBreakdownRow[] | null
   }
+}
+
+/** One payout row of the linked cloud game (Daily Games admin). */
+export type PrizeBreakdownRow = {
+  place: string
+  prize: string
 }
 
 export type OnlineBooking = {
@@ -343,9 +349,9 @@ export const deskApi = {
       body: JSON.stringify(payload),
     }),
 
-  /** Chips/prize rail text — editable ANY time, running included. */
-  updateTournamentDisplay: (sessionId: number, payload: { chip_denominations?: string | null, prize_pool_text?: string | null }) =>
-    request<{ display: { chip_denominations: string | null, prize_pool_text: string | null } }>(
+  /** Chip rail text — editable ANY time. Prizes come from the cloud game. */
+  updateTournamentDisplay: (sessionId: number, payload: { chip_denominations?: string | null }) =>
+    request<{ display: { chip_denominations: string | null } }>(
       `/api/v1/tournaments/${sessionId}/display`,
       { method: 'PUT', body: JSON.stringify(payload) },
     ),

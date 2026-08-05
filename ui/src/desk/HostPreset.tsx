@@ -41,7 +41,6 @@ const DEFAULTS = {
   jackpot_price_cents: 1000,
   // Room-display extras: what the big clock's side panel shows.
   chip_denominations: "",
-  prize_pool_text: "",
 }
 
 // Last night's setup is next night's starting point — venues run the same
@@ -236,7 +235,6 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
           jackpot_enabled: (s.jackpot_enabled as boolean) ?? current.jackpot_enabled,
           jackpot_price_cents: (s.jackpot_price_cents as number) ?? current.jackpot_price_cents,
           chip_denominations: (((s.settings as Record<string, unknown> | null)?.chip_denominations as string | undefined) ?? current.chip_denominations),
-          prize_pool_text: (((s.settings as Record<string, unknown> | null)?.prize_pool_text as string | undefined) ?? current.prize_pool_text),
         }))
         setCutOffs({
           registration: (s.registration_closes_at_level as number | null) ?? "",
@@ -385,7 +383,7 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
           venue_id: venue?.id ?? null,
           settings: {
             chip_denominations: form.chip_denominations.trim(),
-            prize_pool_text: form.prize_pool_text.trim(),
+
           },
           levels,
         })
@@ -413,7 +411,7 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
         jackpot_closes_at_level: optional(cutOffs.jackpot),
         settings: {
           chip_denominations: form.chip_denominations.trim(),
-          prize_pool_text: form.prize_pool_text.trim(),
+
         },
         levels,
       })
@@ -661,15 +659,8 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
                       onChange={(e) => update("chip_denominations", e.target.value)}
                     />
                   </div>
-                  <div className="prep-field">
-                    <label>Prize pool (room clock)</label>
-                    <input
-                      type="text"
-                      value={form.prize_pool_text}
-                      placeholder="$10,000 GTD"
-                      onChange={(e) => update("prize_pool_text", e.target.value)}
-                    />
-                  </div>
+                  {/* No prize input here: the payout ladder comes from the
+                      cloud game (Daily Games admin) via Manual Update. */}
                 </div>
               </div>
             </section>

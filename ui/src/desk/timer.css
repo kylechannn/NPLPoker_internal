@@ -535,16 +535,45 @@
   background: rgba(30, 41, 59, 0.6);
 }
 
-.scx-prize {
+/* The payout ladder — compact rows on the right rail, never crowding the
+   timer the way the old free-text prize block did. */
+.scx-payout {
   display: flex;
   flex: 1;
-  align-items: center;
-  font-size: clamp(28px, 3.4vw, 44px);
-  font-weight: 800;
-  line-height: 1.2;
-  text-align: center;
+  min-height: 0;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scx-payout li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.scx-payout__place {
+  color: #94a3b8;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.scx-payout__prize {
+  overflow-wrap: anywhere;
   color: #fcd34d;
-  white-space: pre-line;
+  font-size: 20px;
+  font-weight: 800;
+  text-align: right;
 }
 
 .scx-panel {

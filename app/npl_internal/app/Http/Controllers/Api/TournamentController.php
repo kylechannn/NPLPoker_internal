@@ -66,11 +66,10 @@ final class TournamentController
             'cash_jackpot_close_min' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1440'],
             'seats_per_table' => ['sometimes', 'integer', 'min:2', 'max:10'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
-            // Room-display extras: the chip denominations rail and the prize
-            // pool line the maximised clock shows beside the timer.
+            // Room-display extras: the chip denominations rail the maximised
+            // clock shows beside the timer. (Prizes come from the cloud game.)
             'settings' => ['sometimes', 'nullable', 'array'],
             'settings.chip_denominations' => ['sometimes', 'nullable', 'string', 'max:2000'],
-            'settings.prize_pool_text' => ['sometimes', 'nullable', 'string', 'max:2000'],
 
             // Generate the ladder from a pattern instead of typing it out.
             'structure' => ['sometimes', 'array'],
@@ -131,7 +130,6 @@ final class TournamentController
             'venue_id' => ['sometimes', 'nullable', 'integer'],
             'settings' => ['sometimes', 'nullable', 'array'],
             'settings.chip_denominations' => ['sometimes', 'nullable', 'string', 'max:2000'],
-            'settings.prize_pool_text' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'levels' => ['sometimes', 'array', 'min:1'],
             'levels.*.type' => ['sometimes', Rule::in(['blind', 'break'])],
             'levels.*.small_blind' => ['sometimes', 'integer', 'min:0'],
@@ -207,15 +205,14 @@ final class TournamentController
     }
 
     /**
-     * Room-display extras — editable at ANY stage, running included. The
-     * prize pool grows with every rebuy, so the director must be able to
-     * keep the screen current without unlocking the rest of the settings.
+     * Room-display extras — editable at ANY stage, running included. Chips
+     * only: the prize ladder comes from the cloud game and is never typed
+     * at the desk.
      */
     public function display(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
             'chip_denominations' => ['sometimes', 'nullable', 'string', 'max:2000'],
-            'prize_pool_text' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
 
         return $this->ok($this->tournaments->updateDisplay($id, $validated));

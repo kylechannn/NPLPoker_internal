@@ -348,10 +348,13 @@ final class TournamentService
         $session = $this->clock->session($sessionId);
 
         $existing = json_decode((string) ($session->settings ?? ''), true);
+        // Chips only: the prize ladder is owned by the cloud game and can
+        // never be hand-typed at the desk again.
         $merged = array_merge(
             is_array($existing) ? $existing : [],
-            array_intersect_key($data, ['chip_denominations' => true, 'prize_pool_text' => true]),
+            array_intersect_key($data, ['chip_denominations' => true]),
         );
+        unset($merged['prize_pool_text']);
 
         DB::table('tournament_sessions')->where('id', $sessionId)->update([
             'settings' => json_encode($merged),
@@ -359,12 +362,10 @@ final class TournamentService
         ]);
 
         $denoms = trim((string) ($merged['chip_denominations'] ?? ''));
-        $prize = trim((string) ($merged['prize_pool_text'] ?? ''));
 
         return [
             'display' => [
                 'chip_denominations' => $denoms !== '' ? $denoms : null,
-                'prize_pool_text' => $prize !== '' ? $prize : null,
             ],
         ];
     }

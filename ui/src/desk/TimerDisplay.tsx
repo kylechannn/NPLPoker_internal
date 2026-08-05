@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Copy, Minus, Square, X } from "lucide-react"
-import { countdown, deskApi, type Gates, type Seating } from "./deskApi"
+import { countdown, deskApi, type Gates, type PrizeBreakdownRow, type Seating } from "./deskApi"
 import { wheelApi } from "../jackpot/wheelApi"
 import "./timer.css"
 
@@ -44,7 +44,8 @@ type Summary = {
 
 type DisplayExtras = {
   chip_denominations: string | null
-  prize_pool_text: string | null
+  /** The linked cloud game's payout ladder — never typed at the desk. */
+  prize_breakdown: PrizeBreakdownRow[] | null
 }
 
 const SYNC_MS = 5000
@@ -91,12 +92,12 @@ function chime(isBreak: boolean) {
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
   const [summary, setSummary] = useState<Summary>({})
-  const [extras, setExtras] = useState<DisplayExtras>({ chip_denominations: null, prize_pool_text: null })
+  const [extras, setExtras] = useState<DisplayExtras>({ chip_denominations: null, prize_breakdown: null })
   // The side panel wears one of two faces; the director flips it live.
-  const [sideView, setSideView] = useState<"denoms" | "prize">("denoms")
-  // The rail's text, edited right on the room clock — open at any stage,
-  // because the prize pool grows with every rebuy.
-  const [editor, setEditor] = useState<null | { denoms: string, prize: string, saving: boolean, error: string | null }>(null)
+  // Prizes lead when the cloud game provides a breakdown.
+  const [sideView, setSideView] = useState<"denoms" | "prize">("prize")
+  // The chip rail text, edited right on the room clock — open at any stage.
+  const [editor, setEditor] = useState<null | { denoms: string, saving: boolean, error: string | null }>(null)
   const [gates, setGates] = useState<Gates | null>(null)
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
@@ -190,7 +191,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         })
         setExtras({
           chip_denominations: seating.display?.chip_denominations ?? null,
-          prize_pool_text: seating.display?.prize_pool_text ?? null,
+          prize_breakdown: seating.display?.prize_breakdown ?? null,
         })
         setGates(seating.gates)
         setSyncedAt(Date.now())
@@ -211,7 +212,6 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   function openEditor() {
     setEditor({
       denoms: extras.chip_denominations ?? "",
-      prize: extras.prize_pool_text ?? "",
       saving: false,
       error: null,
     })
@@ -224,12 +224,11 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     try {
       const { display } = await deskApi.updateTournamentDisplay(sessionId, {
         chip_denominations: editor.denoms.trim(),
-        prize_pool_text: editor.prize.trim(),
       })
-      setExtras({
+      setExtras((cur) => ({
+        ...cur,
         chip_denominations: display.chip_denominations ?? null,
-        prize_pool_text: display.prize_pool_text ?? null,
-      })
+      }))
       setEditor(null)
     } catch (e) {
       setEditor((cur) => cur
@@ -377,10 +376,13 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const denomLines = extras.chip_denominations
     ? extras.chip_denominations.split(/\r?\n|,/).map((line) => line.trim()).filter(Boolean)
     : []
-  const hasSidePanel = denomLines.length > 0 || Boolean(extras.prize_pool_text)
+  const prizeRows = extras.prize_breakdown ?? []
+  const hasSidePanel = denomLines.length > 0 || prizeRows.length > 0
+  // Prizes lead whenever the cloud game provides them; chips only when the
+  // director flips the tab (or when chips are all there is).
   const activeSideView: "denoms" | "prize" = sideView === "denoms" && denomLines.length > 0
     ? "denoms"
-    : extras.prize_pool_text
+    : prizeRows.length > 0
       ? "prize"
       : "denoms"
 
@@ -599,15 +601,15 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                     <button
                       type="button"
                       className={activeSideView === "prize" ? "scx-side__tab scx-side__tab--on" : "scx-side__tab"}
-                      disabled={!extras.prize_pool_text}
+                      disabled={prizeRows.length === 0}
                       onClick={() => setSideView("prize")}
                     >
-                      Prize Pool
+                      Prizes
                     </button>
                     <button
                       type="button"
                       className="scx-side__tab scx-side__tab--edit"
-                      title="Edit the chips and prize text"
+                      title="Edit the chip denominations"
                       onClick={openEditor}
                     >
                       ✎
@@ -623,8 +625,17 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                     </div>
                   ) : (
                     <div className="scx-side__body">
-                      <div className="scx-plabel">Prize Pool</div>
-                      <div className="scx-prize">{extras.prize_pool_text}</div>
+                      <div className="scx-plabel">Prizes</div>
+                      {/* The linked game's payout ladder — from the Daily
+                          Games admin, via Manual Update. Read-only here. */}
+                      <ul className="scx-payout">
+                        {prizeRows.map((row, index) => (
+                          <li key={index}>
+                            <span className="scx-payout__place">{row.place}</span>
+                            <span className="scx-payout__prize">{row.prize}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </aside>
@@ -678,7 +689,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 // rail is up (the rail then carries its own edit pencil).
                 <button type="button" className="scx-stat scx-stat--setup" onClick={openEditor}>
                   <div className="scx-stat__label">Room Display</div>
-                  <div className="scx-stat__value">＋ Chips / Prize</div>
+                  <div className="scx-stat__value">＋ Chips</div>
                 </button>
               ) : null}
             </div>
@@ -687,7 +698,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       </div>
 
       {editor ? (
-        <div className="scx-editor" role="dialog" aria-modal="true" aria-label="Chips and prize display">
+        <div className="scx-editor" role="dialog" aria-modal="true" aria-label="Chip display">
           <div className="scx-editor__card">
             <div className="scx-editor__title">Room Display</div>
 
@@ -700,15 +711,6 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               value={editor.denoms}
               disabled={editor.saving}
               onChange={(e) => setEditor((cur) => (cur ? { ...cur, denoms: e.target.value } : cur))}
-            />
-
-            <label className="scx-editor__label" htmlFor="scx-prize-input">Prize pool</label>
-            <textarea
-              id="scx-prize-input"
-              rows={3}
-              value={editor.prize}
-              disabled={editor.saving}
-              onChange={(e) => setEditor((cur) => (cur ? { ...cur, prize: e.target.value } : cur))}
             />
 
             {editor.error ? <div className="scx-editor__error">{editor.error}</div> : null}

@@ -1085,26 +1085,68 @@ final class TournamentDeskService
             ],
             'gates' => $this->gates->gates($sessionId, $session, $state),
             'clock' => $state,
-            // Room-display extras the preset configures: the chip
-            // denominations in play and the prize pool line, switchable
-            // on the big clock's side panel.
+            // Room-display extras: chips typed at the desk, prizes owned by
+            // the CLOUD game (Daily Games admin → Manual Update → here) so
+            // nobody re-types a payout ladder at the desk.
             'display' => $this->displayConfig($session),
         ];
     }
 
-    /** @return array{chip_denominations: ?string, prize_pool_text: ?string} */
+    /** @return array{chip_denominations: ?string, prize_breakdown: ?array} */
     private function displayConfig(object $session): array
     {
         $settings = json_decode((string) ($session->settings ?? ''), true);
         $settings = is_array($settings) ? $settings : [];
 
         $denoms = trim((string) ($settings['chip_denominations'] ?? ''));
-        $prize = trim((string) ($settings['prize_pool_text'] ?? ''));
 
         return [
             'chip_denominations' => $denoms !== '' ? $denoms : null,
-            'prize_pool_text' => $prize !== '' ? $prize : null,
+            'prize_breakdown' => $this->prizeBreakdownFor($session),
         ];
+    }
+
+    /**
+     * The payout ladder of the LINKED cloud game — authored in the Daily
+     * Games admin, mirrored on Manual Update. Null for unlinked desks or
+     * games without a breakdown; the clock simply shows nothing.
+     *
+     * @return ?array<int, array{place: string, prize: string}>
+     */
+    private function prizeBreakdownFor(object $session): ?array
+    {
+        if (empty($session->game_session_id)) {
+            return null;
+        }
+
+        $raw = DB::table('mirror_game_sessions')
+            ->where('session_id', (int) $session->game_session_id)
+            ->value('prize_breakdown');
+
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        $rows = json_decode((string) $raw, true);
+
+        if (! is_array($rows) || $rows === []) {
+            return null;
+        }
+
+        $clean = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $clean[] = [
+                'place' => trim((string) ($row['place'] ?? '')),
+                'prize' => trim((string) ($row['prize'] ?? '')),
+            ];
+        }
+
+        return $clean === [] ? null : $clean;
     }
 
     /** Per-request cache of each venue's valid club IDs, keyed by venue. */

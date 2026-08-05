@@ -176,6 +176,10 @@ final class SyncService
                 'max_players' => isset($row['max_players']) ? (int) $row['max_players'] : null,
                 'registrations_count' => (int) ($row['registrations_count'] ?? 0),
                 'is_open_for_registration' => (bool) ($row['is_open_for_registration'] ?? false),
+                // The game's payout ladder, shown by the room clock.
+                'prize_breakdown' => isset($row['prize_breakdown']) && is_array($row['prize_breakdown'])
+                    ? json_encode($row['prize_breakdown'])
+                    : null,
                 'image_url' => $this->str($row['image_url'] ?? $row['hero_image_url'] ?? null, 500),
                 'media_key' => isset($row['image_url']) ? $this->media->keyFor((string) $row['image_url']) : null,
                 'payload' => json_encode($row),
