@@ -5,6 +5,9 @@ ui/node_modules/
 *.log
 *.tmp
 
+# Claude Code session worktrees — never part of the product.
+.claude/
+
 # Bundled Laravel backend: vendor is restored by scripts/setup.ps1 (composer
 # install) rather than committed, and runtime state never belongs in git.
 app/npl_internal/vendor/
