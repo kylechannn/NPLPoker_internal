@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { deskApi, money, type AddonTier, type GeneratedLevel, type UpcomingSession, type Venue } from "./deskApi"
+import { deskApi, money, type ActiveSession, type AddonTier, type GeneratedLevel, type UpcomingSession, type Venue } from "./deskApi"
 import "./preparation.css"
 
 export type CutOffKind = "registration" | "rebuy" | "addon" | "jackpot"
@@ -114,6 +114,29 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
   const [opening, setOpening] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
+
+  // One session at a time: if the room already has an unfinished session
+  // (and it is not the draft being edited here), a create will be refused —
+  // say so up front instead of at the moment the button is pressed.
+  const [blocking, setBlocking] = useState<ActiveSession | null>(null)
+
+  useEffect(() => {
+    deskApi.activeSession()
+      .then((active) => setBlocking(active && active.id !== editSessionId ? active : null))
+      .catch(() => setBlocking(null))
+  }, [editSessionId])
+
+  const discardBlocking = async () => {
+    if (!blocking) return
+    try {
+      await deskApi.discardTournament(blocking.id)
+      setBlocking(null)
+      setError(null)
+      window.dispatchEvent(new CustomEvent("npl:desk-session-changed"))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The draft could not be discarded.")
+    }
+  }
 
   // Once a level has been touched by hand the pattern stops driving the
   // ladder — silently overwriting someone's tuned structure would be the
@@ -402,6 +425,8 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
         // Storage full/blocked: not worth failing the open.
       }
 
+      // The sidebar admin QR appears the moment the session exists.
+      window.dispatchEvent(new CustomEvent("npl:desk-session-changed"))
       onOpened(created.session.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : "The session could not be opened.")
@@ -514,7 +539,7 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
                 type="button"
                 className="prep-btn prep-btn--dark"
                 onClick={() => void open()}
-                disabled={opening || !venue}
+                disabled={opening || !venue || blocking !== null}
               >
                 {opening ? "Saving…" : "Save & Open Host"}
               </button>
@@ -548,6 +573,20 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
             value={numericCutOffs.registration ? `Row ${numericCutOffs.registration}` : "—"}
           />
         </div>
+
+        {blocking ? (
+          <div className="prep-error" role="alert">
+            “{blocking.name ?? "A session"}” is still open — finish that session before creating a new one.
+            {blocking.status === "draft" ? (
+              <>
+                {" "}
+                <button type="button" className="prep-btn prep-btn--dark" onClick={() => void discardBlocking()}>
+                  Discard that draft
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         {error ? <div className="prep-error" role="alert">{error}</div> : null}
 

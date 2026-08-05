@@ -10,6 +10,7 @@ use App\Services\Tournament\TournamentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Operator-facing tournament API. The clock endpoints are deliberately cheap
@@ -146,9 +147,53 @@ final class TournamentController
      * on the cloud. The uid comes from the broadcaster's own rule so the
      * QR always matches what the cloud has on file.
      */
+    /**
+     * The room's single unfinished session, with the QR payload the sidebar
+     * renders — because one session at a time means one admin QR at a time.
+     * Null when the room is idle (no QR should exist anywhere).
+     */
+    public function active(): JsonResponse
+    {
+        $session = $this->tournaments->activeSession();
+
+        if ($session === null) {
+            return $this->ok(['active' => null]);
+        }
+
+        return $this->ok(['active' => [
+            'id' => (int) $session->id,
+            'name' => $session->name,
+            'game_type' => $session->game_type,
+            'status' => $session->status,
+            'venue_name' => $session->venue_name,
+            'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
+            'qr' => [
+                'tournament_uid' => $this->broadcaster->uid((int) $session->id),
+                'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
+                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+                'venue_name' => $session->venue_name,
+                'name' => $session->name,
+            ],
+        ]]);
+    }
+
+    /** Abandon a mistaken draft — only allowed before any buy-in. */
+    public function destroy(int $id): JsonResponse
+    {
+        return $this->ok($this->tournaments->discardDraft($id));
+    }
+
     public function adminQr(int $id): JsonResponse
     {
         $session = $this->clock->session($id);
+
+        // A finished session's QR must die with it: the scanner is the only
+        // door into a session, and a dead session should have no door.
+        if ($session->status === TournamentClockService::STATUS_FINISHED) {
+            throw ValidationException::withMessages([
+                'session' => ['This session has finished — its admin QR is no longer valid.'],
+            ]);
+        }
 
         return $this->ok([
             'qr' => [

@@ -8,7 +8,7 @@ import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
 import MembershipWorkspace from "./membership/MembershipWorkspace"
 import PlayersWorkspace from "./players/PlayersWorkspace"
 import RegistrationsWorkspace from "./registrations/RegistrationsWorkspace"
-import { deskApi, type UpcomingSession, type Venue } from "./desk/deskApi"
+import { deskApi, type ActiveSession, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
 import { describeRun, syncApi } from "./sync/syncApi"
@@ -435,6 +435,54 @@ function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boole
   )
 }
 
+/**
+ * The admin session QR, shown in the sidebar EXACTLY while the room has an
+ * unfinished session (draft/running/paused) — created means scannable,
+ * finished means gone. Same payload as the desk's Admin QR dialog: the iOS
+ * admin app's only door into a session.
+ */
+function SidebarAdminQR({ session }: { session: ActiveSession | null }) {
+  if (!session) return null
+
+  const statusLabel = session.status === "running"
+    ? "Playing"
+    : session.status === "paused"
+      ? "Paused"
+      : "Hosting"
+
+  return (
+    <section className="sidebar-admin-qr" aria-label="Admin session QR code">
+      <header>
+        <div>
+          <span><i /> Admin QR</span>
+          <strong>{statusLabel} · {session.game_type === "cash" ? "Cash game" : "Tournament"}</strong>
+        </div>
+      </header>
+      <div className="sidebar-admin-qr__code">
+        <QRCodeSVG
+          value={JSON.stringify({
+            npl: "session",
+            uid: session.qr.tournament_uid,
+            gs: session.qr.game_session_id,
+            name: session.qr.name,
+            venue: session.qr.venue_name,
+          })}
+          size={164}
+          level="M"
+          marginSize={1}
+          bgColor="#ffffff"
+          fgColor="#07142b"
+          title="Admin session QR"
+        />
+      </div>
+      <footer>
+        <strong>{session.name ?? "This session"}</strong>
+        <small>Scan with the NPL admin app</small>
+      </footer>
+    </section>
+  )
+}
+
 function SidebarStaffQR({
   visible,
   challenge,
@@ -595,6 +643,30 @@ export default function App() {
   const [staffLoginLoading, setStaffLoginLoading] = useState(false)
   const [staffLoginError, setStaffLoginError] = useState<string | null>(null)
   const [staffChallenge, setStaffChallenge] = useState<StaffLoginChallenge | null>(null)
+
+  // The sidebar admin QR mirrors the desk: it exists exactly while the room
+  // has an unfinished session. Poll + the same signals the sessions hub uses,
+  // plus the desk's own local create/finish/discard event.
+  const [activeDeskSession, setActiveDeskSession] = useState<ActiveSession | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => {
+      deskApi.activeSession()
+        .then((session) => { if (!cancelled) setActiveDeskSession(session) })
+        .catch(() => { /* backend starting up — keep the last known state */ })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 15000)
+    window.addEventListener("npl:sessions-updated", refresh)
+    window.addEventListener("npl:desk-session-changed", refresh)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      window.removeEventListener("npl:sessions-updated", refresh)
+      window.removeEventListener("npl:desk-session-changed", refresh)
+    }
+  }, [])
   const [staffSecondsRemaining, setStaffSecondsRemaining] = useState(0)
   // The signed-in staff member — ONLY a QR pairing verified against the
   // cloud's staff register can set this. Persisted so a reload at the desk
@@ -937,6 +1009,8 @@ export default function App() {
             ))}
           </nav>
         </div>
+
+        <SidebarAdminQR session={activeDeskSession} />
 
         <SidebarStaffQR
           visible={staffQRVisible}

@@ -6,11 +6,21 @@ use App\Services\Tournament\TournamentClockService;
 use App\Services\Tournament\TournamentService;
 use App\Services\Tournament\TournamentTemplateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class TournamentTemplateTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** The room runs ONE session at a time — finish it to open the next. */
+    private function finish(int $sessionId): void
+    {
+        DB::table('tournament_sessions')->where('id', $sessionId)->update([
+            'status' => TournamentClockService::STATUS_FINISHED,
+            'updated_at' => now(),
+        ]);
+    }
 
     /** Proves a venue can shape every game differently. */
     public function test_each_game_can_customise_its_own_stack_blinds_and_durations(): void
@@ -27,6 +37,9 @@ class TournamentTemplateTest extends TestCase
                 ['type' => 'blind', 'small_blind' => 200, 'big_blind' => 400, 'duration_min' => 8],
             ],
         ]);
+
+        // Thursday's game finishes before Sunday's opens — one desk at a time.
+        $this->finish((int) $turbo['session']['id']);
 
         $deepstack = $service->create([
             'registration_closes_at_level' => 1,
@@ -82,6 +95,8 @@ class TournamentTemplateTest extends TestCase
         $this->assertSame(30000, $template['settings']['starting_stack']);
 
         // Next week: name only — everything else comes from the template.
+        // (This week's game has finished by then — one desk at a time.)
+        $this->finish((int) $original['session']['id']);
         $nextWeek = $service->create(['name' => 'Friday Deepstack (2 Aug)', 'registration_closes_at_level' => 1]);
 
         $this->assertSame(30000, $nextWeek['session']['starting_stack']);
@@ -138,8 +153,11 @@ class TournamentTemplateTest extends TestCase
         $service = app(TournamentService::class);
         $clock = app(TournamentClockService::class);
 
+        // An earlier finished game must NOT be picked up — only the live one.
+        $b = $service->create(['name' => 'Finished B', 'registration_closes_at_level' => 1]);
+        $this->finish((int) $b['session']['id']);
+
         $a = $service->create(['name' => 'Live A', 'registration_closes_at_level' => 1]);
-        $service->create(['name' => 'Draft B', 'registration_closes_at_level' => 1]);
         $clock->start($a['session']['id']);
 
         // No licence in tests, so publishing is a no-op — but the command must

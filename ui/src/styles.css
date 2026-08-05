@@ -1234,6 +1234,109 @@ a:focus-visible {
   filter: drop-shadow(0 0 5px rgba(56, 229, 255, 0.35));
 }
 
+/* The admin session QR: lives in the sidebar exactly while a session is
+   open (draft/running/paused). Gold-tinted so it never reads as the cyan
+   staff-login QR sitting beside it. */
+.sidebar-admin-qr {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(240, 195, 105, 0.32);
+  margin: 0 12px 9px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(240, 195, 105, 0.09), transparent 42%),
+    rgba(5, 17, 37, 0.92);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+}
+
+.sidebar-admin-qr > header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--npl-hairline);
+  padding: 8px 10px 8px 12px;
+}
+
+.sidebar-admin-qr > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.sidebar-admin-qr > header span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 0.61rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sidebar-admin-qr > header span i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f0c369;
+  box-shadow: 0 0 9px rgba(240, 195, 105, 0.66);
+}
+
+.sidebar-admin-qr > header strong {
+  overflow: hidden;
+  color: #ecf7ff;
+  font-size: 0.73rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-admin-qr__code {
+  display: grid;
+  justify-self: center;
+  margin: 12px 0 9px;
+  place-items: center;
+  border: 5px solid #fff;
+  background: #fff;
+  box-shadow: 0 9px 25px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-admin-qr__code svg {
+  display: block;
+  width: 164px;
+  height: 164px;
+}
+
+.sidebar-admin-qr > footer {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 0 10px 11px;
+  text-align: center;
+}
+
+.sidebar-admin-qr > footer strong {
+  overflow: hidden;
+  max-width: 100%;
+  color: #ecf7ff;
+  font-size: 0.71rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-admin-qr > footer small {
+  color: var(--npl-faint);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+
 .sidebar-staff-qr {
   position: relative;
   display: grid;

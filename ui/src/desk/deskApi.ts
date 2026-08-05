@@ -268,6 +268,21 @@ export type AdminQr = {
   name: string | null
 }
 
+/**
+ * The room's single unfinished session. Only one can exist at a time —
+ * tournament or cash — so this doubles as "may a new session be created"
+ * and as the sidebar admin QR's data source.
+ */
+export type ActiveSession = {
+  id: number
+  name: string | null
+  game_type: 'tournament' | 'cash'
+  status: 'draft' | 'running' | 'paused'
+  venue_name: string | null
+  game_session_id: number | null
+  qr: AdminQr
+}
+
 export const deskApi = {
   venues: () => request<{ venues: Venue[] }>('/api/v1/desk/venues'),
 
@@ -338,6 +353,15 @@ export const deskApi = {
   /** The Admin QR payload: how the iOS admin app addresses this session. */
   adminQr: (sessionId: number) =>
     request<{ qr: AdminQr }>(`/api/v1/tournaments/${sessionId}/admin-qr`),
+
+  /** The room's one unfinished session — null when the desk is idle. */
+  activeSession: () =>
+    request<{ active: ActiveSession | null }>('/api/v1/tournaments/active')
+      .then((data) => data.active),
+
+  /** Abandon a mistaken draft — refused once anyone has bought in. */
+  discardTournament: (sessionId: number) =>
+    request<{ discarded: boolean }>(`/api/v1/tournaments/${sessionId}`, { method: 'DELETE' }),
 
   /** One pull: apply admin-resolved money kinds + the desk's own queue. */
   serviceSync: (sessionId: number) =>

@@ -25,6 +25,54 @@ final class TournamentService
     ) {}
 
     /**
+     * The room's single unfinished desk session — draft, running or paused,
+     * tournament or cash. Null when the room is idle. This is what refuses a
+     * second create and what the sidebar admin QR renders: one session at a
+     * time means one admin QR at a time.
+     */
+    public function activeSession(): ?object
+    {
+        return DB::table('tournament_sessions')
+            ->where('status', '!=', TournamentClockService::STATUS_FINISHED)
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
+     * Abandon a mistaken draft. Only a draft with NO recorded entries can be
+     * discarded — once money hits the ledger the only exit is Finish, because
+     * finishing is what reconciles the books with the cloud. Without this, a
+     * wrongly-created draft would hold the one-session slot forever.
+     */
+    public function discardDraft(int $sessionId): array
+    {
+        $session = $this->clock->session($sessionId);
+
+        if ($session->status !== TournamentClockService::STATUS_DRAFT) {
+            throw ValidationException::withMessages([
+                'session' => ['Only a draft session can be discarded — finish the game instead.'],
+            ]);
+        }
+
+        $entries = DB::table('tournament_entries')
+            ->where('tournament_session_id', $sessionId)
+            ->count();
+
+        if ($entries > 0) {
+            throw ValidationException::withMessages([
+                'session' => ['Players have already bought in — finish the game instead of discarding it.'],
+            ]);
+        }
+
+        DB::transaction(function () use ($sessionId): void {
+            DB::table('tournament_levels')->where('tournament_session_id', $sessionId)->delete();
+            DB::table('tournament_sessions')->where('id', $sessionId)->delete();
+        });
+
+        return ['discarded' => true];
+    }
+
+    /**
      * Precedence: anything the caller passes wins, then the named template,
      * then the saved default template, then the built-in structure. That is
      * what makes "start next week's game in one tap" work while still
@@ -32,6 +80,21 @@ final class TournamentService
      */
     public function create(array $data): array
     {
+        // ONE desk at a time: the room runs a single live session — cash or
+        // tournament — and the admin QR belongs to it. A second create is
+        // refused until the current one finishes (or its empty draft is
+        // discarded); without this rule two QR codes could exist at once.
+        $active = $this->activeSession();
+
+        if ($active !== null) {
+            throw ValidationException::withMessages([
+                'session' => [sprintf(
+                    '"%s" is still open — finish that session before creating a new one.',
+                    (string) ($active->name ?? 'The current session'),
+                )],
+            ]);
+        }
+
         // A cash game is the same desk minus the clock: no blind ladder, no
         // templates, and every cut-off blank — open until the game finishes.
         $isCash = ($data['game_type'] ?? 'tournament') === 'cash';

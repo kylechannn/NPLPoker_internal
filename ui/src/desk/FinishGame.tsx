@@ -89,6 +89,9 @@ export default function FinishGame({ sessionId, onBack, onFinished, mode = "tour
               : `Top ${result.recorded} recorded — standings queued, they sync when the link returns.`),
         result.pushed ? "success" : "warning",
       )
+      // Finished frees the one-session slot: the sidebar admin QR dies now,
+      // not on the next poll.
+      window.dispatchEvent(new CustomEvent("npl:desk-session-changed"))
       setDone({ name: result.name, venue: result.venue_name, pushed: result.pushed })
     } catch (e) {
       setError(e instanceof Error ? e.message : "The game could not be finished.")

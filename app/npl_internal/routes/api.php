@@ -44,8 +44,13 @@ Route::post('v1/staff/resolve', [\App\Http\Controllers\Api\StaffController::clas
  */
 Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\TournamentController::class)->group(function (): void {
     Route::post('/', 'store');
+    // The one unfinished session (with its admin QR) — null when idle.
+    // The sidebar polls this; it is also why store() refuses seconds.
+    Route::get('active', 'active');
     Route::get('{id}', 'show')->whereNumber('id');
     Route::put('{id}', 'update')->whereNumber('id');
+    // Abandon a mistaken draft (no buy-ins yet) — frees the one-session slot.
+    Route::delete('{id}', 'destroy')->whereNumber('id');
     // Chips/prize rail text only — allowed while running, unlike update.
     Route::put('{id}/display', 'display')->whereNumber('id');
     // What the iOS admin scanner reads: this session's cloud identity.

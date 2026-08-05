@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { CircleDollarSign, Loader2, Undo2 } from "lucide-react"
-import { deskApi, type UpcomingSession, type Venue } from "./deskApi"
+import { deskApi, type ActiveSession, type UpcomingSession, type Venue } from "./deskApi"
 import "./host.css"
 
 const CASH_MEMORY_KEY = "npl.cashSetup.v1"
@@ -64,6 +64,28 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
   const [error, setError] = useState<string | null>(null)
   const [opening, setOpening] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(editSessionId !== null)
+
+  // One session at a time — cash and tournament share the single slot, so
+  // an unfinished tournament blocks the cash desk too (and vice versa).
+  const [blocking, setBlocking] = useState<ActiveSession | null>(null)
+
+  useEffect(() => {
+    deskApi.activeSession()
+      .then((active) => setBlocking(active && active.id !== editSessionId ? active : null))
+      .catch(() => setBlocking(null))
+  }, [editSessionId])
+
+  const discardBlocking = async () => {
+    if (!blocking) return
+    try {
+      await deskApi.discardTournament(blocking.id)
+      setBlocking(null)
+      setError(null)
+      window.dispatchEvent(new CustomEvent("npl:desk-session-changed"))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The draft could not be discarded.")
+    }
+  }
 
   const defaultName = useMemo(() => {
     const today = new Date().toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" })
@@ -154,6 +176,8 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
         // Storage blocked — not worth failing the open.
       }
 
+      // The sidebar admin QR appears the moment the session exists.
+      window.dispatchEvent(new CustomEvent("npl:desk-session-changed"))
       onOpened(created.session.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : "The cash game could not be opened.")
@@ -173,6 +197,20 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
         </div>
         <button type="button" className="host-desk__exit" onClick={onBack}><Undo2 size={14} /> Back</button>
       </header>
+
+      {blocking ? (
+        <p className="host-desk__error" role="alert">
+          “{blocking.name ?? "A session"}” is still open — finish that session before creating a new one.
+          {blocking.status === "draft" ? (
+            <>
+              {" "}
+              <button type="button" className="cashprep__open" onClick={() => void discardBlocking()}>
+                Discard that draft
+              </button>
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
 
@@ -295,7 +333,7 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
           </div>
 
           <footer className="cashprep__footer">
-            <button type="button" className="cashprep__open" disabled={opening} onClick={() => void open()}>
+            <button type="button" className="cashprep__open" disabled={opening || blocking !== null} onClick={() => void open()}>
               {opening ? <Loader2 size={15} className="host-spin" /> : null}
               {editSessionId !== null ? "Save & back to desk" : "Open the cash desk"}
             </button>
