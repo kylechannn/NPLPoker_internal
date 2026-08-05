@@ -18,14 +18,11 @@ import {
   AlertTriangle,
   Bell,
   CalendarDays,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleDollarSign,
   Clock3,
   Copy,
-  Eye,
-  EyeOff,
   FileSpreadsheet,
   Gauge,
   IdCard,
@@ -41,12 +38,10 @@ import {
   Pause,
   Play,
   Plus,
-  QrCode,
   RefreshCw,
   Save,
   ShieldAlert,
   ShieldCheck,
-  Smartphone,
   Spade,
   Square,
   Table2,
@@ -116,16 +111,6 @@ type StaffIdentity = {
   name: string
   role: string
   initials: string
-}
-
-type StaffLoginChallenge = {
-  id: string
-  login_url: string
-  pairing_code: string
-  status: "waiting" | "scanned" | "approved" | "expired" | "cancelled" | "locked"
-  expires_at: string
-  seconds_remaining: number
-  staff?: StaffIdentity
 }
 
 type NavId =
@@ -483,112 +468,6 @@ function SidebarAdminQR({ session }: { session: ActiveSession | null }) {
   )
 }
 
-function SidebarStaffQR({
-  visible,
-  challenge,
-  loading,
-  error,
-  secondsRemaining,
-  onHide,
-  onShow,
-  onRefresh,
-}: {
-  visible: boolean
-  challenge: StaffLoginChallenge | null
-  loading: boolean
-  error: string | null
-  secondsRemaining: number
-  onHide: () => void
-  onShow: () => void
-  onRefresh: () => void
-}) {
-  if (!visible) {
-    return (
-      <section className="sidebar-staff-qr sidebar-staff-qr--hidden" aria-label="Staff login QR hidden">
-        <span className="sidebar-staff-qr__symbol"><QrCode size={20} /></span>
-        <div>
-          <strong>Staff login</strong>
-          <span>QR code hidden</span>
-        </div>
-        <button type="button" onClick={onShow} aria-label="Show staff login QR code">
-          <Eye size={17} /> Show
-        </button>
-      </section>
-    )
-  }
-
-  const approved = challenge?.status === "approved" && challenge.staff
-  const active = challenge?.status === "waiting" || challenge?.status === "scanned"
-  const statusLabel = challenge?.status === "scanned"
-    ? "Phone connected"
-    : challenge?.status === "approved"
-      ? "Sign-in approved"
-      : "Ready to scan"
-
-  return (
-    <section className="sidebar-staff-qr" aria-label="Staff phone login QR code">
-      <header>
-        <div>
-          <span><i /> Staff login</span>
-          <strong>{statusLabel}</strong>
-        </div>
-        <button type="button" onClick={onHide} aria-label="Hide staff login QR code">
-          <EyeOff size={16} /> Hide
-        </button>
-      </header>
-
-      {loading ? (
-        <div className="sidebar-staff-qr__state" role="status">
-          <RefreshCw size={25} />
-          <strong>Preparing secure QR…</strong>
-        </div>
-      ) : error ? (
-        <div className="sidebar-staff-qr__state sidebar-staff-qr__state--error">
-          <AlertTriangle size={24} />
-          <strong>QR unavailable</strong>
-          <button type="button" onClick={onRefresh}>Try again</button>
-        </div>
-      ) : approved ? (
-        <div className="sidebar-staff-qr__approved">
-          <CheckCircle2 size={35} />
-          <strong>{challenge.staff?.name}</strong>
-          <span>Phone session approved</span>
-        </div>
-      ) : challenge && active ? (
-        <>
-          <div className="sidebar-staff-qr__code">
-            <QRCodeSVG
-              value={challenge.login_url}
-              size={164}
-              level="M"
-              marginSize={1}
-              bgColor="#ffffff"
-              fgColor="#07142b"
-              title="NPL one-time staff login QR code"
-            />
-          </div>
-          <div className="sidebar-staff-qr__pairing">
-            <span>Pairing code</span>
-            <strong>{challenge.pairing_code}</strong>
-          </div>
-          <footer>
-            <span>{Math.floor(secondsRemaining / 60)}:{String(secondsRemaining % 60).padStart(2, "0")}</span>
-            <small>{challenge.status === "scanned" ? "Confirm on phone" : "Same venue Wi-Fi"}</small>
-            <button type="button" onClick={onRefresh} aria-label="Generate a new staff QR code" title="New QR">
-              <RefreshCw size={15} />
-            </button>
-          </footer>
-        </>
-      ) : (
-        <div className="sidebar-staff-qr__state">
-          <QrCode size={25} />
-          <strong>Refreshing QR…</strong>
-        </div>
-      )}
-    </section>
-  )
-}
-
 export default function App() {
   // A venue can pin a desktop shortcut straight to the station this laptop
   // is used for — the door scanner opens on Host, the floor opens on tables.
@@ -639,12 +518,6 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [startupPhase, setStartupPhase] = useState<"visible" | "leaving" | "hidden">("visible")
   const [notificationOpen, setNotificationOpen] = useState(false)
-  // Hidden until asked for: the sidebar boots with NO QR of any kind — the
-  // staff login QR appears on "Show", the admin QR only with an open session.
-  const [staffQRVisible, setStaffQRVisible] = useState(false)
-  const [staffLoginLoading, setStaffLoginLoading] = useState(false)
-  const [staffLoginError, setStaffLoginError] = useState<string | null>(null)
-  const [staffChallenge, setStaffChallenge] = useState<StaffLoginChallenge | null>(null)
 
   // The sidebar admin QR mirrors the desk: it exists exactly while the room
   // has an unfinished session. Poll + the same signals the sessions hub uses,
@@ -669,7 +542,6 @@ export default function App() {
       window.removeEventListener("npl:desk-session-changed", refresh)
     }
   }, [])
-  const [staffSecondsRemaining, setStaffSecondsRemaining] = useState(0)
   // The signed-in staff member — ONLY a QR pairing verified against the
   // cloud's staff register can set this. Persisted so a reload at the desk
   // doesn't sign the operator out mid-shift.
@@ -712,126 +584,9 @@ export default function App() {
     }
   }, [])
 
-  const cancelStaffChallenge = useCallback(async (challenge: StaffLoginChallenge | null) => {
-    if (!challenge || challenge.status === "approved" || challenge.status === "expired" || challenge.status === "cancelled") return
-    try {
-      await fetch(`/api/staff-login/challenges/${encodeURIComponent(challenge.id)}`, {
-        method: "DELETE",
-        headers: { Accept: "application/json" },
-      })
-    } catch {
-      // Expiry still bounds a request if the local gateway closes mid-cancel.
-    }
-  }, [])
-
-  const createStaffChallenge = useCallback(async (previous?: StaffLoginChallenge | null) => {
-    if (previous) await cancelStaffChallenge(previous)
-    setStaffLoginLoading(true)
-    setStaffLoginError(null)
-    setStaffChallenge(null)
-    try {
-      const response = await fetch("/api/staff-login/challenges", {
-        method: "POST",
-        headers: { Accept: "application/json" },
-      })
-      const payload = await response.json() as StaffLoginChallenge & { error?: string }
-      if (!response.ok) throw new Error(payload.error || "The private staff gateway could not create a login request.")
-      setStaffChallenge(payload)
-      setStaffSecondsRemaining(payload.seconds_remaining)
-    } catch (requestError) {
-      setStaffLoginError(
-        requestError instanceof Error
-          ? requestError.message
-          : "The private staff gateway could not create a login request.",
-      )
-    } finally {
-      setStaffLoginLoading(false)
-    }
-  }, [cancelStaffChallenge])
-
-  const hideStaffQR = () => {
-    void cancelStaffChallenge(staffChallenge)
-    setStaffQRVisible(false)
-    setStaffLoginError(null)
-    setStaffChallenge(null)
-  }
-
-  const showStaffQR = () => {
-    setStaffQRVisible(true)
-    void createStaffChallenge()
-  }
-
-  const regenerateStaffLogin = () => {
-    void createStaffChallenge(staffChallenge)
-  }
-
   useEffect(() => {
     void loadHealth()
   }, [loadHealth])
-
-  useEffect(() => {
-    if (!staffQRVisible || !staffChallenge) return
-    if (staffChallenge.status !== "waiting" && staffChallenge.status !== "scanned") return
-
-    let stopped = false
-    const pollStatus = async () => {
-      try {
-        const response = await fetch(`/api/staff-login/challenges/${encodeURIComponent(staffChallenge.id)}`, {
-          headers: { Accept: "application/json", "Cache-Control": "no-store" },
-        })
-        if (!response.ok) return
-        const status = await response.json() as Pick<
-          StaffLoginChallenge,
-          "id" | "status" | "expires_at" | "seconds_remaining" | "staff"
-        >
-        if (stopped) return
-        setStaffChallenge((current) => current?.id === status.id ? { ...current, ...status } : current)
-        setStaffSecondsRemaining(status.seconds_remaining)
-        if (status.status === "approved" && status.staff) {
-          setActiveStaff(status.staff)
-          window.localStorage.setItem("npl.activeStaff", JSON.stringify(status.staff))
-          setNotice(`${status.staff.name} signed in securely from a staff phone.`)
-        }
-      } catch {
-        // Keep the displayed QR active; the next lightweight poll can recover.
-      }
-    }
-
-    void pollStatus()
-    const poll = window.setInterval(pollStatus, 1_500)
-    return () => {
-      stopped = true
-      window.clearInterval(poll)
-    }
-  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.status])
-
-  useEffect(() => {
-    if (!staffQRVisible || !staffChallenge) return
-    const updateCountdown = () => {
-      const remaining = Math.max(0, Math.ceil((new Date(staffChallenge.expires_at).getTime() - Date.now()) / 1000))
-      setStaffSecondsRemaining(remaining)
-    }
-    updateCountdown()
-    const timer = window.setInterval(updateCountdown, 1_000)
-    return () => window.clearInterval(timer)
-  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.expires_at])
-
-  useEffect(() => {
-    if (!staffQRVisible || !staffChallenge || staffChallenge.status !== "approved") return
-    const nextStaff = window.setTimeout(() => {
-      void createStaffChallenge(staffChallenge)
-    }, 4_500)
-    return () => window.clearTimeout(nextStaff)
-  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.status, createStaffChallenge])
-
-  useEffect(() => {
-    if (!staffQRVisible || !staffChallenge || staffSecondsRemaining > 0) return
-    if (staffChallenge.status !== "waiting" && staffChallenge.status !== "scanned") return
-    const rotateExpired = window.setTimeout(() => {
-      void createStaffChallenge(staffChallenge)
-    }, 500)
-    return () => window.clearTimeout(rotateExpired)
-  }, [staffQRVisible, staffChallenge?.id, staffChallenge?.status, staffSecondsRemaining, createStaffChallenge])
 
   useEffect(() => {
     void loadNetworkQuality()
@@ -1010,22 +765,11 @@ export default function App() {
 
         <SidebarAdminQR session={activeDeskSession} />
 
-        <SidebarStaffQR
-          visible={staffQRVisible}
-          challenge={staffChallenge}
-          loading={staffLoginLoading}
-          error={staffLoginError}
-          secondsRemaining={staffSecondsRemaining}
-          onHide={hideStaffQR}
-          onShow={showStaffQR}
-          onRefresh={regenerateStaffLogin}
-        />
-
         <div className="operator-card">
           <div className="operator-avatar">{activeStaff ? activeStaff.initials : "—"}</div>
           <div>
             <strong>{activeStaff ? activeStaff.name : "Not signed in"}</strong>
-            <span>{activeStaff ? `${activeStaff.role} · ${activeStaff.id}` : "Pair a staff phone to sign in"}</span>
+            <span>{activeStaff ? `${activeStaff.role} · ${activeStaff.id}` : "Venue console"}</span>
           </div>
           {activeStaff ? (
             <button
