@@ -463,11 +463,39 @@
 }
 
 .scx-panel--side {
-  width: min(320px, 30vw);
+  /* A narrow right-hand rail: 15–20% of the screen depending on size,
+     never wide enough to crowd the timer. */
+  width: clamp(230px, 18vw, 360px);
   flex: 0 0 auto;
   align-items: stretch;
   justify-content: flex-start;
   gap: 14px;
+}
+
+/* The guarantee crown of the payout rail. */
+.scx-payout-gtd {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid rgba(252, 211, 77, 0.35);
+  border-radius: 12px;
+  background: rgba(252, 211, 77, 0.08);
+}
+
+.scx-payout-gtd span {
+  color: #fbbf24;
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.scx-payout-gtd strong {
+  color: #fcd34d;
+  font-size: clamp(22px, 2vw, 30px);
+  font-weight: 800;
+  line-height: 1.1;
 }
 
 .scx-side__tabs {

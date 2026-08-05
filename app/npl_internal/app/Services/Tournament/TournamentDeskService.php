@@ -1092,61 +1092,70 @@ final class TournamentDeskService
         ];
     }
 
-    /** @return array{chip_denominations: ?string, prize_breakdown: ?array} */
+    /** @return array{chip_denominations: ?string, prize_breakdown: ?array, prize_guarantee: ?string} */
     private function displayConfig(object $session): array
     {
         $settings = json_decode((string) ($session->settings ?? ''), true);
         $settings = is_array($settings) ? $settings : [];
 
         $denoms = trim((string) ($settings['chip_denominations'] ?? ''));
+        [$rows, $guarantee] = $this->cloudPrizeDisplay($session);
 
         return [
             'chip_denominations' => $denoms !== '' ? $denoms : null,
-            'prize_breakdown' => $this->prizeBreakdownFor($session),
+            'prize_breakdown' => $rows,
+            'prize_guarantee' => $guarantee,
         ];
     }
 
     /**
-     * The payout ladder of the LINKED cloud game — authored in the Daily
-     * Games admin, mirrored on Manual Update. Null for unlinked desks or
-     * games without a breakdown; the clock simply shows nothing.
+     * The payout ladder AND guarantee of the LINKED cloud game — authored in
+     * the Daily Games admin, mirrored on Manual Update. The clock's rail
+     * shows "Guaranteed" on top, then one row per place. Null for unlinked
+     * desks or games without a breakdown; the clock simply shows nothing.
      *
-     * @return ?array<int, array{place: string, prize: string}>
+     * @return array{0: ?array<int, array{place: string, prize: string}>, 1: ?string}
      */
-    private function prizeBreakdownFor(object $session): ?array
+    private function cloudPrizeDisplay(object $session): array
     {
         if (empty($session->game_session_id)) {
-            return null;
+            return [null, null];
         }
 
-        $raw = DB::table('mirror_game_sessions')
+        $mirror = DB::table('mirror_game_sessions')
             ->where('session_id', (int) $session->game_session_id)
-            ->value('prize_breakdown');
+            ->first(['prize_breakdown', 'payload']);
 
-        if ($raw === null || $raw === '') {
-            return null;
+        if ($mirror === null) {
+            return [null, null];
         }
 
-        $rows = json_decode((string) $raw, true);
-
-        if (! is_array($rows) || $rows === []) {
-            return null;
-        }
-
+        $rows = json_decode((string) ($mirror->prize_breakdown ?? ''), true);
         $clean = [];
 
-        foreach ($rows as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
 
-            $clean[] = [
-                'place' => trim((string) ($row['place'] ?? '')),
-                'prize' => trim((string) ($row['prize'] ?? '')),
-            ];
+                $clean[] = [
+                    'place' => trim((string) ($row['place'] ?? '')),
+                    'prize' => trim((string) ($row['prize'] ?? '')),
+                ];
+            }
         }
 
-        return $clean === [] ? null : $clean;
+        if ($clean === []) {
+            return [null, null];
+        }
+
+        // The guarantee rides in the mirrored row's full payload (the cloud
+        // presenter's "guarantee" money text, e.g. "$10,000").
+        $payload = json_decode((string) ($mirror->payload ?? ''), true);
+        $guarantee = is_array($payload) ? trim((string) ($payload['guarantee'] ?? '')) : '';
+
+        return [$clean, $guarantee !== '' ? $guarantee : null];
     }
 
     /** Per-request cache of each venue's valid club IDs, keyed by venue. */

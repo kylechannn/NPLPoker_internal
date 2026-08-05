@@ -46,6 +46,7 @@ type DisplayExtras = {
   chip_denominations: string | null
   /** The linked cloud game's payout ladder — never typed at the desk. */
   prize_breakdown: PrizeBreakdownRow[] | null
+  prize_guarantee: string | null
 }
 
 const SYNC_MS = 5000
@@ -92,7 +93,7 @@ function chime(isBreak: boolean) {
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
   const [summary, setSummary] = useState<Summary>({})
-  const [extras, setExtras] = useState<DisplayExtras>({ chip_denominations: null, prize_breakdown: null })
+  const [extras, setExtras] = useState<DisplayExtras>({ chip_denominations: null, prize_breakdown: null, prize_guarantee: null })
   // The side panel wears one of two faces; the director flips it live.
   // Prizes lead when the cloud game provides a breakdown.
   const [sideView, setSideView] = useState<"denoms" | "prize">("prize")
@@ -192,6 +193,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         setExtras({
           chip_denominations: seating.display?.chip_denominations ?? null,
           prize_breakdown: seating.display?.prize_breakdown ?? null,
+          prize_guarantee: seating.display?.prize_guarantee ?? null,
         })
         setGates(seating.gates)
         setSyncedAt(Date.now())
@@ -626,8 +628,15 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   ) : (
                     <div className="scx-side__body">
                       <div className="scx-plabel">Prizes</div>
-                      {/* The linked game's payout ladder — from the Daily
-                          Games admin, via Manual Update. Read-only here. */}
+                      {/* The linked game's ladder — Daily Games admin via
+                          Manual Update. Guaranteed on top, then one row per
+                          place. Read-only here. */}
+                      {extras.prize_guarantee ? (
+                        <div className="scx-payout-gtd">
+                          <span>Guaranteed</span>
+                          <strong>{extras.prize_guarantee}</strong>
+                        </div>
+                      ) : null}
                       <ul className="scx-payout">
                         {prizeRows.map((row, index) => (
                           <li key={index}>

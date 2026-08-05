@@ -89,6 +89,8 @@ export type Seating = {
   display?: {
     chip_denominations: string | null
     prize_breakdown: PrizeBreakdownRow[] | null
+    /** The game's guarantee money text (e.g. "$10,000") — tops the rail. */
+    prize_guarantee: string | null
   }
 }
 

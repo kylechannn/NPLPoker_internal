@@ -570,6 +570,7 @@ class TournamentDeskTest extends TestCase
         // game; an unlinked desk shows none.
         $this->assertArrayNotHasKey('prize_pool_text', $display);
         $this->assertNull($display['prize_breakdown']);
+        $this->assertNull($display['prize_guarantee']);
 
         // A draft edit reworks the rail...
         $this->putJson("/api/v1/tournaments/{$id}", [
@@ -610,9 +611,12 @@ class TournamentDeskTest extends TestCase
             'registrations_count' => 0,
             'is_open_for_registration' => true,
             'prize_breakdown' => json_encode([
-                ['place' => '1st', 'prize' => '$1,000'],
-                ['place' => '2nd', 'prize' => '$500'],
+                ['place' => 'Winner', 'prize' => '$1,000'],
+                ['place' => '2nd Runner Up', 'prize' => '$500'],
             ]),
+            // The full cloud row rides in payload; the rail's "Guaranteed"
+            // crown comes from its presenter money text.
+            'payload' => json_encode(['guarantee' => '$10,000']),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -621,9 +625,10 @@ class TournamentDeskTest extends TestCase
 
         $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
         $this->assertSame([
-            ['place' => '1st', 'prize' => '$1,000'],
-            ['place' => '2nd', 'prize' => '$500'],
+            ['place' => 'Winner', 'prize' => '$1,000'],
+            ['place' => '2nd Runner Up', 'prize' => '$500'],
         ], $display['prize_breakdown']);
+        $this->assertSame('$10,000', $display['prize_guarantee']);
 
         // The display endpoint can no longer smuggle prize text in.
         $response = $this->putJson("/api/v1/tournaments/{$id}/display", [
