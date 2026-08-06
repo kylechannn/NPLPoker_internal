@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	staffChallengeTTL = 3 * time.Minute
-	staffSessionTTL   = 8 * time.Hour
-	staffMaxAttempts  = 5
+	staffChallengeTTL      = 3 * time.Minute
+	staffSessionTTL        = 8 * time.Hour
+	staffMaxAttempts       = 5
+	consoleMaxFailures     = 5
+	consoleLockoutDuration = 30 * time.Second
 )
 
 type staffIdentity struct {
@@ -77,6 +79,10 @@ type staffLoginManager struct {
 	// staff register (the cloud's roster, pulled by Manual update). A nil
 	// resolver means no register is reachable — nobody can sign in.
 	resolveStaff func(code string) (staffIdentity, error)
+	// Console sign-in throttling: repeated unknown IDs typed at the desk
+	// lock the form briefly so the register cannot be enumerated by hand.
+	consoleFailures    int
+	consoleLockedUntil time.Time
 }
 
 func newStaffLoginManager(publicBaseURL string) *staffLoginManager {
@@ -89,6 +95,7 @@ func newStaffLoginManager(publicBaseURL string) *staffLoginManager {
 }
 
 func (manager *staffLoginManager) register(mux *http.ServeMux) {
+	mux.Handle("POST /api/staff-login/console", requireDesktopOrLocal(http.HandlerFunc(manager.consoleLogin)))
 	mux.Handle("POST /api/staff-login/challenges", requireGateway("desktop", http.HandlerFunc(manager.createChallenge)))
 	mux.Handle("GET /api/staff-login/challenges/{id}", requireGateway("desktop", http.HandlerFunc(manager.challengeStatus)))
 	mux.Handle("DELETE /api/staff-login/challenges/{id}", requireGateway("desktop", http.HandlerFunc(manager.cancelChallenge)))
@@ -146,6 +153,65 @@ func (manager *staffLoginManager) createChallenge(w http.ResponseWriter, _ *http
 		SecondsRemaining:   int(staffChallengeTTL / time.Second),
 		AccessCodeRequired: true,
 	})
+}
+
+// consoleLogin signs the desk operator in at the console itself: a staff ID
+// typed on the OS, answered by the cloud-mirrored register. This is the
+// mandatory gate on the OS — one person signs in here and runs the desk;
+// every other admin assists from a phone via the admin session QR.
+func (manager *staffLoginManager) consoleLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		StaffID string `json:"staff_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "The sign-in request could not be read."})
+		return
+	}
+
+	code, err := validateStaffCode(body.StaffID)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+
+	manager.mu.Lock()
+	now := manager.now().UTC()
+	if manager.consoleLockedUntil.After(now) {
+		wait := secondsRemaining(manager.consoleLockedUntil, now)
+		manager.mu.Unlock()
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{
+			"error": fmt.Sprintf("Too many failed sign-ins at this console. Try again in %d seconds.", wait),
+		})
+		return
+	}
+	resolve := manager.resolveStaff
+	manager.mu.Unlock()
+
+	if resolve == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "The staff register is unavailable on this install — start the full NPL OS and run Manual update.",
+		})
+		return
+	}
+
+	// The register lookup is an HTTP call to the bundled backend, so it
+	// runs outside the lock — same rule the phone approval follows.
+	identity, resolveErr := resolve(code)
+
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if resolveErr != nil {
+		manager.consoleFailures++
+		if manager.consoleFailures >= consoleMaxFailures {
+			manager.consoleFailures = 0
+			manager.consoleLockedUntil = manager.now().UTC().Add(consoleLockoutDuration)
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": resolveErr.Error()})
+		return
+	}
+	manager.consoleFailures = 0
+	manager.consoleLockedUntil = time.Time{}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "staff": identity})
 }
 
 func (manager *staffLoginManager) challengeStatus(w http.ResponseWriter, r *http.Request) {
@@ -602,6 +668,23 @@ func staffStateMessage(state string) string {
 func requireGateway(expected string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-NPL-Gateway") != expected {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireDesktopOrLocal admits the desktop gateway's stamped requests and
+// requests carrying no gateway header at all. The Go listener is validated
+// loopback-only and Caddy overwrites the header on both of its listeners,
+// so a bare request can only come from this machine itself — which is
+// exactly what a -direct run without Caddy is. The LAN staff listener
+// always stamps "staff" and stays locked out.
+func requireDesktopOrLocal(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gateway := r.Header.Get("X-NPL-Gateway")
+		if gateway != "desktop" && gateway != "" {
 			http.NotFound(w, r)
 			return
 		}

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStaffQRChallengeApprovalIsSingleUse(t *testing.T) {
@@ -193,5 +194,137 @@ func TestVenueNetworkAdapterOutranksVPN(t *testing.T) {
 	}
 	if !isVirtualStaffInterface("RelyVPN") {
 		t.Fatal("expected VPN adapter to be excluded from staff QR addressing")
+	}
+}
+
+func consoleLoginRequest(staffID string) *http.Request {
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/staff-login/console",
+		strings.NewReader(`{"staff_id":"`+staffID+`"}`),
+	)
+	request.Header.Set("X-NPL-Gateway", "desktop")
+	request.Header.Set("Content-Type", "application/json")
+	return request
+}
+
+func TestConsoleLoginResolvesAgainstRegister(t *testing.T) {
+	manager := newStaffLoginManager("")
+	manager.resolveStaff = func(code string) (staffIdentity, error) {
+		if code != "NPL-2048" {
+			return staffIdentity{}, errors.New("This staff ID is not on the register.")
+		}
+		return staffIdentity{ID: code, Name: "Alex Morgan", Role: "Floor Manager", Initials: "AM"}, nil
+	}
+	mux := http.NewServeMux()
+	manager.register(mux)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, consoleLoginRequest("npl-2048"))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected console sign-in, got %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		OK    bool          `json:"ok"`
+		Staff staffIdentity `json:"staff"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.OK || body.Staff.Name != "Alex Morgan" || body.Staff.ID != "NPL-2048" {
+		t.Fatalf("unexpected console identity: %+v", body)
+	}
+}
+
+func TestConsoleLoginRejectsUnknownStaff(t *testing.T) {
+	manager := newStaffLoginManager("")
+	manager.resolveStaff = func(string) (staffIdentity, error) {
+		return staffIdentity{}, errors.New("This staff ID is not on the register.")
+	}
+	mux := http.NewServeMux()
+	manager.register(mux)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, consoleLoginRequest("NPL-9999"))
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "not on the register") {
+		t.Fatalf("expected register rejection, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestConsoleLoginHiddenFromStaffGateway(t *testing.T) {
+	manager := newStaffLoginManager("")
+	manager.resolveStaff = func(code string) (staffIdentity, error) {
+		return staffIdentity{ID: code, Name: "Alex Morgan", Role: "Floor Manager", Initials: "AM"}, nil
+	}
+	mux := http.NewServeMux()
+	manager.register(mux)
+
+	// A LAN phone rides the staff listener, which always stamps "staff" —
+	// the console sign-in must not exist there.
+	staffRequest := consoleLoginRequest("NPL-2048")
+	staffRequest.Header.Set("X-NPL-Gateway", "staff")
+	staffResponse := httptest.NewRecorder()
+	mux.ServeHTTP(staffResponse, staffRequest)
+	if staffResponse.Code != http.StatusNotFound {
+		t.Fatalf("expected the staff gateway to hide the console login, got %d", staffResponse.Code)
+	}
+
+	// A bare loopback request (a -direct run without Caddy) is this
+	// machine itself and may sign in.
+	localRequest := consoleLoginRequest("NPL-2048")
+	localRequest.Header.Del("X-NPL-Gateway")
+	localResponse := httptest.NewRecorder()
+	mux.ServeHTTP(localResponse, localRequest)
+	if localResponse.Code != http.StatusOK {
+		t.Fatalf("expected a local console sign-in to work without Caddy, got %d: %s", localResponse.Code, localResponse.Body.String())
+	}
+}
+
+func TestConsoleLoginWithoutRegisterIsUnavailable(t *testing.T) {
+	manager := newStaffLoginManager("")
+	mux := http.NewServeMux()
+	manager.register(mux)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, consoleLoginRequest("NPL-2048"))
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "Manual update") {
+		t.Fatalf("expected register-unavailable answer, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestConsoleLoginLocksAfterRepeatedFailures(t *testing.T) {
+	manager := newStaffLoginManager("")
+	manager.resolveStaff = func(string) (staffIdentity, error) {
+		return staffIdentity{}, errors.New("This staff ID is not on the register.")
+	}
+	current := time.Date(2026, 8, 6, 18, 0, 0, 0, time.UTC)
+	manager.now = func() time.Time { return current }
+	mux := http.NewServeMux()
+	manager.register(mux)
+
+	for attempt := 0; attempt < consoleMaxFailures; attempt++ {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, consoleLoginRequest("NPL-0000"))
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("attempt %d: expected 422, got %d", attempt, response.Code)
+		}
+	}
+
+	lockedResponse := httptest.NewRecorder()
+	mux.ServeHTTP(lockedResponse, consoleLoginRequest("NPL-0000"))
+	if lockedResponse.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected console lockout, got %d: %s", lockedResponse.Code, lockedResponse.Body.String())
+	}
+
+	// The lockout is a pause, not a bricked desk: once it lapses, a valid
+	// staff ID signs in normally.
+	current = current.Add(consoleLockoutDuration + time.Second)
+	manager.resolveStaff = func(code string) (staffIdentity, error) {
+		return staffIdentity{ID: code, Name: "Alex Morgan", Role: "Floor Manager", Initials: "AM"}, nil
+	}
+	recoveredResponse := httptest.NewRecorder()
+	mux.ServeHTTP(recoveredResponse, consoleLoginRequest("NPL-2048"))
+	if recoveredResponse.Code != http.StatusOK {
+		t.Fatalf("expected sign-in after lockout lapsed, got %d: %s", recoveredResponse.Code, recoveredResponse.Body.String())
 	}
 }

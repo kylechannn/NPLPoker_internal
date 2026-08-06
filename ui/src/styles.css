@@ -3929,7 +3929,9 @@ a:focus-visible {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 100;
+  /* Above the console sign-in gate (400): Manual update triggered from the
+     gate reports its progress through this toast. */
+  z-index: 460;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
   width: min(390px, calc(100vw - 32px));
@@ -5582,4 +5584,310 @@ html {
 .host-seat__name .club-flag,
 .host-chip .club-flag {
   margin-right: 6px;
+}
+
+/* ---- Console operator sign-in gate ------------------------------------
+   The mandatory gate over the whole OS: below the startup screen (500),
+   above every modal scrim (300). One operator signs in here; phone admins
+   use the session QR instead. */
+
+.console-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(19, 77, 126, 0.4), transparent 34%),
+    radial-gradient(circle at 50% 44%, rgba(61, 123, 255, 0.13), transparent 50%),
+    linear-gradient(145deg, #020713, #06152a 55%, #01040c);
+}
+
+.console-gate__glow {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: min(680px, 70vw);
+  aspect-ratio: 1;
+  border: 1px solid rgba(56, 229, 255, 0.08);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 100px rgba(61, 123, 255, 0.018),
+    0 0 0 220px rgba(61, 123, 255, 0.012);
+  transform: translate(-50%, -50%);
+}
+
+.console-gate__card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 15px;
+  width: min(430px, calc(100vw - 40px));
+  border: 1px solid var(--npl-border);
+  padding: 26px 28px 22px;
+  background:
+    radial-gradient(circle at 0 0, rgba(56, 229, 255, 0.09), transparent 42%),
+    var(--npl-panel-raised);
+  box-shadow: var(--npl-shadow-drop);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity 240ms var(--npl-ease-out),
+    transform 240ms var(--npl-ease-out);
+}
+
+@starting-style {
+  .console-gate__card {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+.console-gate__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.console-gate__brand img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.console-gate__brand strong {
+  display: block;
+  font-family: var(--npl-font-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.console-gate__brand span {
+  display: block;
+  margin-top: 2px;
+  color: var(--npl-cyan);
+  font-family: var(--npl-font-mono);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.console-gate__card h1 {
+  margin: 4px 0 0;
+  font-family: var(--npl-font-display);
+  font-size: 1.45rem;
+  letter-spacing: -0.01em;
+}
+
+.console-gate__card > p {
+  margin: -7px 0 0;
+  color: var(--npl-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.console-gate__card form {
+  display: grid;
+  gap: 12px;
+}
+
+.console-gate__field {
+  display: grid;
+  gap: 7px;
+}
+
+.console-gate__field > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--npl-muted);
+  font-family: var(--npl-font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.console-gate__field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(143, 169, 207, 0.28);
+  padding: 0 14px;
+  color: var(--npl-text);
+  background: rgba(4, 12, 26, 0.9);
+  font-family: var(--npl-font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  outline: none;
+  clip-path: var(--npl-clip-sm);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.console-gate__field input:focus {
+  border-color: var(--npl-cyan);
+  box-shadow: 0 0 0 3px rgba(56, 229, 255, 0.11);
+}
+
+.console-gate__error {
+  margin: -2px 0 0;
+  color: #ffc3cb;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.console-gate__submit {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(56, 229, 255, 0.42);
+  color: #02111d;
+  background: linear-gradient(120deg, var(--npl-cyan), #78b8ff);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  box-shadow: 0 12px 30px rgba(56, 229, 255, 0.13);
+  clip-path: var(--npl-clip-sm);
+  transition: filter 150ms ease, transform 120ms var(--npl-ease-out);
+}
+
+.console-gate__submit:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.console-gate__submit:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.console-gate__submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.console-gate__confirm {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 6px 0 2px;
+  text-align: center;
+}
+
+.console-gate__avatar {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  margin-bottom: 6px;
+  border: 1px solid rgba(56, 229, 255, 0.45);
+  border-radius: 50%;
+  color: #051525;
+  background: linear-gradient(140deg, var(--npl-cyan), #78b8ff);
+  font-family: var(--npl-font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 0 30px rgba(56, 229, 255, 0.22);
+}
+
+.console-gate__confirm > strong {
+  font-family: var(--npl-font-display);
+  font-size: 1.2rem;
+  letter-spacing: 0.01em;
+}
+
+.console-gate__role {
+  color: var(--npl-cyan);
+  font-family: var(--npl-font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.console-gate__confirm .console-gate__submit {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.console-gate__ghost {
+  min-height: 34px;
+  border: none;
+  color: var(--npl-muted);
+  background: none;
+  font-size: 0.74rem;
+  transition: color 150ms ease;
+}
+
+.console-gate__ghost:hover {
+  color: var(--npl-text);
+}
+
+.console-gate__aux {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -2px;
+}
+
+.console-gate__aux button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(143, 169, 207, 0.26);
+  padding: 7px 11px;
+  color: var(--npl-muted);
+  background: rgba(9, 22, 44, 0.65);
+  font-family: var(--npl-font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  clip-path: var(--npl-clip-sm);
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.console-gate__aux button:hover:not(:disabled) {
+  border-color: rgba(56, 229, 255, 0.4);
+  color: var(--npl-text);
+}
+
+.console-gate__aux button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.console-gate__aux > span {
+  color: var(--npl-faint);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.console-gate__spin {
+  animation: npl-license-spin 1s linear infinite;
+}
+
+.console-gate__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--npl-hairline);
+  color: var(--npl-faint);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.console-gate__foot svg {
+  flex-shrink: 0;
+  color: var(--npl-cyan);
+  opacity: 0.75;
 }

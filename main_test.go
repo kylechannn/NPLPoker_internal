@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -27,8 +28,28 @@ func TestHealthEndpoint(t *testing.T) {
 	if !body.OK || body.Service != appName {
 		t.Fatalf("unexpected health response: %+v", body)
 	}
+	if body.StaffConsoleLogin {
+		t.Fatal("expected no console-login demand while no bundled backend exists")
+	}
 	if response.Header().Get("X-Request-ID") == "" {
 		t.Fatal("expected X-Request-ID header")
+	}
+}
+
+func TestHealthDemandsConsoleLoginWithBackend(t *testing.T) {
+	resources, _ := resourceProfile("adaptive", runtime.NumCPU())
+	handler := newHandlerWithBackend(testAssets(), resources, "", &backendApp{})
+	request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	var body healthResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.StaffConsoleLogin {
+		t.Fatal("expected the console sign-in gate to be mandatory when the backend exists")
 	}
 }
 

@@ -41,6 +41,12 @@ type healthResponse struct {
 	NetworkCacheSecs  int    `json:"network_cache_seconds"`
 	StaffLoginEnabled bool   `json:"staff_login_enabled"`
 	StaffGatewayURL   string `json:"staff_gateway_url,omitempty"`
+	// True when the bundled backend (and with it the mirrored staff
+	// register) exists on this install: the UI must then demand a console
+	// sign-in before the OS is usable. False only for -direct dev runs and
+	// installs whose backend failed to start, where the console stays
+	// reachable for diagnostics.
+	StaffConsoleLogin bool   `json:"staff_console_login"`
 	Time              string `json:"time"`
 }
 
@@ -255,6 +261,7 @@ func newHandlerWithBackend(
 			NetworkCacheSecs:  int(resources.networkQualityCacheTime / time.Second),
 			StaffLoginEnabled: staffGatewayURL != "",
 			StaffGatewayURL:   staffGatewayURL,
+			StaffConsoleLogin: backend != nil,
 			Time:              time.Now().UTC().Format(time.RFC3339),
 		})
 	})

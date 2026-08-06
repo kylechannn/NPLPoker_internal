@@ -30,6 +30,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LoaderPinwheel,
+  LogIn,
   LogOut,
   Medal,
   Menu,
@@ -78,6 +79,7 @@ type Health = {
   network_cache_seconds: number
   staff_login_enabled: boolean
   staff_gateway_url?: string
+  staff_console_login: boolean
   time: string
 }
 
@@ -333,6 +335,146 @@ function StartupScreen({ leaving }: { leaving: boolean }) {
   )
 }
 
+// A console sign-in covers one shift, not the life of the machine: past
+// this age the stored identity lapses and the next boot demands the gate.
+const CONSOLE_SHIFT_HOURS = 12
+
+function readStoredConsoleSession(): StaffIdentity | null {
+  try {
+    const stored = window.localStorage.getItem("npl.activeStaff")
+    if (!stored) return null
+    const parsed: unknown = JSON.parse(stored)
+    if (!parsed || typeof parsed !== "object") return null
+    const record = parsed as { staff?: StaffIdentity; signed_in_at?: string }
+    if (!record.staff || typeof record.staff.name !== "string" || typeof record.signed_in_at !== "string") return null
+    const signedInAt = new Date(record.signed_in_at).getTime()
+    if (!Number.isFinite(signedInAt) || Date.now() - signedInAt > CONSOLE_SHIFT_HOURS * 60 * 60 * 1000) return null
+    return record.staff
+  } catch {
+    // Corrupt storage = signed out.
+  }
+  return null
+}
+
+/**
+ * The mandatory operator gate: the OS is unusable until one person signs
+ * in at this console with a staff ID the cloud-mirrored register knows.
+ * Everyone else assists from a phone via the admin session QR — this gate
+ * deliberately involves no QR at all.
+ */
+function ConsoleSignInGate({
+  onSignedIn,
+  manualUpdating,
+  onManualUpdate,
+}: {
+  onSignedIn: (staff: StaffIdentity) => void
+  manualUpdating: boolean
+  onManualUpdate: () => void
+}) {
+  const [staffId, setStaffId] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [candidate, setCandidate] = useState<StaffIdentity | null>(null)
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (submitting) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const response = await fetch("/api/staff-login/console", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ staff_id: staffId.trim().toUpperCase() }),
+      })
+      const body = await response.json() as { ok?: boolean; staff?: StaffIdentity; error?: string }
+      if (!response.ok || !body.ok || !body.staff) {
+        setError(body.error ?? "The staff register did not answer. Try again.")
+        return
+      }
+      setCandidate(body.staff)
+    } catch {
+      setError("The local staff service could not be reached — it may still be starting. Try again in a moment.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <section className="console-gate" role="dialog" aria-modal="true" aria-label="Operator sign-in">
+      <div className="console-gate__glow" aria-hidden="true" />
+      <div className="console-gate__card">
+        <header className="console-gate__brand">
+          <img src={nplLogoUrl} alt="" />
+          <div>
+            <strong>NPL Poker</strong>
+            <span>Operational System</span>
+          </div>
+        </header>
+
+        {candidate ? (
+          <div className="console-gate__confirm">
+            <span className="console-gate__avatar">{candidate.initials}</span>
+            <strong>{candidate.name}</strong>
+            <span className="console-gate__role">{candidate.role} · {candidate.id}</span>
+            <button type="button" className="console-gate__submit" onClick={() => onSignedIn(candidate)}>
+              <LogIn size={16} /> Start my shift
+            </button>
+            <button
+              type="button"
+              className="console-gate__ghost"
+              onClick={() => {
+                setCandidate(null)
+                setStaffId("")
+                setError(null)
+              }}
+            >
+              Not me — different staff ID
+            </button>
+          </div>
+        ) : (
+          <>
+            <h1>Operator sign-in</h1>
+            <p>One person signs in to run this console. Your name and role come from the club&rsquo;s staff register.</p>
+            <form onSubmit={(event) => void submit(event)}>
+              <label className="console-gate__field">
+                <span><IdCard size={14} /> Staff ID</span>
+                <input
+                  value={staffId}
+                  onChange={(event) => setStaffId(event.target.value.toUpperCase())}
+                  placeholder="e.g. NPL-2048"
+                  spellCheck={false}
+                  autoComplete="off"
+                  autoFocus
+                  maxLength={24}
+                  disabled={submitting}
+                  required
+                />
+              </label>
+              {error ? <p className="console-gate__error" role="alert">{error}</p> : null}
+              <button type="submit" className="console-gate__submit" disabled={submitting || staffId.trim().length < 3}>
+                {submitting ? "Checking the register…" : "Sign in"}
+              </button>
+            </form>
+            <div className="console-gate__aux">
+              <button type="button" onClick={onManualUpdate} disabled={manualUpdating}>
+                <RefreshCw size={13} className={manualUpdating ? "console-gate__spin" : undefined} />
+                {manualUpdating ? "Updating register…" : "Manual update"}
+              </button>
+              <span>Fresh install? Pull the staff register from the cloud first.</span>
+            </div>
+          </>
+        )}
+
+        <footer className="console-gate__foot">
+          <ShieldCheck size={13} aria-hidden="true" />
+          Admins assisting from a phone sign in there by scanning the session QR once a game is open.
+        </footer>
+      </div>
+    </section>
+  )
+}
+
 function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boolean }) {
   const [maximized, setMaximized] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
@@ -542,22 +684,20 @@ export default function App() {
       window.removeEventListener("npl:desk-session-changed", refresh)
     }
   }, [])
-  // The signed-in staff member — ONLY a QR pairing verified against the
-  // cloud's staff register can set this. Persisted so a reload at the desk
-  // doesn't sign the operator out mid-shift.
-  const [activeStaff, setActiveStaff] = useState<StaffIdentity | null>(() => {
-    try {
-      const stored = window.localStorage.getItem("npl.activeStaff")
-      if (!stored) return null
-      const parsed: unknown = JSON.parse(stored)
-      if (parsed && typeof parsed === "object" && typeof (parsed as StaffIdentity).name === "string") {
-        return parsed as StaffIdentity
-      }
-    } catch {
-      // Corrupt storage = signed out.
-    }
-    return null
-  })
+  // The signed-in operator — ONLY a console sign-in verified against the
+  // cloud's staff register can set this, and the gate below blocks the OS
+  // until it is set. Persisted with a timestamp so a reload at the desk
+  // doesn't sign the operator out mid-shift, but a new day starts locked.
+  const [activeStaff, setActiveStaff] = useState<StaffIdentity | null>(readStoredConsoleSession)
+
+  const handleConsoleSignIn = (staff: StaffIdentity) => {
+    setActiveStaff(staff)
+    window.localStorage.setItem(
+      "npl.activeStaff",
+      JSON.stringify({ staff, signed_in_at: new Date().toISOString() }),
+    )
+    setNotice(`${staff.name} signed in at this console.`)
+  }
 
   const loadHealth = useCallback(async () => {
     setHealth({ status: "loading" })
@@ -769,13 +909,13 @@ export default function App() {
           <div className="operator-avatar">{activeStaff ? activeStaff.initials : "—"}</div>
           <div>
             <strong>{activeStaff ? activeStaff.name : "Not signed in"}</strong>
-            <span>{activeStaff ? `${activeStaff.role} · ${activeStaff.id}` : "Venue console"}</span>
+            <span>{activeStaff ? `${activeStaff.role} · ${activeStaff.id}` : "Sign-in required"}</span>
           </div>
           {activeStaff ? (
             <button
               className="operator-action"
               type="button"
-              aria-label="Sign out staff phone session"
+              aria-label="Sign out of this console"
               title="Sign out"
               onClick={() => {
                 setActiveStaff(null)
@@ -932,6 +1072,13 @@ export default function App() {
         </div>
       ) : null}
       </div>
+      {health.status === "ready" && health.health.staff_console_login && !activeStaff ? (
+        <ConsoleSignInGate
+          onSignedIn={handleConsoleSignIn}
+          manualUpdating={manualUpdating}
+          onManualUpdate={() => void runManualUpdate()}
+        />
+      ) : null}
       {startupPhase !== "hidden" ? <StartupScreen leaving={startupPhase === "leaving"} /> : null}
     </div>
   )
