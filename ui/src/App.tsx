@@ -39,6 +39,7 @@ import {
   Pause,
   Play,
   Plus,
+  Printer,
   RefreshCw,
   Save,
   ShieldAlert,
@@ -358,23 +359,19 @@ function readStoredConsoleSession(): StaffIdentity | null {
 
 /**
  * The mandatory operator gate: the OS is unusable until one person signs
- * in at this console with a staff ID the cloud-mirrored register knows.
- * Everyone else assists from a phone via the admin session QR — this gate
- * deliberately involves no QR at all.
+ * in — with their NPL ADMIN account, the exact same login and password
+ * as the website's admin console. Credentials are verified against the
+ * cloud; everyone else assists from a phone via the admin session QR.
  */
 function ConsoleSignInGate({
   onSignedIn,
-  manualUpdating,
-  onManualUpdate,
 }: {
   onSignedIn: (staff: StaffIdentity) => void
-  manualUpdating: boolean
-  onManualUpdate: () => void
 }) {
-  const [staffId, setStaffId] = useState("")
+  const [loginField, setLoginField] = useState("")
+  const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [candidate, setCandidate] = useState<StaffIdentity | null>(null)
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -382,19 +379,23 @@ function ConsoleSignInGate({
     setSubmitting(true)
     setError(null)
     try {
-      const response = await fetch("/api/staff-login/console", {
+      const response = await fetch("/api/v1/console/login", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ staff_id: staffId.trim().toUpperCase() }),
+        body: JSON.stringify({ login: loginField.trim(), password }),
       })
-      const body = await response.json() as { ok?: boolean; staff?: StaffIdentity; error?: string }
-      if (!response.ok || !body.ok || !body.staff) {
-        setError(body.error ?? "The staff register did not answer. Try again.")
+      const body = await response.json() as {
+        ok?: boolean
+        data?: { identity?: StaffIdentity }
+        error?: { message?: string }
+      }
+      if (!response.ok || !body.ok || !body.data?.identity) {
+        setError(body.error?.message ?? "The sign-in could not be completed. Try again.")
         return
       }
-      setCandidate(body.staff)
+      onSignedIn(body.data.identity)
     } catch {
-      setError("The local staff service could not be reached — it may still be starting. Try again in a moment.")
+      setError("The local service could not be reached — it may still be starting. Try again in a moment.")
     } finally {
       setSubmitting(false)
     }
@@ -412,63 +413,53 @@ function ConsoleSignInGate({
           </div>
         </header>
 
-        {candidate ? (
-          <div className="console-gate__confirm">
-            <span className="console-gate__avatar">{candidate.initials}</span>
-            <strong>{candidate.name}</strong>
-            <span className="console-gate__role">{candidate.role} · {candidate.id}</span>
-            <button type="button" className="console-gate__submit" onClick={() => onSignedIn(candidate)}>
-              <LogIn size={16} /> Start my shift
-            </button>
-            <button
-              type="button"
-              className="console-gate__ghost"
-              onClick={() => {
-                setCandidate(null)
-                setStaffId("")
-                setError(null)
-              }}
-            >
-              Not me — different staff ID
-            </button>
-          </div>
-        ) : (
-          <>
-            <h1>Operator sign-in</h1>
-            <p>One person signs in to run this console. Your name and role come from the club&rsquo;s staff register.</p>
-            <form onSubmit={(event) => void submit(event)}>
-              <label className="console-gate__field">
-                <span><IdCard size={14} /> Staff ID</span>
-                <input
-                  value={staffId}
-                  onChange={(event) => setStaffId(event.target.value.toUpperCase())}
-                  placeholder="e.g. NPL-2048"
-                  spellCheck={false}
-                  autoComplete="off"
-                  autoFocus
-                  maxLength={24}
-                  disabled={submitting}
-                  required
-                />
-              </label>
-              {error ? <p className="console-gate__error" role="alert">{error}</p> : null}
-              <button type="submit" className="console-gate__submit" disabled={submitting || staffId.trim().length < 3}>
-                {submitting ? "Checking the register…" : "Sign in"}
-              </button>
-            </form>
-            <div className="console-gate__aux">
-              <button type="button" onClick={onManualUpdate} disabled={manualUpdating}>
-                <RefreshCw size={13} className={manualUpdating ? "console-gate__spin" : undefined} />
-                {manualUpdating ? "Updating register…" : "Manual update"}
-              </button>
-              <span>Fresh install? Pull the staff register from the cloud first.</span>
-            </div>
-          </>
-        )}
+        <h1>Operator sign-in</h1>
+        <p>
+          Sign in with your NPL admin account — the same login and password as the
+          website&rsquo;s admin console.
+        </p>
+        <form onSubmit={(event) => void submit(event)}>
+          <label className="console-gate__field">
+            <span><IdCard size={14} /> Username or email</span>
+            <input
+              value={loginField}
+              onChange={(event) => setLoginField(event.target.value)}
+              placeholder="Your admin username"
+              spellCheck={false}
+              autoComplete="username"
+              autoFocus
+              maxLength={160}
+              disabled={submitting}
+              required
+            />
+          </label>
+          <label className="console-gate__field">
+            <span><KeyRound size={14} /> Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Your admin password"
+              autoComplete="current-password"
+              maxLength={128}
+              disabled={submitting}
+              required
+            />
+          </label>
+          {error ? <p className="console-gate__error" role="alert">{error}</p> : null}
+          <button
+            type="submit"
+            className="console-gate__submit"
+            disabled={submitting || loginField.trim() === "" || password === ""}
+          >
+            {submitting ? "Signing in…" : <><LogIn size={16} /> Sign in</>}
+          </button>
+        </form>
 
         <footer className="console-gate__foot">
           <ShieldCheck size={13} aria-hidden="true" />
-          Admins assisting from a phone sign in there by scanning the session QR once a game is open.
+          One admin runs this console. Admins assisting from a phone sign in there by scanning
+          the session QR once a game is open.
         </footer>
       </div>
     </section>
@@ -684,10 +675,11 @@ export default function App() {
       window.removeEventListener("npl:desk-session-changed", refresh)
     }
   }, [])
-  // The signed-in operator — ONLY a console sign-in verified against the
-  // cloud's staff register can set this, and the gate below blocks the OS
-  // until it is set. Persisted with a timestamp so a reload at the desk
-  // doesn't sign the operator out mid-shift, but a new day starts locked.
+  // The signed-in operator — ONLY an admin sign-in verified against the
+  // cloud (the same account and password as the website's admin console)
+  // can set this, and the gate below blocks the OS until it is set.
+  // Persisted with a timestamp so a reload at the desk doesn't sign the
+  // operator out mid-shift, but a new day starts locked.
   const [activeStaff, setActiveStaff] = useState<StaffIdentity | null>(readStoredConsoleSession)
 
   const handleConsoleSignIn = (staff: StaffIdentity) => {
@@ -1073,11 +1065,7 @@ export default function App() {
       ) : null}
       </div>
       {health.status === "ready" && health.health.staff_console_login && !activeStaff ? (
-        <ConsoleSignInGate
-          onSignedIn={handleConsoleSignIn}
-          manualUpdating={manualUpdating}
-          onManualUpdate={() => void runManualUpdate()}
-        />
+        <ConsoleSignInGate onSignedIn={handleConsoleSignIn} />
       ) : null}
       {startupPhase !== "hidden" ? <StartupScreen leaving={startupPhase === "leaving"} /> : null}
     </div>
@@ -1422,7 +1410,167 @@ function OverviewWorkspace({ venue, onNavigate, onNotice }: {
         </footer>
       </section>
 
+      <ReceiptSettingsPanel onNotice={onNotice} />
+
     </>
+  )
+}
+
+type ReceiptSettings = {
+  enabled: boolean
+  printer_name: string | null
+  header_text: string | null
+  footer_text: string | null
+}
+
+/**
+ * The venue's receipt printing, on the Overview tab: auto-print stays ON
+ * by default — every buy-in, rebuy, add-on and jackpot entry prints
+ * silently on the venue's receipt printer, whether the desk or an admin
+ * phone handled it. The header and footer are the venue's own words;
+ * table and seat always print with them.
+ */
+function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => void }) {
+  const [settings, setSettings] = useState<ReceiptSettings | null>(null)
+  const [printers, setPrinters] = useState<string[]>([])
+  const [defaultPrinter, setDefaultPrinter] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+
+  useEffect(() => {
+    void fetch("/api/v1/receipts/settings", { headers: { Accept: "application/json" } })
+      .then((response) => response.json())
+      .then((body: { data?: { settings?: ReceiptSettings } }) => {
+        if (body.data?.settings) setSettings(body.data.settings)
+      })
+      .catch(() => undefined)
+
+    void fetch("/api/print/printers", { headers: { Accept: "application/json" } })
+      .then((response) => response.json())
+      .then((body: { printers?: string[] | null, default_printer?: string }) => {
+        setPrinters(body.printers ?? [])
+        setDefaultPrinter(body.default_printer ?? "")
+      })
+      .catch(() => undefined)
+  }, [])
+
+  const save = async () => {
+    if (!settings || saving) return
+    setSaving(true)
+    try {
+      const response = await fetch("/api/v1/receipts/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(settings),
+      })
+      if (!response.ok) throw new Error("save failed")
+      onNotice("Receipt settings saved.")
+    } catch {
+      onNotice("The receipt settings could not be saved. Try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const testPrint = async () => {
+    if (testing) return
+    setTesting(true)
+    try {
+      const response = await fetch("/api/v1/receipts/test", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      })
+      const body = await response.json() as { data?: { result?: string } }
+      onNotice(body.data?.result === "printed"
+        ? "Test receipt sent to the printer."
+        : "The test receipt did not print — check the printer name and that the printer is on.")
+    } catch {
+      onNotice("The test receipt did not print — the print bridge could not be reached.")
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <section className="panel receipt-panel" aria-label="Receipt printing">
+      <header className="panel-header compact-panel-header">
+        <div>
+          <p>Front desk</p>
+          <h2>Receipt printing</h2>
+        </div>
+        <Printer size={18} />
+      </header>
+
+      {settings === null ? (
+        <p className="express-sessions__empty">Loading receipt settings…</p>
+      ) : (
+        <div className="receipt-panel__body">
+          <label className="receipt-panel__toggle">
+            <input
+              type="checkbox"
+              checked={settings.enabled}
+              onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })}
+            />
+            <span>
+              <strong>Print receipts automatically</strong>
+              <small>
+                Every buy-in, rebuy, add-on and jackpot entry prints silently — desk scans and
+                admin-phone sales alike. No dialogs, ever.
+              </small>
+            </span>
+          </label>
+
+          <label className="receipt-panel__field">
+            <span>Receipt printer</span>
+            <select
+              value={settings.printer_name ?? ""}
+              onChange={(event) => setSettings({ ...settings, printer_name: event.target.value || null })}
+            >
+              <option value="">
+                {defaultPrinter ? `Windows default — ${defaultPrinter}` : "Windows default printer"}
+              </option>
+              {printers.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="receipt-panel__field">
+            <span>Header — the venue&rsquo;s own words, printed on top</span>
+            <textarea
+              rows={2}
+              placeholder={"NPL POKER SYDNEY\nOfficial receipt"}
+              value={settings.header_text ?? ""}
+              onChange={(event) => setSettings({ ...settings, header_text: event.target.value || null })}
+            />
+          </label>
+
+          <label className="receipt-panel__field">
+            <span>Footer — printed underneath</span>
+            <textarea
+              rows={2}
+              placeholder="Thank you & good luck!"
+              value={settings.footer_text ?? ""}
+              onChange={(event) => setSettings({ ...settings, footer_text: event.target.value || null })}
+            />
+          </label>
+
+          <div className="receipt-panel__actions">
+            <button className="primary-button" type="button" disabled={saving} onClick={() => void save()}>
+              {saving ? "Saving…" : "Save receipt settings"}
+            </button>
+            <button className="secondary-button" type="button" disabled={testing} onClick={() => void testPrint()}>
+              <Printer size={15} /> {testing ? "Printing…" : "Print a test receipt"}
+            </button>
+          </div>
+
+          <p className="receipt-panel__hint">
+            The player&rsquo;s table and seat always print. Sales handled on an admin phone also land in
+            the notification feed, so the desk sees them the moment the receipt cuts.
+          </p>
+        </div>
+      )}
+    </section>
   )
 }
 

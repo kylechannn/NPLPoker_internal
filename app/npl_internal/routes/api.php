@@ -36,6 +36,15 @@ Route::get('/media/{key}', [MediaController::class, 'show'])->where('key', '[A-Z
 // staff ID here during QR pairing — unknown IDs cannot sign in.
 Route::post('v1/staff/resolve', [\App\Http\Controllers\Api\StaffController::class, 'resolve']);
 
+// The operator gate: the SAME admin account + password as the NPL website.
+// Credentials are verified against the cloud; only the identity returns.
+Route::post('v1/console/login', [\App\Http\Controllers\Api\ConsoleAuthController::class, 'login']);
+
+// Receipt printing preferences + test receipt (the Overview tab's card).
+Route::get('v1/receipts/settings', [\App\Http\Controllers\Api\ReceiptController::class, 'settings']);
+Route::post('v1/receipts/settings', [\App\Http\Controllers\Api\ReceiptController::class, 'update']);
+Route::post('v1/receipts/test', [\App\Http\Controllers\Api\ReceiptController::class, 'test']);
+
 /*
  * Tournament clock — the poker adaptation of EdgeHost's Sichuan module.
  * The clock is server-authoritative so every display agrees.

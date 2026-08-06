@@ -40,7 +40,11 @@ type backendApp struct {
 // port of its own. A missing PHP or a missing app directory is not fatal: the
 // console still runs, and the desk routes simply report that the local
 // backend is unavailable rather than taking the whole window down.
-func startBackendApp(ctx context.Context) (*backendApp, error) {
+//
+// hostBridge is this Go host's own loopback address — handed to the PHP
+// process as NPL_HOST_BRIDGE so Laravel can call back for host-side work
+// (receipt printing rides this).
+func startBackendApp(ctx context.Context, hostBridge string) (*backendApp, error) {
 	// Found the same way Caddy is: beside the executable for an install, or
 	// in the working directory when run from a checkout.
 	artisan, ok := findNearExecutableOrWorkingDirectory(filepath.FromSlash(backendAppDir + "/artisan"))
@@ -73,6 +77,7 @@ func startBackendApp(ctx context.Context) (*backendApp, error) {
 
 	cmd := exec.CommandContext(ctx, php, "artisan", "serve", "--host=127.0.0.1", fmt.Sprintf("--port=%d", port))
 	cmd.Dir = appDir
+	cmd.Env = append(os.Environ(), "NPL_HOST_BRIDGE="+hostBridge)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	configureBackgroundProcess(cmd)
@@ -93,6 +98,7 @@ func startBackendApp(ctx context.Context) (*backendApp, error) {
 	// drain) only fire if something runs them; `serve` alone never does.
 	scheduler := exec.CommandContext(ctx, php, "artisan", "schedule:work")
 	scheduler.Dir = appDir
+	scheduler.Env = append(os.Environ(), "NPL_HOST_BRIDGE="+hostBridge)
 	scheduler.Stdout = os.Stdout
 	scheduler.Stderr = os.Stderr
 	configureBackgroundProcess(scheduler)

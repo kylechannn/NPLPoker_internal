@@ -80,12 +80,20 @@ final class TableServicePuller
             }
 
             try {
-                $this->desk->apply($sessionId, $nplId, $kind, [
+                $applyResult = $this->desk->apply($sessionId, $nplId, $kind, [
                     'idempotency_key' => 'tsr:'.$id,
                     'first_buy_in' => $kind === 'buy_in',
                 ]);
 
-                $entry = ['id' => $id, 'npl_id' => $nplId, 'kind' => $kind, 'table_number' => $row['table_number'] ?? null];
+                $entry = [
+                    'id' => $id,
+                    'npl_id' => $nplId,
+                    'kind' => $kind,
+                    'table_number' => $row['table_number'] ?? null,
+                    // What the OS tells the operator: the phone sale's
+                    // receipt printed (or why it did not).
+                    'receipt' => is_array($applyResult) ? ($applyResult['receipt'] ?? null) : null,
+                ];
                 $applied[] = $entry;
                 $this->ack($id, true, null);
             } catch (ValidationException $e) {

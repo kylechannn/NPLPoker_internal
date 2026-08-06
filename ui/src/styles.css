@@ -5891,3 +5891,93 @@ html {
   color: var(--npl-cyan);
   opacity: 0.75;
 }
+
+/* ---- Receipt printing card (Overview) --------------------------------- */
+
+.receipt-panel__body {
+  display: grid;
+  gap: 15px;
+}
+
+.receipt-panel__toggle {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  cursor: pointer;
+}
+
+.receipt-panel__toggle input {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  accent-color: var(--npl-cyan);
+}
+
+.receipt-panel__toggle strong {
+  display: block;
+  font-size: 0.86rem;
+}
+
+.receipt-panel__toggle small {
+  display: block;
+  margin-top: 3px;
+  color: var(--npl-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.receipt-panel__field {
+  display: grid;
+  gap: 6px;
+}
+
+.receipt-panel__field > span {
+  color: var(--npl-muted);
+  font-family: var(--npl-font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.receipt-panel__field select,
+.receipt-panel__field textarea {
+  width: 100%;
+  border: 1px solid rgba(143, 169, 207, 0.28);
+  padding: 9px 12px;
+  color: var(--npl-text);
+  background: rgba(4, 12, 26, 0.9);
+  font: 500 0.82rem var(--npl-font);
+  outline: none;
+  clip-path: var(--npl-clip-sm);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.receipt-panel__field select {
+  min-height: 40px;
+}
+
+.receipt-panel__field textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+
+.receipt-panel__field select:focus,
+.receipt-panel__field textarea:focus {
+  border-color: var(--npl-cyan);
+  box-shadow: 0 0 0 3px rgba(56, 229, 255, 0.11);
+}
+
+.receipt-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.receipt-panel__hint {
+  margin: 0;
+  color: var(--npl-faint);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}

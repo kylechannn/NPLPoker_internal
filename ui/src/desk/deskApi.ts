@@ -382,7 +382,14 @@ export const deskApi = {
   /** One pull: apply admin-resolved money kinds + the desk's own queue. */
   serviceSync: (sessionId: number) =>
     request<{
-      applied: { id: number, npl_id: string, kind: string, table_number: number | null }[]
+      applied: {
+        id: number
+        npl_id: string
+        kind: string
+        table_number: number | null
+        /** printed | failed | disabled — the silent receipt's fate. */
+        receipt?: string | null
+      }[]
       failed: { id: number, npl_id: string, kind: string, error: string }[]
       pending: ServiceRequestRow[]
       recent: ServiceRequestRow[]

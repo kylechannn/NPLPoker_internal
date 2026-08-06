@@ -33,6 +33,7 @@ final class TournamentDeskService
         private readonly TournamentService $tournaments,
         private readonly TournamentBroadcaster $broadcaster,
         private readonly OutboxService $outbox,
+        private readonly \App\Services\Printing\ReceiptService $receipts,
     ) {}
 
     /**
@@ -344,6 +345,18 @@ final class TournamentDeskService
                 'entered_at' => now()->toIso8601String(),
             ]);
             $this->drainSoon();
+        }
+
+        // The money's paper trail: every applied buy-in/rebuy/add-on/
+        // jackpot prints its receipt silently — desk-scanned or
+        // phone-resolved alike. A printer problem is a status, never a
+        // failed sale.
+        if (is_array($result)) {
+            $result['receipt'] = rescue(
+                fn (): string => $this->receipts->printAction($sessionId, $session, $nplId, $action, $options),
+                'failed',
+                false,
+            );
         }
 
         return $result;

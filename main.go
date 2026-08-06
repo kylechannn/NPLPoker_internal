@@ -90,7 +90,7 @@ func run(cfg config) error {
 	// start it is logged rather than fatal: the console, the licence gate and
 	// the diagnostics all still work, which is what an operator needs in
 	// order to see and fix the problem.
-	backend, backendErr := startBackendApp(ctx)
+	backend, backendErr := startBackendApp(ctx, "http://"+cfg.backendListen)
 	if backendErr != nil {
 		logger.Printf("[npl-internal] operational backend unavailable: %v", backendErr)
 	}
@@ -219,6 +219,11 @@ func newHandlerWithBackend(
 	// Manual update — the pairing phone types a staff ID, never a name.
 	staffLogin.resolveStaff = rosterResolver(backend)
 	staffLogin.register(mux)
+
+	// The silent receipt bridge: the bundled Laravel composes receipt
+	// lines for buy-ins/rebuys/add-ons/jackpots and this host spools them
+	// RAW to the venue's receipt printer — no dialogs, ever.
+	registerReceiptPrinting(mux)
 
 	mux.HandleFunc("GET /api/license/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, licenses.status())

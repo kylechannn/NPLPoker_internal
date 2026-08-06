@@ -253,6 +253,20 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           const label = row.kind === "buy_in" ? "buy-in" : row.kind === "addon" ? "add-on" : "rebuy"
           const where = row.table_number ? ` (Table ${row.table_number})` : ""
           setFlash(`Phone ${label} applied — ${row.npl_id}${where}`)
+          // The notification feed keeps the durable record: what an admin
+          // phone sold, and whether its silent receipt actually cut.
+          notify(
+            "registration",
+            `Phone ${label} — ${row.npl_id}`,
+            `Handled on an admin phone${where}.${
+              row.receipt === "printed"
+                ? " Receipt printed."
+                : row.receipt === "failed"
+                  ? " Receipt did NOT print — check the receipt printer."
+                  : ""
+            }`,
+            row.receipt === "failed" ? "warning" : "success",
+          )
         }
         for (const row of result.failed) {
           notify("system", `Phone ${row.kind.replace("_", "-")} refused`, `${row.npl_id}: ${row.error}`, "warning")

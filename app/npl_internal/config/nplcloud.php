@@ -23,6 +23,14 @@ return [
     'verify_ssl' => filter_var(env('NPL_CLOUD_VERIFY_SSL', true), FILTER_VALIDATE_BOOLEAN),
 
     /**
+     * The Go host's own loopback address, injected into this process as
+     * NPL_HOST_BRIDGE when it spawns PHP. Host-side work (silent receipt
+     * printing) is posted back through it; empty means no host bridge —
+     * printing quietly reports "failed" instead of erroring the desk.
+     */
+    'host_bridge' => rtrim((string) env('NPL_HOST_BRIDGE', ''), '/'),
+
+    /**
      * CA bundle for TLS verification. The portable php.exe we ship has no
      * system certificate store, so `verify => true` dies with cURL error 60
      * on every venue machine. We bundle the Mozilla roots and point curl at
