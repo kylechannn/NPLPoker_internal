@@ -17,7 +17,7 @@ func TestEscposReceiptFramesLinesWithInitAndCut(t *testing.T) {
 	if !bytes.HasPrefix(data, []byte{0x1B, '@'}) {
 		t.Fatal("expected the stream to begin with ESC @ initialise")
 	}
-	if !bytes.HasSuffix(data, []byte{0x1D, 'V', 66, 0}) {
+	if !bytes.HasSuffix(data, []byte{0x1D, 'V', 66, 3}) {
 		t.Fatal("expected the stream to end with the feed-and-cut command")
 	}
 	if !bytes.Contains(data, []byte{0x1B, 'a', 1}) || !bytes.Contains(data, []byte{0x1B, 'a', 0}) {
@@ -38,6 +38,12 @@ func TestReceiptFoldKeepsMoneyReceiptsPlainASCII(t *testing.T) {
 	folded := string(receiptFold("Café\tRéceipt №9"))
 	if folded != "Caf? R?ceipt ?9" {
 		t.Fatalf("unexpected fold result: %q", folded)
+	}
+}
+
+func TestAnExplicitPrinterChoiceIsNeverSecondGuessed(t *testing.T) {
+	if resolved := resolveReceiptPrinter("Front Desk POS-80"); resolved != "Front Desk POS-80" {
+		t.Fatalf("expected the picked printer verbatim, got %q", resolved)
 	}
 }
 

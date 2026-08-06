@@ -64,8 +64,40 @@ func escposReceipt(lines []receiptLine) []byte {
 	}
 
 	buffer = append(buffer, '\n', '\n', '\n', '\n')
-	buffer = append(buffer, 0x1D, 'V', 66, 0) // GS V 66 — feed and partial cut
+	// GS V 66 n — feed n units, then partial cut. The extra feed walks the
+	// footer clear of the cutter head on POS-80-class machines.
+	buffer = append(buffer, 0x1D, 'V', 66, 3)
 	return buffer
+}
+
+// resolveReceiptPrinter turns "no printer picked" into the right venue
+// default. Fresh Windows installs commonly default to "Microsoft Print
+// to PDF", which would swallow receipts silently — so an empty choice
+// first hunts the installed queues for the venue's POS-80 (the standard
+// NPL receipt machine), then any POS-named queue, and only then trusts
+// the Windows default.
+func resolveReceiptPrinter(requested string) string {
+	if requested != "" {
+		return requested
+	}
+
+	names, err := listPrinterNames()
+	if err == nil {
+		for _, name := range names {
+			folded := strings.ToLower(name)
+			if strings.Contains(folded, "pos-80") || strings.Contains(folded, "pos80") {
+				return name
+			}
+		}
+		for _, name := range names {
+			if strings.Contains(strings.ToLower(name), "pos") {
+				return name
+			}
+		}
+	}
+
+	// Empty keeps printRaw on the Windows default printer.
+	return ""
 }
 
 // receiptFold keeps the stream inside plain printable ASCII — codepage
@@ -104,6 +136,9 @@ func registerReceiptPrinting(mux *http.ServeMux) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"printers":        names,
 			"default_printer": defaultName,
+			// What "no printer picked" actually resolves to — the UI shows
+			// this so the venue can see the POS-80 was found.
+			"auto_printer": resolveReceiptPrinter(""),
 		})
 	})))
 
@@ -123,13 +158,14 @@ func registerReceiptPrinting(mux *http.ServeMux) {
 			lines = lines[:receiptMaxLines]
 		}
 
-		printer := strings.TrimSpace(request.Printer)
+		printer := resolveReceiptPrinter(strings.TrimSpace(request.Printer))
 		if err := printRaw(printer, escposReceipt(lines)); err != nil {
 			log.Printf("[npl-internal] receipt print failed (printer %q): %v", printer, err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
 
+		log.Printf("[npl-internal] receipt printed (%d lines, printer %q)", len(lines), printer)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})))
 }

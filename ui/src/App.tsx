@@ -1434,6 +1434,9 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
   const [settings, setSettings] = useState<ReceiptSettings | null>(null)
   const [printers, setPrinters] = useState<string[]>([])
   const [defaultPrinter, setDefaultPrinter] = useState("")
+  // What "no printer picked" resolves to: the bridge hunts the installed
+  // queues for the venue's POS-80 before trusting the Windows default.
+  const [autoPrinter, setAutoPrinter] = useState("")
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
 
@@ -1447,9 +1450,10 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
 
     void fetch("/api/print/printers", { headers: { Accept: "application/json" } })
       .then((response) => response.json())
-      .then((body: { printers?: string[] | null, default_printer?: string }) => {
+      .then((body: { printers?: string[] | null, default_printer?: string, auto_printer?: string }) => {
         setPrinters(body.printers ?? [])
         setDefaultPrinter(body.default_printer ?? "")
+        setAutoPrinter(body.auto_printer ?? "")
       })
       .catch(() => undefined)
   }, [])
@@ -1527,7 +1531,11 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
               onChange={(event) => setSettings({ ...settings, printer_name: event.target.value || null })}
             >
               <option value="">
-                {defaultPrinter ? `Windows default — ${defaultPrinter}` : "Windows default printer"}
+                {autoPrinter
+                  ? `Auto — ${autoPrinter} (POS printer found)`
+                  : defaultPrinter
+                    ? `Windows default — ${defaultPrinter}`
+                    : "Windows default printer"}
               </option>
               {printers.map((name) => (
                 <option key={name} value={name}>{name}</option>

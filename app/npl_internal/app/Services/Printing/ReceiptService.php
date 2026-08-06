@@ -29,6 +29,13 @@ final class ReceiptService
         'jackpot' => 'JACKPOT ENTRY',
     ];
 
+    /**
+     * The venue's receipt machine is the POS-80 class: 80mm paper, 48
+     * characters per line in the standard font. Dividers span the full
+     * slip.
+     */
+    private const RECEIPT_COLUMNS = 48;
+
     /** @return array{enabled: bool, printer_name: ?string, header_text: ?string, footer_text: ?string} */
     public function settings(): array
     {
@@ -104,14 +111,14 @@ final class ReceiptService
             [
                 ['text' => 'NPL POKER', 'center' => true, 'bold' => true],
                 ['text' => 'Receipt printer test', 'center' => true],
-                ['text' => str_repeat('-', 32)],
+                ['text' => str_repeat('-', self::RECEIPT_COLUMNS)],
                 ['text' => 'BUY-IN', 'center' => true, 'bold' => true, 'big' => true],
                 ['text' => 'Player: Test Player (NPL0000)'],
                 ['text' => 'Table 3 - Seat 5', 'bold' => true],
                 ['text' => 'Amount: $100.00'],
                 ['text' => 'Chips: 20,000'],
                 ['text' => now()->format('D j M Y g:ia').' - Venue desk'],
-                ['text' => str_repeat('-', 32)],
+                ['text' => str_repeat('-', self::RECEIPT_COLUMNS)],
             ],
             $this->customLines($settings['footer_text'], center: true),
         );
@@ -151,7 +158,7 @@ final class ReceiptService
             $lines[] = ['text' => (string) $session->venue_name, 'center' => true];
         }
 
-        $lines[] = ['text' => str_repeat('-', 32)];
+        $lines[] = ['text' => str_repeat('-', self::RECEIPT_COLUMNS)];
         $lines[] = ['text' => self::KIND_LABELS[$action], 'center' => true, 'bold' => true, 'big' => true];
         $lines[] = ['text' => sprintf('Player: %s (%s)', $displayName, $nplId)];
 
@@ -167,7 +174,7 @@ final class ReceiptService
         }
 
         $lines[] = ['text' => now()->format('D j M Y g:ia').' - '.($viaPhone ? 'Admin phone' : 'Venue desk')];
-        $lines[] = ['text' => str_repeat('-', 32)];
+        $lines[] = ['text' => str_repeat('-', self::RECEIPT_COLUMNS)];
 
         return array_merge($lines, $this->customLines($settings['footer_text'], center: true));
     }
