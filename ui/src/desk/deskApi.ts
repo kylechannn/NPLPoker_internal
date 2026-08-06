@@ -46,6 +46,10 @@ export type SeatedPlayer = {
    * the whole room.
    */
   club_member?: boolean | null
+  /** Admin-counted live stack — null/absent means "not counted", never zero. */
+  live_chips?: number | null
+  /** ISO time the stack was counted, straight from the cloud. */
+  live_chips_at?: string | null
   status: 'active' | 'eliminated'
   table_number: number | null
   seat_number: number | null
@@ -82,6 +86,10 @@ export type Seating = {
     total_rebuys?: number
     total_addons?: number
     average_stack?: number
+    /** How many players an admin phone has counted so far. */
+    counted_players?: number
+    /** Sum of the counted stacks — null while nobody has been counted. */
+    counted_chips_total?: number | null
   }
   gates: Gates
   clock: Record<string, unknown>

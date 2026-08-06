@@ -1082,7 +1082,7 @@ final class TournamentDeskService
                 'active' => $active->count(),
                 'eliminated' => $entries->where('status', 'eliminated')->count(),
                 'in_jackpot' => $entries->where('in_jackpot', true)->count(),
-            ],
+            ] + $this->countedStackSummary($sessionId),
             'gates' => $this->gates->gates($sessionId, $session, $state),
             'clock' => $state,
             // Room-display extras: chips typed at the desk, prizes owned by
@@ -1161,6 +1161,45 @@ final class TournamentDeskService
     /** Per-request cache of each venue's valid club IDs, keyed by venue. */
     private array $clubMemberCache = [];
 
+    /** Per-request cache of admin-counted chip stacks, keyed by session. */
+    private array $chipCountCache = [];
+
+    /**
+     * The rail's "counted stacks" figures: how many players an admin has
+     * counted and what those stacks add to. Null total when nobody has
+     * been counted — the rail hides the stat instead of showing 0.
+     *
+     * @return array{counted_players: int, counted_chips_total: int|null}
+     */
+    private function countedStackSummary(int $sessionId): array
+    {
+        $this->liveChips($sessionId, '');
+        $rows = $this->chipCountCache[$sessionId];
+
+        return [
+            'counted_players' => count($rows),
+            'counted_chips_total' => $rows !== []
+                ? (int) array_sum(array_map(fn (object $row): int => (int) $row->chips, $rows))
+                : null,
+        ];
+    }
+
+    /**
+     * The admin-counted live stack for a player, or null when nobody has
+     * counted them — partial coverage is the normal case, and an uncounted
+     * seat must render clean rather than claim a zero.
+     */
+    private function liveChips(int $sessionId, string $nplId): ?object
+    {
+        $this->chipCountCache[$sessionId] ??= DB::table('live_chip_counts')
+            ->where('tournament_session_id', $sessionId)
+            ->get()
+            ->keyBy(fn (object $row): string => strtoupper((string) $row->player_npl_id))
+            ->all();
+
+        return $this->chipCountCache[$sessionId][strtoupper($nplId)] ?? null;
+    }
+
     /**
      * Whether this player holds a valid club ID for the session's venue.
      * Null means "no data" — venue unknown, or the register has never been
@@ -1194,11 +1233,14 @@ final class TournamentDeskService
     private function presentEntry(object $entry, int $sessionId, object $session): array
     {
         $nplId = (string) $entry->player_npl_id;
+        $chips = $this->liveChips($sessionId, $nplId);
 
         return [
             'npl_id' => $nplId,
             'display_name' => $entry->player_name ?: $nplId,
             'club_member' => $this->hasClubMembership($session, $nplId),
+            'live_chips' => $chips !== null ? (int) $chips->chips : null,
+            'live_chips_at' => $chips->counted_at ?? null,
             'status' => $entry->status,
             'table_number' => $entry->table_number !== null ? (int) $entry->table_number : null,
             'seat_number' => $entry->seat_number !== null ? (int) $entry->seat_number : null,

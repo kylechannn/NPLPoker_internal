@@ -417,11 +417,19 @@ final class DeskController
 
     /**
      * Pull phone requests the admin resolved at the table and apply them
-     * to the local ledger. Called on a timer while the desk is open.
+     * to the local ledger. Called on a timer while the desk is open. The
+     * same beat refreshes the admin-counted chip stacks — the next 5s
+     * seating poll then carries them onto the seats.
      */
-    public function serviceSync(int $id, \App\Services\Tournament\TableServicePuller $puller): JsonResponse
-    {
-        return $this->ok($puller->sync($id));
+    public function serviceSync(
+        int $id,
+        \App\Services\Tournament\TableServicePuller $puller,
+        \App\Services\Tournament\ChipCountPuller $chips,
+    ): JsonResponse {
+        $result = $puller->sync($id);
+        $result['chip_counts'] = $chips->sync($id);
+
+        return $this->ok($result);
     }
 
     /**

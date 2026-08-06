@@ -53,6 +53,14 @@ const GATE_LABELS: Array<{ key: keyof Gates, label: string }> = [
  * and an operator should never have to click into a field first. Every other
  * control returns focus to it once it is done.
  */
+/** Hover detail for an admin-counted stack: when, and by whom if known. */
+function chipCountTitle(player: SeatedPlayer): string {
+  const at = player.live_chips_at
+    ? new Date(player.live_chips_at).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })
+    : null
+  return at ? `Stack counted at ${at} from an admin phone` : "Stack counted from an admin phone"
+}
+
 function optionKey(option: DeskOption): string {
   return `${option.action}:${option.tier ?? "-"}`
 }
@@ -606,6 +614,15 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             <span><small>Entries</small><strong>{seating.counts.entries}</strong></span>
             <span><small>Out</small><strong>{seating.counts.eliminated}</strong></span>
             <span><small>Jackpot</small><strong>{seating.counts.in_jackpot}</strong></span>
+            {seating.counts.counted_chips_total != null && (seating.counts.counted_players ?? 0) > 0 ? (
+              <span
+                className="host-desk__headcounts-stacks"
+                title={`Live stacks counted from admin phones — ${seating.counts.counted_players} of ${seating.counts.active} players counted`}
+              >
+                <small>Counted · {seating.counts.counted_players}</small>
+                <strong>{seating.counts.counted_chips_total.toLocaleString("en-AU")}</strong>
+              </span>
+            ) : null}
           </div>
         ) : null}
 
@@ -1046,6 +1063,11 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   >
                     {player.club_member === false ? <span className="club-flag" title="No club membership ID" /> : null}
                     {player.display_name}
+                    {player.live_chips != null ? (
+                      <em className="host-chip__stack" title={chipCountTitle(player)}>
+                        {player.live_chips.toLocaleString("en-AU")}
+                      </em>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -1118,6 +1140,14 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       ) : (
                         <span className="host-seat__open">Open</span>
                       )}
+                      {seat.player && seat.player.live_chips != null ? (
+                        <span
+                          className="host-seat__stack"
+                          title={chipCountTitle(seat.player)}
+                        >
+                          {seat.player.live_chips.toLocaleString("en-AU")}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
