@@ -68,6 +68,10 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
   // One session at a time — cash and tournament share the single slot, so
   // an unfinished tournament blocks the cash desk too (and vice versa).
   const [blocking, setBlocking] = useState<ActiveSession | null>(null)
+  // The blocker the operator is being asked to erase — set from a FRESH
+  // active-session read at the moment Open is pressed, never the mount-time
+  // snapshot, so the dialog always names what would actually be erased.
+  const [confirmReplace, setConfirmReplace] = useState<ActiveSession | null>(null)
 
   useEffect(() => {
     deskApi.activeSession()
@@ -134,13 +138,28 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
     setForm((current) => ({ ...current, [key]: value }))
   }
 
-  async function open() {
+  async function open(replaceSessionId?: number) {
     if (opening) return
-    setOpening(true)
     setError(null)
+
+    // Creating over an unfinished session erases it — that needs a fresh
+    // look (not the mount-time snapshot) and the operator's explicit yes.
+    if (editSessionId === null && replaceSessionId === undefined) {
+      const active = await deskApi.activeSession().catch(() => null)
+      const fresh = active && active.id !== editSessionId ? active : null
+      setBlocking(fresh)
+
+      if (fresh) {
+        setConfirmReplace(fresh)
+        return
+      }
+    }
+
+    setOpening(true)
 
     const payload = {
       game_type: "cash",
+      ...(replaceSessionId !== undefined ? { replace_session_id: replaceSessionId } : {}),
       name: form.name.trim() || defaultName,
       game_session_id: linkedSessionId === "" ? null : linkedSessionId,
       buy_in_price_cents: form.buy_in_price_cents,
@@ -177,10 +196,16 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
       }
 
       // The sidebar admin QR appears the moment the session exists.
+      setBlocking(null)
       window.dispatchEvent(new CustomEvent("npl:desk-session-changed"))
       onOpened(created.session.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : "The cash game could not be opened.")
+      // The refusal may mean the open session changed — re-look so the
+      // banner (and the next confirm) names the real blocker.
+      deskApi.activeSession()
+        .then((active) => setBlocking(active && active.id !== editSessionId ? active : null))
+        .catch(() => {})
     } finally {
       setOpening(false)
     }
@@ -200,7 +225,8 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
 
       {blocking ? (
         <p className="host-desk__error" role="alert">
-          “{blocking.name ?? "A session"}” is still open — finish that session before creating a new one.
+          “{blocking.name ?? "A session"}” is still open — finish it, or Open the cash desk will ask before
+          erasing it.
           {blocking.status === "draft" ? (
             <>
               {" "}
@@ -333,13 +359,45 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
           </div>
 
           <footer className="cashprep__footer">
-            <button type="button" className="cashprep__open" disabled={opening || blocking !== null} onClick={() => void open()}>
+            <button type="button" className="cashprep__open" disabled={opening} onClick={() => void open()}>
               {opening ? <Loader2 size={15} className="host-spin" /> : null}
               {editSessionId !== null ? "Save & back to desk" : "Open the cash desk"}
             </button>
           </footer>
         </div>
       )}
+
+      {confirmReplace ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => setConfirmReplace(null)}>
+          <section className="host-scan-modal__panel" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+            <h3 className="host-finish__confirm-title">Erase the open session?</h3>
+            <p className="host-finish__confirm-copy">
+              “{confirmReplace.name ?? "The current session"}” is still open
+              {confirmReplace.status === "draft" ? "" : " and has already started"}. Opening this cash game
+              will <strong>erase it from this laptop</strong> — every registration and buy-in recorded on it is
+              deleted, with <strong>no way back</strong>. The online game itself stays open, so any desk can
+              still host it.
+            </p>
+            <footer className="host-scan-modal__footer">
+              <span className="host-scan-modal__total" />
+              <button type="button" className="host-scan-modal__cancel" onClick={() => setConfirmReplace(null)}>
+                Keep that session
+              </button>
+              <button
+                type="button"
+                className="host-scan-modal__submit"
+                onClick={() => {
+                  const id = confirmReplace.id
+                  setConfirmReplace(null)
+                  void open(id)
+                }}
+              >
+                Erase it and open cash
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -115,9 +115,13 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
 
   // One session at a time: if the room already has an unfinished session
-  // (and it is not the draft being edited here), a create will be refused —
-  // say so up front instead of at the moment the button is pressed.
+  // (and it is not the draft being edited here), saving asks the operator
+  // to confirm erasing it — say so up front, not only at the button press.
   const [blocking, setBlocking] = useState<ActiveSession | null>(null)
+  // The blocker the operator is being asked to erase — set from a FRESH
+  // active-session read at the moment Save is pressed, never the mount-time
+  // snapshot, so the dialog always names what would actually be erased.
+  const [confirmReplace, setConfirmReplace] = useState<ActiveSession | null>(null)
 
   useEffect(() => {
     deskApi.activeSession()
@@ -346,13 +350,26 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
     return venue?.name ? `${date} — ${venue.name}` : date
   }, [venue?.name])
 
-  async function open() {
+  async function open(replaceSessionId?: number) {
     setError(null)
 
     if (cutOffs.registration === "") {
       setCutOffsOpen(true)
       setError("Set the level registration closes at — everything else hangs off it.")
       return
+    }
+
+    // Creating over an unfinished session erases it — that needs a fresh
+    // look (not the mount-time snapshot) and the operator's explicit yes.
+    if (editSessionId === null && replaceSessionId === undefined) {
+      const active = await deskApi.activeSession().catch(() => null)
+      const fresh = active && active.id !== editSessionId ? active : null
+      setBlocking(fresh)
+
+      if (fresh) {
+        setConfirmReplace(fresh)
+        return
+      }
     }
 
     setOpening(true)
@@ -394,6 +411,7 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
 
       const created = await deskApi.createTournament({
         ...form,
+        ...(replaceSessionId !== undefined ? { replace_session_id: replaceSessionId } : {}),
         name: form.name.trim() || defaultName,
         game_session_id: linkedSessionId === "" ? null : linkedSessionId,
         addon_tiers: tiers,
@@ -424,10 +442,16 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
       }
 
       // The sidebar admin QR appears the moment the session exists.
+      setBlocking(null)
       window.dispatchEvent(new CustomEvent("npl:desk-session-changed"))
       onOpened(created.session.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : "The session could not be opened.")
+      // The refusal may mean the open session changed — re-look so the
+      // banner (and the next confirm) names the real blocker.
+      deskApi.activeSession()
+        .then((active) => setBlocking(active && active.id !== editSessionId ? active : null))
+        .catch(() => {})
     } finally {
       setOpening(false)
     }
@@ -537,7 +561,7 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
                 type="button"
                 className="prep-btn prep-btn--dark"
                 onClick={() => void open()}
-                disabled={opening || !venue || blocking !== null}
+                disabled={opening || !venue}
               >
                 {opening ? "Saving…" : "Save & Open Host"}
               </button>
@@ -574,7 +598,8 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
 
         {blocking ? (
           <div className="prep-error" role="alert">
-            “{blocking.name ?? "A session"}” is still open — finish that session before creating a new one.
+            “{blocking.name ?? "A session"}” is still open — finish it, or Save &amp; Open Host will ask before
+            erasing it.
             {blocking.status === "draft" ? (
               <>
                 {" "}
@@ -1091,6 +1116,38 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
           </div>
         </div>
       </div>
+
+      {confirmReplace ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => setConfirmReplace(null)}>
+          <section className="host-scan-modal__panel" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+            <h3 className="host-finish__confirm-title">Erase the open session?</h3>
+            <p className="host-finish__confirm-copy">
+              “{confirmReplace.name ?? "The current session"}” is still open
+              {confirmReplace.status === "draft" ? "" : " and has already started"}. Creating this new session
+              will <strong>erase it from this laptop</strong> — every registration and buy-in recorded on it is
+              deleted, with <strong>no way back</strong>. The online game itself stays open, so any desk can
+              still host it.
+            </p>
+            <footer className="host-scan-modal__footer">
+              <span className="host-scan-modal__total" />
+              <button type="button" className="host-scan-modal__cancel" onClick={() => setConfirmReplace(null)}>
+                Keep that session
+              </button>
+              <button
+                type="button"
+                className="host-scan-modal__submit"
+                onClick={() => {
+                  const id = confirmReplace.id
+                  setConfirmReplace(null)
+                  void open(id)
+                }}
+              >
+                Erase it and create new
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -26,3 +26,14 @@ Schedule::command('outbox:drain')
     ->everyFifteenSeconds()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+ * The stuck-desk safety net: a session nobody pressed Finish on is retired
+ * 12 hours after it opened (players inside or not), freeing the one-session
+ * slot. The active-session read runs the same sweep lazily, so this cadence
+ * only matters when the window is closed.
+ */
+Schedule::command('tournament:finish-stale')
+    ->everyTenMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

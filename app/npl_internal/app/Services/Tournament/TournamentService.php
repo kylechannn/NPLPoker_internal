@@ -7,6 +7,7 @@ namespace App\Services\Tournament;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Tournament setup, entries and the money/chips ledger.
@@ -32,6 +33,17 @@ final class TournamentService
      */
     public function activeSession(): ?object
     {
+        // Self-healing read: the clock module rolls levels forward lazily on
+        // read, and the one-session slot heals the same way — a session left
+        // unfinished past the 12-hour mark is retired right here, so the
+        // sidebar poll (or the next create) un-wedges the desk with no cron
+        // to depend on. app() because the desk service depends on this one.
+        try {
+            app(TournamentDeskService::class)->forceFinishStale();
+        } catch (Throwable) {
+            // The sweep must never take the poll or a create down with it.
+        }
+
         return DB::table('tournament_sessions')
             ->where('status', '!=', TournamentClockService::STATUS_FINISHED)
             ->orderByDesc('id')
@@ -82,17 +94,31 @@ final class TournamentService
     {
         // ONE desk at a time: the room runs a single live session — cash or
         // tournament — and the admin QR belongs to it. A second create is
-        // refused until the current one finishes (or its empty draft is
-        // discarded); without this rule two QR codes could exist at once.
+        // refused until the current one finishes, UNLESS the operator has
+        // confirmed replacing it: the UI sends back the blocker's id it
+        // showed in the confirm dialog, and only an exact match erases —
+        // if the open session changed underneath them, they must look again.
         $active = $this->activeSession();
 
         if ($active !== null) {
-            throw ValidationException::withMessages([
-                'session' => [sprintf(
-                    '"%s" is still open — finish that session before creating a new one.',
-                    (string) ($active->name ?? 'The current session'),
-                )],
-            ]);
+            $replaceId = (int) ($data['replace_session_id'] ?? 0);
+
+            if ($replaceId === 0) {
+                throw ValidationException::withMessages([
+                    'session' => [sprintf(
+                        '"%s" is still open — finish that session before creating a new one.',
+                        (string) ($active->name ?? 'The current session'),
+                    )],
+                ]);
+            }
+
+            if ($replaceId !== (int) $active->id) {
+                throw ValidationException::withMessages([
+                    'session' => ['The open session has changed since you confirmed — review it and save again.'],
+                ]);
+            }
+            // The erase itself waits until every validation below has
+            // passed: a rejected form must never cost the old session.
         }
 
         // A cash game is the same desk minus the clock: no blind ladder, no
@@ -191,6 +217,13 @@ final class TournamentService
                 'price_cents' => (int) ($data['rebuy_price_cents'] ?? 0),
                 'chips' => (int) ($data['rebuy_chips'] ?? 0),
             ]]);
+        }
+
+        // Only now, with the new session fully validated, does the confirmed
+        // replacement erase the old one. app() because the desk service
+        // depends on this one.
+        if ($active !== null) {
+            app(TournamentDeskService::class)->eraseSession((int) $active->id);
         }
 
         return DB::transaction(function () use ($data, $levels, $name, $tiers, $rebuyTiers, $isCash, $registrationCloses): array {

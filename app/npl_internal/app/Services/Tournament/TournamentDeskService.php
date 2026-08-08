@@ -7,6 +7,7 @@ namespace App\Services\Tournament;
 use App\Services\Sync\OutboxService;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -690,6 +691,133 @@ final class TournamentDeskService
             ],
             'attendance' => $attendance,
         ];
+    }
+
+    /**
+     * Sessions still unfinished this long after they were opened (and, if
+     * started, this long after Start) are retired by forceFinishStale() —
+     * nobody runs a poker night this far past the doors opening.
+     */
+    public const STALE_AFTER_HOURS = 12;
+
+    /**
+     * The stuck-desk recovery: a session nobody pressed Finish on would hold
+     * the one-session slot forever once players had bought in (discard is
+     * draft-and-empty only). Twelve hours after it was opened — or after
+     * Start, whichever is later — it is force-finished, players inside or
+     * not.
+     *
+     * Deliberately NOT finishWithResults(): no session_result goes to the
+     * cloud, so the cloud game session is never marked completed and any
+     * laptop can still host it. The money books do survive — the attendance
+     * report ships exactly as a normal Finish would.
+     *
+     * @return int sessions retired
+     */
+    public function forceFinishStale(): int
+    {
+        $cutoff = now()->subHours(self::STALE_AFTER_HOURS);
+
+        $stale = DB::table('tournament_sessions')
+            ->where('status', '!=', TournamentClockService::STATUS_FINISHED)
+            ->where('created_at', '<=', $cutoff)
+            ->where(function ($query) use ($cutoff): void {
+                $query->whereNull('started_at')->orWhere('started_at', '<=', $cutoff);
+            })
+            ->orderBy('id')
+            ->get();
+
+        $retired = 0;
+
+        foreach ($stale as $session) {
+            try {
+                $this->clock->finish((int) $session->id);
+            } catch (ValidationException) {
+                continue; // Finished by hand between the select and here.
+            }
+
+            // Leave a mark an operator (or a field diagnosis) can find.
+            $settings = json_decode((string) ($session->settings ?? ''), true);
+            $settings = is_array($settings) ? $settings : [];
+            $settings['force_finished_at'] = now()->toIso8601String();
+
+            DB::table('tournament_sessions')->where('id', $session->id)->update([
+                'settings' => json_encode($settings),
+                'updated_at' => now(),
+            ]);
+
+            $this->closeCloudMirror($session);
+
+            $fresh = $this->clock->session((int) $session->id);
+            $this->outbox->enqueue('session_report', 'create', $this->buildSessionReport((int) $session->id, $fresh));
+
+            Log::warning('stale session force-finished', [
+                'session' => (int) $session->id,
+                'name' => (string) $session->name,
+                'status_was' => (string) $session->status,
+                'created_at' => (string) $session->created_at,
+            ]);
+
+            $retired++;
+        }
+
+        if ($retired > 0) {
+            $this->drainSoon();
+        }
+
+        return $retired;
+    }
+
+    /**
+     * Erase a session outright — the exit for "the desk set up the wrong
+     * game". Unlike discardDraft this works at any status, players inside or
+     * not, because the operator has explicitly confirmed the loss: entries,
+     * the money ledger and the chip-count cache all go with the row.
+     *
+     * The cloud is told first (its live row closes under this session's uid,
+     * which dies with the local row), and the cloud game session itself is
+     * never touched — no report, no result — so any laptop, this one
+     * included, can still create a desk session for that game.
+     */
+    public function eraseSession(int $sessionId): void
+    {
+        $session = $this->clock->session($sessionId);
+
+        if ($session->status !== TournamentClockService::STATUS_FINISHED) {
+            $this->clock->finish($sessionId);
+        }
+
+        $this->closeCloudMirror($session);
+
+        DB::transaction(function () use ($sessionId): void {
+            DB::table('live_chip_counts')->where('tournament_session_id', $sessionId)->delete();
+            DB::table('tournament_actions')->where('tournament_session_id', $sessionId)->delete();
+            DB::table('tournament_entries')->where('tournament_session_id', $sessionId)->delete();
+            DB::table('tournament_levels')->where('tournament_session_id', $sessionId)->delete();
+            DB::table('tournament_sessions')->where('id', $sessionId)->delete();
+        }, 3);
+
+        Log::warning('session erased by operator', [
+            'session' => $sessionId,
+            'name' => (string) $session->name,
+            'status_was' => (string) $session->status,
+        ]);
+    }
+
+    /**
+     * Send the cloud one final state so its live row shows finished — but
+     * only when this session could have broadcast at all. A blank draft
+     * never published, and publishing for it here would CREATE a cloud row,
+     * which the results pages would read as evidence the game was played.
+     */
+    private function closeCloudMirror(object $session): void
+    {
+        $couldHaveBroadcast = $session->started_at !== null
+            || DB::table('tournament_entries')->where('tournament_session_id', (int) $session->id)->exists();
+
+        if ($couldHaveBroadcast) {
+            $this->broadcaster->publish((int) $session->id);
+        }
     }
 
     /**

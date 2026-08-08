@@ -33,6 +33,9 @@ final class TournamentController
             // Optional: an empty name defaults to "date — venue" downstream,
             // because most nights that IS the name.
             'name' => ['sometimes', 'nullable', 'string', 'max:160'],
+            // The confirmed-replacement handshake: the id of the open
+            // session the operator agreed to erase. Anything else refuses.
+            'replace_session_id' => ['sometimes', 'nullable', 'integer'],
             'template_id' => ['sometimes', 'nullable', 'integer'],
             'venue_name' => ['sometimes', 'nullable', 'string', 'max:160'],
             'game_session_id' => ['sometimes', 'nullable', 'integer'],
