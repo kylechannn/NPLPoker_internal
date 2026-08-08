@@ -462,7 +462,7 @@
   gap: 16px;
 }
 
-.scx-panel.scx-panel--side {
+.scx-panel--side {
   /* A narrow right-hand rail: 15–20% of the screen depending on size,
      never wide enough to crowd the timer. */
   width: clamp(230px, 18vw, 360px);
