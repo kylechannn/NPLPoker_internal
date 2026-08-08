@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+    <title>NPL Poker OS Installer</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="installer-shell">
+      <section class="hero">
+        <div class="window-bar">
+          <div class="brand-lockup" aria-label="NPL Poker">
+            <img class="brand-logo" src="assets/npl-logo.png" alt="NPL Poker">
+          </div>
+          <div class="window-actions">
+            <div class="security-pill"><span></span>Verified installer</div>
+            <button id="minimizeButton" class="window-button" type="button" aria-label="Minimize">−</button>
+            <button id="closeButton" class="window-button close" type="button" aria-label="Close">×</button>
+          </div>
+        </div>
+
+        <div class="hero-content">
+          <div class="hero-copy">
+            <div class="eyebrow"><span>VERSION 1.1.0</span><i></i><span>SECURE INSTALL</span></div>
+            <h1>NPL Poker Club<br>Operational system</h1>
+            <p>A protected install or update for the venue desk, with your CD-Key activation, local database and session records preserved.</p>
+
+            <div class="steps" aria-label="Installation steps">
+              <div class="step active" data-step="ready">
+                <b>1</b>
+                <span>Ready</span>
+              </div>
+              <div class="step-line"><i></i></div>
+              <div class="step" data-step="installing">
+                <b>2</b>
+                <span>Install</span>
+              </div>
+              <div class="step-line"><i></i></div>
+              <div class="step" data-step="completed">
+                <b>3</b>
+                <span>Finish</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="control-panel">
+        <div class="status-block">
+          <div class="status-heading">
+            <div>
+              <span id="statusKicker">READY TO INSTALL</span>
+              <h2 id="statusTitle">Everything is prepared</h2>
+            </div>
+            <strong id="progressValue">0%</strong>
+          </div>
+          <div class="progress-track" aria-label="Installation progress">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+          <p id="statusMessage">Program files are refreshed; the venue's own data is never touched.</p>
+          <div class="assurances">
+            <span><i>✓</i> Local database kept</span>
+            <span><i>✓</i> CD-Key preserved</span>
+            <span><i>✓</i> Every file verified</span>
+          </div>
+        </div>
+
+        <div class="action-block">
+          <button id="primaryButton" class="primary-button" type="button">
+            <span id="primaryButtonLabel">Install now</span>
+            <b>→</b>
+          </button>
+          <button id="secondaryButton" class="secondary-button hidden" type="button">Open installer logs</button>
+          <small id="actionHint">Usually takes 1–3 minutes</small>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script src="renderer.js"></script>
+  </body>
+</html>

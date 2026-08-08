@@ -102,6 +102,64 @@ Filename: "powershell.exe"; \
   Flags: runhidden; RunOnceId: "KillChildren"
 
 [Code]
+{ ---- Status bridge -------------------------------------------------------
+  The modern Electron shell runs this engine /VERYSILENT and passes
+  /STATUSFILE=<path>; every state change is written there as one JSON
+  object of state, progress and message for the shell to poll. Without
+  the parameter (the classic double-click install) the bridge is inert. }
+var
+  StatusFilePath: String;
+  LastReportedPercent: Integer;
+
+function JsonEscape(const Value: String): String;
+begin
+  Result := Value;
+  StringChangeEx(Result, '\', '\\', True);
+  StringChangeEx(Result, '"', '\"', True);
+  StringChangeEx(Result, #13#10, '\n', True);
+  StringChangeEx(Result, #13, '\n', True);
+  StringChangeEx(Result, #10, '\n', True);
+end;
+
+procedure WriteInstallerStatus(const State: String; Progress: Integer; const MessageText: String);
+begin
+  if StatusFilePath = '' then
+    exit;
+
+  if Progress < 0 then
+    Progress := 0;
+  if Progress > 100 then
+    Progress := 100;
+
+  SaveStringToFile(StatusFilePath,
+    '{"state":"' + JsonEscape(State) + '","progress":' + IntToStr(Progress) +
+    ',"message":"' + JsonEscape(MessageText) + '"}', false);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  StatusFilePath := ExpandConstant('{param:STATUSFILE|}');
+  LastReportedPercent := -1;
+  WriteInstallerStatus('starting', 5, 'Opening the NPL Poker OS installation engine…');
+  Result := True;
+end;
+
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+var
+  Percent: Integer;
+begin
+  if (StatusFilePath = '') or (MaxProgress <= 0) then
+    exit;
+
+  { File copy occupies 10..85 of the visible bar; only write on change. }
+  Percent := 10 + (CurProgress * 75) div MaxProgress;
+  if Percent <> LastReportedPercent then
+  begin
+    LastReportedPercent := Percent;
+    WriteInstallerStatus('installing', Percent, 'Copying verified NPL Poker OS files…');
+  end;
+end;
+
 procedure KillRunningInstances;
 var
   ResultCode: Integer;
@@ -123,6 +181,7 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  WriteInstallerStatus('preparing', 8, 'Closing any running NPL Poker OS…');
   KillRunningInstances;
   Result := '';
 end;
@@ -153,6 +212,9 @@ begin
 
   if Missing <> '' then
   begin
+    WriteInstallerStatus('failed', 96,
+      'This installation is incomplete — required files are missing. '
+      + 'The installer file is likely truncated; re-copy it, verify its SHA256, and run it again.');
     MsgBox('This installation is incomplete -- the following required files are missing:'
       + #13#10 + Missing + #13#10 + #13#10
       + 'The installer file is likely truncated or corrupted. Re-copy it and verify '
@@ -166,5 +228,11 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    WriteInstallerStatus('configuring', 90, 'Verifying every installed file…');
     VerifyInstalledPayload;
+  end;
+
+  if CurStep = ssDone then
+    WriteInstallerStatus('completed', 100, 'NPL Poker OS is installed and ready.');
 end;
