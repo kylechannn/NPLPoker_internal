@@ -485,19 +485,30 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
     try {
       for (const option of chosen) {
-        // Paid ONLINE already: the voucher was consumed at registration —
-        // book the entry at the covered price with the code on the action,
-        // and redeem nothing (a second redemption would double-spend).
+        // Paid ONLINE already: the voucher(s) were consumed at registration
+        // — book the entry at the covered price with the code(s) on the
+        // action, and redeem nothing (a second redemption would double-
+        // spend). A championship stack states covered_cents outright; the
+        // legacy single-voucher limit maths reads a null limit as "no
+        // limit — free", which would silently drop a ticket stack's real
+        // deficit, so a stack MUST send the flat covered amount instead.
         if (option.action === "buy_in" && coveredOnline) {
           const deficit = coveredDeficitCents(coveredOnline, option.price_cents)
-          const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
-            voucher_code: coveredOnline.code,
-            voucher_limit_cents: coveredOnline.entry_fee_limit_cents ?? null,
-          })
+          const stack = coveredOnline.vouchers && coveredOnline.vouchers.length > 1 ? coveredOnline.vouchers : null
+          const result = coveredOnline.covered_cents !== null && coveredOnline.covered_cents !== undefined
+            ? await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+                voucher_codes: (stack ?? [coveredOnline]).map((entry) => entry.code),
+                voucher_covered_cents: Math.min(coveredOnline.covered_cents, option.price_cents),
+              })
+            : await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+                voucher_code: coveredOnline.code,
+                voucher_limit_cents: coveredOnline.entry_fee_limit_cents ?? null,
+              })
           setSeating(result.seating)
+          const label = stack ? `${stack.length} special tickets` : `voucher ${coveredOnline.code}`
           applied.push(deficit > 0
-            ? `Buy-in (paid online with ${coveredOnline.code} + ${money(deficit)} difference)`
-            : `Buy-in (paid online — voucher ${coveredOnline.code})`)
+            ? `Buy-in (paid online with ${label} + ${money(deficit)} difference)`
+            : `Buy-in (paid online — ${label})`)
           total += deficit
           continue
         }
@@ -1183,7 +1194,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 type="button"
                 className="host-scan-modal__cancel"
                 disabled={busy}
-                onClick={() => { setScan(null); setVoucher(null); focusScan() }}
+                onClick={() => { setScan(null); setVoucher(null); setCoveredOnline(null); setUseVoucher(false); setUseTickets(null); focusScan() }}
               >
                 Cancel
               </button>
