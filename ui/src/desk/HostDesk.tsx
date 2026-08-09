@@ -446,8 +446,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
     if (chosen.length === 0) return
 
-    // Cash rule: the jackpot may only ride the SAME submit as the first
-    // buy-in — this flag is the server's proof the pair belong together.
+    // The jackpot may only ride the SAME submit as the first buy-in (cash
+    // and tournaments alike) — this flag is the server's proof the pair
+    // belong together.
     const jackpotWithBuyIn = chosen.some((option) => option.action === "buy_in")
 
     setBusy(true)

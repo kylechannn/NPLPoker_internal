@@ -8,6 +8,7 @@ use App\Services\Tournament\TournamentDeskService;
 use App\Services\Tournament\TournamentGateService;
 use App\Services\Tournament\TournamentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -279,8 +280,10 @@ class TournamentDeskTest extends TestCase
         $this->mirrorPlayer('NPL7001');
 
         $desk = app(TournamentDeskService::class);
+        // The popup's batch: buy_in then jackpot with the first_buy_in flag —
+        // the only moment the jackpot may be joined.
         $desk->apply($id, 'NPL7001', 'buy_in');
-        $result = $desk->apply($id, 'NPL7001', 'jackpot');
+        $result = $desk->apply($id, 'NPL7001', 'jackpot', ['first_buy_in' => true]);
 
         $this->assertTrue($result['jackpot']['joined']);
         $this->assertSame(1000, $result['jackpot']['amount_cents']);
@@ -305,14 +308,57 @@ class TournamentDeskTest extends TestCase
 
         $desk = app(TournamentDeskService::class);
         $desk->apply($id, 'NPL7101', 'buy_in');
-        $desk->apply($id, 'NPL7101', 'jackpot');
+        $desk->apply($id, 'NPL7101', 'jackpot', ['first_buy_in' => true]);
 
         $scan = $desk->scan($id, 'NPL7101');
         $jackpot = collect($scan['options'])->firstWhere('action', 'jackpot');
         $this->assertFalse($jackpot['allowed']);
+        $this->assertSame('Already in the jackpot.', $jackpot['reason']);
 
         $this->expectException(ValidationException::class);
-        $desk->apply($id, 'NPL7101', 'jackpot');
+        $desk->apply($id, 'NPL7101', 'jackpot', ['first_buy_in' => true]);
+    }
+
+    public function test_tournament_jackpot_rides_the_first_buy_in_or_never(): void
+    {
+        $id = $this->tournament();
+        $desk = app(TournamentDeskService::class);
+
+        // A player who bought in WITHOUT the jackpot cannot join later —
+        // with or without the flag once the entry is no longer fresh.
+        $this->mirrorPlayer('NPL7301');
+        $desk->apply($id, 'NPL7301', 'buy_in');
+
+        try {
+            $desk->apply($id, 'NPL7301', 'jackpot');
+            $this->fail('A later jackpot join must be refused in a tournament.');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('first buy-in', json_encode($e->errors()));
+        }
+
+        Carbon::setTestNow(now()->addMinutes(10));
+
+        try {
+            $desk->apply($id, 'NPL7301', 'jackpot', ['first_buy_in' => true]);
+            $this->fail('A stale first_buy_in flag must not reopen the jackpot.');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('first buy-in', json_encode($e->errors()));
+        }
+
+        Carbon::setTestNow();
+
+        // The scan popup mirrors the rule: a registered player sees the
+        // jackpot blocked with the reason; an unregistered one sees it
+        // offered.
+        $scan = $desk->scan($id, 'NPL7301');
+        $jackpotOption = collect($scan['options'])->firstWhere('action', 'jackpot');
+        $this->assertFalse($jackpotOption['allowed']);
+        $this->assertStringContainsString('first buy-in', (string) $jackpotOption['reason']);
+
+        $this->mirrorPlayer('NPL7302');
+        $scan = $desk->scan($id, 'NPL7302');
+        $jackpotOption = collect($scan['options'])->firstWhere('action', 'jackpot');
+        $this->assertTrue($jackpotOption['allowed']);
     }
 
     public function test_the_jackpot_option_is_hidden_when_it_is_not_running(): void

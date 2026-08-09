@@ -218,7 +218,9 @@ final class TournamentDeskService
         if ((bool) $session->jackpot_enabled) {
             $jackpotCheck = $this->gates->check($sessionId, 'jackpot', $registered, $session, $state);
 
-            if ($jackpotCheck['allowed'] && $entry !== null && (bool) $entry->in_jackpot) {
+            // "Already in" beats the gate's "first buy-in only" as the
+            // reason the operator sees — it answers the actual question.
+            if ($entry !== null && (bool) $entry->in_jackpot) {
                 $jackpotCheck = ['allowed' => false, 'reason' => 'Already in the jackpot.'];
             }
 
@@ -295,14 +297,14 @@ final class TournamentDeskService
 
         $playerIsRegistered = $entry !== null;
 
-        // Cash batch nuance: the popup fires buy_in then jackpot in ONE
-        // submit, so by the time the jackpot lands the entry already exists.
-        // The first_buy_in flag (sent only when the buy-in was part of the
-        // same ticked batch) plus a freshness check lets that one legitimate
-        // pair through; any later attempt stays shut — on a cash desk the
-        // jackpot is joined with the first buy-in or never.
+        // Batch nuance: the popup fires buy_in then jackpot in ONE submit,
+        // so by the time the jackpot lands the entry already exists. The
+        // first_buy_in flag (sent only when the buy-in was part of the same
+        // ticked batch) plus a freshness check lets that one legitimate pair
+        // through; any later attempt stays shut — on cash desks and
+        // tournaments alike, the jackpot is joined with the first buy-in or
+        // never.
         if ($action === 'jackpot'
-            && ($session->game_type ?? 'tournament') === 'cash'
             && $playerIsRegistered
             && (bool) ($options['first_buy_in'] ?? false)
             && $entry->created_at !== null

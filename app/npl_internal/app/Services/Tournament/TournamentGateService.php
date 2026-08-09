@@ -212,11 +212,13 @@ final class TournamentGateService
         $session ??= $this->clock->session($sessionId);
         $gates = $this->gates($sessionId, $session, $state);
 
-        // Cash rule: the jackpot is a door you walk through ON the first
-        // buy-in — tick it together with the buy-in, or never. A player
-        // already in the game can no longer join (tournaments keep their
-        // join-later-until-the-gate-shuts behaviour).
-        if ($action === 'jackpot' && ($session->game_type ?? 'tournament') === 'cash') {
+        // The jackpot is a door you walk through ON the first buy-in — tick
+        // it together with the buy-in, or never. On cash desks and
+        // tournaments alike, a player already in the game can no longer
+        // join; the one legitimate pair (buy-in + jackpot ticked in the same
+        // submit) is let through by TournamentDeskService::apply's
+        // first_buy_in pass.
+        if ($action === 'jackpot') {
             return $playerIsRegistered
                 ? ['allowed' => false, 'reason' => 'Jackpot is only available with the first buy-in.']
                 : $this->fromGate($gates[self::JACKPOT], 'Jackpot entry has closed.');
@@ -234,10 +236,6 @@ final class TournamentGateService
             'addon' => ! $playerIsRegistered
                 ? ['allowed' => false, 'reason' => 'This player has not bought in yet.']
                 : $this->fromGate($gates[self::ADDON], 'Add-ons have closed.'),
-
-            'jackpot' => ! $playerIsRegistered
-                ? ['allowed' => false, 'reason' => 'Buy in before joining the jackpot.']
-                : $this->fromGate($gates[self::JACKPOT], 'Jackpot entry has closed.'),
 
             default => ['allowed' => true, 'reason' => null],
         };

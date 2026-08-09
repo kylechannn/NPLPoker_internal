@@ -138,9 +138,12 @@ class ReceiptPrintingTest extends TestCase
             'action' => 'buy_in',
         ])->assertOk();
 
+        // The jackpot rides the same submit as the first buy-in, so the
+        // popup sends the batch flag with it.
         $response = $this->postJson("/api/v1/desk/{$id}/act", [
             'player_npl_id' => 'NPL7002',
             'action' => 'jackpot',
+            'first_buy_in' => true,
         ])->assertOk();
 
         $this->assertSame('printed', $response->json('data.result.receipt'));
