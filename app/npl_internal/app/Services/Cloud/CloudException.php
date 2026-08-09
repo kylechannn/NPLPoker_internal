@@ -24,6 +24,8 @@ final class CloudException extends RuntimeException
 
     public const SERVER_ERROR = 'CLOUD_SERVER_ERROR';
 
+    public const UPDATE_REQUIRED = 'OS_UPDATE_REQUIRED';
+
     public function __construct(
         public readonly string $errorCode,
         string $message,

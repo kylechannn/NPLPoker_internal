@@ -77,7 +77,10 @@ func startBackendApp(ctx context.Context, hostBridge string) (*backendApp, error
 
 	cmd := exec.CommandContext(ctx, php, "artisan", "serve", "--host=127.0.0.1", fmt.Sprintf("--port=%d", port))
 	cmd.Dir = appDir
-	cmd.Env = append(os.Environ(), "NPL_HOST_BRIDGE="+hostBridge)
+	// NPL_APP_VERSION hands the ldflags-stamped host build down to PHP —
+	// without it the bundled app heartbeats "dev" and the cloud's version
+	// gate cannot see what this desk actually runs.
+	cmd.Env = append(os.Environ(), "NPL_HOST_BRIDGE="+hostBridge, "NPL_APP_VERSION="+version)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	configureBackgroundProcess(cmd)
@@ -98,7 +101,7 @@ func startBackendApp(ctx context.Context, hostBridge string) (*backendApp, error
 	// drain) only fire if something runs them; `serve` alone never does.
 	scheduler := exec.CommandContext(ctx, php, "artisan", "schedule:work")
 	scheduler.Dir = appDir
-	scheduler.Env = append(os.Environ(), "NPL_HOST_BRIDGE="+hostBridge)
+	scheduler.Env = append(os.Environ(), "NPL_HOST_BRIDGE="+hostBridge, "NPL_APP_VERSION="+version)
 	scheduler.Stdout = os.Stdout
 	scheduler.Stderr = os.Stderr
 	configureBackgroundProcess(scheduler)

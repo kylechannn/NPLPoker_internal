@@ -17,6 +17,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Version
+    |--------------------------------------------------------------------------
+    |
+    | The host build. The Go executable stamps its ldflags version into
+    | NPL_APP_VERSION when it boots this app, so heartbeats and cloud calls
+    | report the real installed build instead of "dev".
+    |
+    */
+
+    'version' => env('NPL_APP_VERSION', 'dev'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |

@@ -48,6 +48,14 @@ type healthResponse struct {
 	// reachable for diagnostics.
 	StaffConsoleLogin bool   `json:"staff_console_login"`
 	Time              string `json:"time"`
+	// The cloud's minimum-version policy, recomputed against this running
+	// build: when UpdateRequired is true the UI must block the console with
+	// the update notice until the install is updated.
+	UpdateRequired    bool   `json:"update_required"`
+	UpdateMessage     string `json:"update_message,omitempty"`
+	MinimumVersion    string `json:"minimum_version,omitempty"`
+	LatestVersion     string `json:"latest_version,omitempty"`
+	UpdateDownloadURL string `json:"update_download_url,omitempty"`
 }
 
 func main() {
@@ -214,6 +222,16 @@ func newHandlerWithBackend(
 	mux := http.NewServeMux()
 	networkMonitor := newNetworkQualityMonitor(resources.networkQualityCacheTime)
 	licenses := newLicenseManager()
+
+	// One background check at boot: the UI only re-validates every six
+	// hours, and a desk the cloud has since told to update must learn that
+	// on startup, not tomorrow. Best-effort — offline stays fail-open on
+	// the persisted lease and policy.
+	go func() {
+		if licenses.status().Activated {
+			_, _ = licenses.check()
+		}
+	}()
 	staffLogin := newStaffLoginManager(staffGatewayURL)
 	// Staff identities come from the cloud's register, mirrored locally by
 	// Manual update — the pairing phone types a staff ID, never a name.
@@ -255,7 +273,7 @@ func newHandlerWithBackend(
 	})
 
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, healthResponse{
+		health := healthResponse{
 			OK:                true,
 			Service:           appName,
 			Version:           version,
@@ -268,7 +286,26 @@ func newHandlerWithBackend(
 			StaffGatewayURL:   staffGatewayURL,
 			StaffConsoleLogin: backend != nil,
 			Time:              time.Now().UTC().Format(time.RFC3339),
-		})
+		}
+
+		if policy := licenses.versionPolicy(); policy != nil {
+			health.MinimumVersion = policy.MinimumRequiredVersion
+			health.LatestVersion = policy.LatestVersion
+			health.UpdateDownloadURL = policy.DownloadURL
+			if policy.updateRequiredFor(version) {
+				health.UpdateRequired = true
+				health.UpdateMessage = strings.TrimSpace(policy.Message)
+				if health.UpdateMessage == "" {
+					target := policy.LatestVersion
+					if target == "" {
+						target = policy.MinimumRequiredVersion
+					}
+					health.UpdateMessage = "Please update NPL Poker OS to version " + target + " to continue."
+				}
+			}
+		}
+
+		writeJSON(w, http.StatusOK, health)
 	})
 
 	mux.HandleFunc("GET /api/network-quality", func(w http.ResponseWriter, r *http.Request) {

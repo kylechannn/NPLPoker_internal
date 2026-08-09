@@ -42,12 +42,29 @@ type licenseLease struct {
 	DeviceLbl  string `json:"device_label"`
 }
 
+// versionPolicy is the cloud's verdict on this build, carried back on every
+// licence activate/check. It is persisted with the lease so a desk that was
+// told to update still knows after an offline restart. update_required is
+// never trusted as stored — it is recomputed against the running build via
+// updateRequiredFor, so updating the app clears the gate immediately instead
+// of waiting for the next successful check.
+type versionPolicy struct {
+	CurrentVersion         string `json:"current_version"`
+	LatestVersion          string `json:"latest_version"`
+	MinimumRequiredVersion string `json:"minimum_required_version"`
+	UpdateRequired         bool   `json:"update_required"`
+	Message                string `json:"message"`
+	DownloadURL            string `json:"download_url"`
+	Reason                 string `json:"reason"`
+}
+
 // stored is what we persist beside the executable's data directory.
 type stored struct {
-	Key       string        `json:"key"`
-	DeviceID  string        `json:"device_id"`
-	Lease     *licenseLease `json:"lease"`
-	CheckedAt string        `json:"checked_at"`
+	Key       string         `json:"key"`
+	DeviceID  string         `json:"device_id"`
+	Lease     *licenseLease  `json:"lease"`
+	Policy    *versionPolicy `json:"version_policy,omitempty"`
+	CheckedAt string         `json:"checked_at"`
 }
 
 type licenseStatus struct {
@@ -180,13 +197,16 @@ func (m *licenseManager) activate(key string) (licenseStatus, error) {
 		return m.statusLocked(), errors.New("enter your CD-Key")
 	}
 
-	lease, err := m.post("/api/v1/licenses/activate", key)
+	lease, policy, err := m.post("/api/v1/licenses/activate", key)
 	if err != nil {
 		return m.statusLocked(), err
 	}
 
 	m.state.Key = key
 	m.state.Lease = lease
+	if policy != nil {
+		m.state.Policy = policy
+	}
 	m.state.CheckedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := m.save(); err != nil {
 		return m.statusLocked(), err
@@ -202,7 +222,7 @@ func (m *licenseManager) check() (licenseStatus, error) {
 		return m.statusLocked(), errors.New("this install is not activated")
 	}
 
-	lease, err := m.post("/api/v1/licenses/check", m.state.Key)
+	lease, policy, err := m.post("/api/v1/licenses/check", m.state.Key)
 	if err != nil {
 		// Keep running on the existing lease if it has not lapsed — a flaky
 		// venue connection must not stop the desk mid-session.
@@ -210,6 +230,9 @@ func (m *licenseManager) check() (licenseStatus, error) {
 	}
 
 	m.state.Lease = lease
+	if policy != nil {
+		m.state.Policy = policy
+	}
 	m.state.CheckedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := m.save(); err != nil {
 		return m.statusLocked(), err
@@ -217,7 +240,7 @@ func (m *licenseManager) check() (licenseStatus, error) {
 	return m.statusLocked(), nil
 }
 
-func (m *licenseManager) post(path, key string) (*licenseLease, error) {
+func (m *licenseManager) post(path, key string) (*licenseLease, *versionPolicy, error) {
 	hostname, _ := os.Hostname()
 	body, err := json.Marshal(map[string]string{
 		"key":          key,
@@ -227,44 +250,119 @@ func (m *licenseManager) post(path, key string) (*licenseLease, error) {
 		"os":           runtime.GOOS + " " + runtime.GOARCH,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	request, err := http.NewRequest(http.MethodPost, m.cloudBase+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 
 	response, err := m.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("could not reach the NPL licence server: %w", err)
+		return nil, nil, fmt.Errorf("could not reach the NPL licence server: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	var envelope struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			License licenseLease `json:"license"`
+			License licenseLease   `json:"license"`
+			Policy  *versionPolicy `json:"version_policy"`
 		} `json:"data"`
 		Error struct {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("unexpected response from the licence server (%d)", response.StatusCode)
+		return nil, nil, fmt.Errorf("unexpected response from the licence server (%d)", response.StatusCode)
 	}
 
 	if !envelope.OK {
 		if envelope.Error.Message != "" {
-			return nil, errors.New(envelope.Error.Message)
+			return nil, nil, errors.New(envelope.Error.Message)
 		}
-		return nil, fmt.Errorf("licence request refused (%d)", response.StatusCode)
+		return nil, nil, fmt.Errorf("licence request refused (%d)", response.StatusCode)
 	}
 
 	lease := envelope.Data.License
-	return &lease, nil
+	return &lease, envelope.Data.Policy, nil
+}
+
+// versionPolicy returns a copy of the last policy the cloud sent, or nil if
+// this install has never completed an activate/check.
+func (m *licenseManager) versionPolicy() *versionPolicy {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state.Policy == nil {
+		return nil
+	}
+	policy := *m.state.Policy
+	return &policy
+}
+
+// updateRequiredFor recomputes the gate against the given running build.
+// Builds that cannot state a comparable version ("dev", unstamped runs) fail
+// open, matching the cloud's own gate.
+func (p *versionPolicy) updateRequiredFor(current string) bool {
+	if p == nil {
+		return false
+	}
+	minimum := normalizeVersion(p.MinimumRequiredVersion)
+	if minimum == "" {
+		return false
+	}
+	current = normalizeVersion(current)
+	if !comparableVersion(current) {
+		return false
+	}
+	return compareVersions(current, minimum) < 0
+}
+
+func normalizeVersion(value string) string {
+	return strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(value), "vV"))
+}
+
+func comparableVersion(value string) bool {
+	return value != "" && value[0] >= '0' && value[0] <= '9'
+}
+
+// compareVersions compares dotted release strings segment by segment,
+// numerically, ignoring any non-numeric tail ("1.3.0-rc1" counts as 1.3.0).
+func compareVersions(a, b string) int {
+	left, right := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(left) || i < len(right); i++ {
+		var leftValue, rightValue int
+		if i < len(left) {
+			leftValue = leadingInt(left[i])
+		}
+		if i < len(right) {
+			rightValue = leadingInt(right[i])
+		}
+		if leftValue != rightValue {
+			if leftValue < rightValue {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+func leadingInt(segment string) int {
+	value := 0
+	for _, r := range segment {
+		if r < '0' || r > '9' {
+			break
+		}
+		value = value*10 + int(r-'0')
+		if value > 1_000_000 {
+			break
+		}
+	}
+	return value
 }
 
 func maskKey(key string) string {

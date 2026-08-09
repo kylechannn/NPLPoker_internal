@@ -187,6 +187,9 @@ final class CloudClient
             'Accept' => 'application/json',
             'X-CD-Key' => $this->license->key(),
             'X-Device-Id' => $this->license->deviceId(),
+            // The cloud's EnsureInternalOsVersion gate reads this header to
+            // decide whether the desk is current enough to keep operating.
+            'X-App-Version' => (string) config('app.version', ''),
         ]))
             ->withOptions(['verify' => $this->verify()])
             ->timeout((int) config('nplcloud.timeouts.request', 30))
@@ -220,6 +223,9 @@ final class CloudClient
 
         $code = match (true) {
             $status === 401 || $status === 403 => CloudException::UNAUTHORISED,
+            // 426 Upgrade Required: this build is below the cloud's minimum
+            // and every internal endpoint will refuse until it is updated.
+            $status === 426 => CloudException::UPDATE_REQUIRED,
             $status === 429 => CloudException::RATE_LIMITED,
             $status >= 500 => CloudException::SERVER_ERROR,
             default => CloudException::BAD_RESPONSE,

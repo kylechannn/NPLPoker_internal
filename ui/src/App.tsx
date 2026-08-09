@@ -82,6 +82,13 @@ type Health = {
   staff_gateway_url?: string
   staff_console_login: boolean
   time: string
+  // The cloud's minimum-version policy, recomputed by the host against its
+  // own build — when update_required is true the console blocks outright.
+  update_required?: boolean
+  update_message?: string
+  minimum_version?: string
+  latest_version?: string
+  update_download_url?: string
 }
 
 type HealthState =
@@ -466,6 +473,69 @@ function ConsoleSignInGate({
   )
 }
 
+/**
+ * Harder than the operator gate: when the cloud says this build is below its
+ * minimum, every internal endpoint refuses with 426 anyway — so the console
+ * blocks outright and tells the operator how to update. Deliberately no
+ * dismiss: rendered after ConsoleSignInGate so it covers even that.
+ */
+function UpdateRequiredGate({ health }: { health: Health }) {
+  return (
+    <section className="console-gate console-gate--update" role="dialog" aria-modal="true" aria-label="Update required">
+      <div className="console-gate__glow" aria-hidden="true" />
+      <div className="console-gate__card">
+        <header className="console-gate__brand">
+          <img src={nplLogoUrl} alt="" />
+          <div>
+            <strong>NPL Poker</strong>
+            <span>Operational System</span>
+          </div>
+        </header>
+
+        <h1 className="console-gate__warn-title">
+          <ShieldAlert size={20} aria-hidden="true" />
+          Update required
+        </h1>
+        <p>{health.update_message || "Please update NPL Poker OS to continue."}</p>
+
+        <dl className="console-gate__versions">
+          <div>
+            <dt>Installed</dt>
+            <dd>{health.version}</dd>
+          </div>
+          <div>
+            <dt>Required</dt>
+            <dd>{health.minimum_version || "—"}</dd>
+          </div>
+          {health.latest_version && health.latest_version !== health.minimum_version ? (
+            <div>
+              <dt>Latest</dt>
+              <dd>{health.latest_version}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        {health.update_download_url ? (
+          <a
+            className="console-gate__submit"
+            href={health.update_download_url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <RefreshCw size={16} /> Get the update
+          </a>
+        ) : null}
+
+        <footer className="console-gate__foot">
+          <ShieldCheck size={13} aria-hidden="true" />
+          Run the latest NPL Poker OS installer on this machine, then reopen the
+          console. Your data and CD-Key licence stay in place.
+        </footer>
+      </div>
+    </section>
+  )
+}
+
 function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boolean }) {
   const [maximized, setMaximized] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
@@ -718,6 +788,18 @@ export default function App() {
 
   useEffect(() => {
     void loadHealth()
+    // Quiet re-poll (no loading flash): the update gate must arm without a
+    // reload once the host's boot-time licence check brings the cloud's
+    // version policy in — and at the 6-hourly re-checks after that.
+    const timer = window.setInterval(() => {
+      void fetch("/api/health", { headers: { Accept: "application/json" } })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((body) => {
+          if (body) setHealth({ status: "ready", health: body as Health })
+        })
+        .catch(() => undefined)
+    }, 5 * 60 * 1000)
+    return () => window.clearInterval(timer)
   }, [loadHealth])
 
   useEffect(() => {
@@ -1066,6 +1148,9 @@ export default function App() {
       </div>
       {health.status === "ready" && health.health.staff_console_login && !activeStaff ? (
         <ConsoleSignInGate onSignedIn={handleConsoleSignIn} />
+      ) : null}
+      {health.status === "ready" && health.health.update_required ? (
+        <UpdateRequiredGate health={health.health} />
       ) : null}
       {startupPhase !== "hidden" ? <StartupScreen leaving={startupPhase === "leaving"} /> : null}
     </div>
