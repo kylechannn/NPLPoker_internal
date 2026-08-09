@@ -94,6 +94,15 @@ func run(cfg config) error {
 		return fmt.Errorf("load embedded UI: %w", err)
 	}
 
+	// Claim the Go backend's port before anything else boots. A second
+	// launch used to die right here with a raw winsock bind error — now our
+	// own running instance is named in plain words, and a stranger on the
+	// port just moves this host to a free one.
+	listener, err := bindBackendListener(&cfg, logger)
+	if err != nil {
+		return err
+	}
+
 	// The operational API lives in the bundled Laravel app. A failure to
 	// start it is logged rather than fatal: the console, the licence gate and
 	// the diagnostics all still work, which is what an operator needs in
@@ -117,11 +126,6 @@ func run(cfg config) error {
 		// protection is not its job.
 		WriteTimeout:      0,
 		IdleTimeout:       60 * time.Second,
-	}
-
-	listener, err := net.Listen("tcp", cfg.backendListen)
-	if err != nil {
-		return fmt.Errorf("listen on Go backend %s: %w", cfg.backendListen, err)
 	}
 
 	serverDone := make(chan error, 1)
@@ -511,6 +515,54 @@ func waitUntilReady(ctx context.Context, url string, caddyDone <-chan error, tim
 			}
 		}
 	}
+}
+
+// bindBackendListener claims the Go backend's loopback port before anything
+// else starts. When the bind fails, the reason decides the experience: our
+// own instance already running gets a plain-words dialog instead of a raw
+// winsock error, while an unrelated program squatting on the port just moves
+// this host to a free loopback port — Caddy and the bundled PHP learn the
+// address through their environment, so nothing depends on the number.
+func bindBackendListener(cfg *config, logger *log.Logger) (net.Listener, error) {
+	listener, err := net.Listen("tcp", cfg.backendListen)
+	if err == nil {
+		return listener, nil
+	}
+
+	if alreadyRunningAt(cfg.backendListen) {
+		return nil, errors.New(
+			"NPL Poker OS is already running on this machine — use the window that is open (check the taskbar). " +
+				"If you just updated, close the old version first, then start NPL Poker OS again.")
+	}
+
+	fallback, fallbackErr := net.Listen("tcp", "127.0.0.1:0")
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("listen on Go backend %s: %w", cfg.backendListen, err)
+	}
+
+	logger.Printf("%s is taken by another program; the Go backend moved to %s", cfg.backendListen, fallback.Addr().String())
+	cfg.backendListen = fallback.Addr().String()
+	return fallback, nil
+}
+
+// alreadyRunningAt reports whether the address is held by another NPL Poker
+// OS host — its /api/health answers with our service name — as opposed to
+// an unrelated program squatting on the port.
+func alreadyRunningAt(address string) bool {
+	client := &http.Client{Timeout: time.Second}
+	response, err := client.Get("http://" + address + "/api/health")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	var health struct {
+		Service string `json:"service"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&health); err != nil {
+		return false
+	}
+	return health.Service == appName
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

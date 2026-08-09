@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"io/fs"
+	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -50,6 +53,48 @@ func TestHealthDemandsConsoleLoginWithBackend(t *testing.T) {
 	}
 	if !body.StaffConsoleLogin {
 		t.Fatal("expected the console sign-in gate to be mandatory when the backend exists")
+	}
+}
+
+func TestBindBackendListenerFallsBackWhenAStrangerHoldsThePort(t *testing.T) {
+	squatter, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("squat a port: %v", err)
+	}
+	defer squatter.Close()
+
+	cfg := config{backendListen: squatter.Addr().String()}
+
+	listener, err := bindBackendListener(&cfg, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("expected a fallback port, got: %v", err)
+	}
+	defer listener.Close()
+
+	if cfg.backendListen == squatter.Addr().String() {
+		t.Fatal("expected the config to move off the squatted address")
+	}
+	if listener.Addr().String() != cfg.backendListen {
+		t.Fatalf("config says %s but the listener is on %s", cfg.backendListen, listener.Addr().String())
+	}
+}
+
+func TestBindBackendListenerNamesOurOwnRunningInstance(t *testing.T) {
+	running := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/health" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "service": appName})
+	}))
+	defer running.Close()
+
+	cfg := config{backendListen: strings.TrimPrefix(running.URL, "http://")}
+
+	if _, err := bindBackendListener(&cfg, log.New(io.Discard, "", 0)); err == nil {
+		t.Fatal("expected the already-running refusal")
+	} else if !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("unexpected error wording: %v", err)
 	}
 }
 
