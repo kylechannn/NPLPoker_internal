@@ -166,6 +166,23 @@ final class ReceiptService
             $lines[] = ['text' => sprintf('Table %d - Seat %d', (int) $entry->table_number, (int) $entry->seat_number), 'bold' => true];
         }
 
+        // Voucher-covered entries: the stored price is only the deficit, so
+        // the tickets that paid the rest must appear on the paper too.
+        $meta = json_decode((string) ($latestAction->meta ?? ''), true);
+        $meta = is_array($meta) ? $meta : [];
+        $ticketCodes = array_values(array_filter(array_map('strval', (array) ($meta['voucher_codes'] ?? []))));
+        $coveredCents = (int) ($meta['voucher_covered_cents'] ?? 0);
+
+        if ($ticketCodes !== []) {
+            $lines[] = ['text' => sprintf(
+                'Tickets: %s ($%s covered)',
+                implode(', ', $ticketCodes),
+                number_format($coveredCents / 100, 2),
+            )];
+        } elseif ($coveredCents > 0 && isset($meta['voucher_code'])) {
+            $lines[] = ['text' => sprintf('Voucher: %s ($%s covered)', (string) $meta['voucher_code'], number_format($coveredCents / 100, 2))];
+        }
+
         if ($priceCents > 0) {
             $lines[] = ['text' => 'Amount: $'.number_format($priceCents / 100, 2)];
         }

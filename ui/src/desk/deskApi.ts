@@ -137,13 +137,17 @@ export type SessionSummary = {
 }
 
 /** An online registration already paid with a voucher — the desk collects
- *  only the over-limit difference, and never redeems a second time. */
+ *  only the over-limit difference, and never redeems a second time. A
+ *  championship ticket stack carries its totals: collect deficit_cents. */
 export type OnlineCoverage = {
   voucher_id?: number
   code: string
   type: string
   title?: string | null
   entry_fee_limit_cents: number | null
+  vouchers?: { voucher_id: number, code: string, type: string, title: string | null, value_cents: number | null, entry_fee_limit_cents: number | null }[]
+  covered_cents?: number | null
+  deficit_cents?: number | null
 }
 
 export type OnlineRegistration = {
@@ -161,6 +165,8 @@ export type OnlineRegistration = {
     code: string
     type: string
     entry_fee_limit_cents: number | null
+    covered_cents?: number | null
+    deficit_cents?: number | null
   } | null
 }
 
@@ -302,18 +308,34 @@ export type ActiveSession = {
 export const deskApi = {
   venues: () => request<{ venues: Venue[] }>('/api/v1/desk/venues'),
 
-  /** Live cloud check on scan: does this player enter free? */
+  /** Live cloud check on scan: does this player enter free? On a
+   *  championship it also lists the stackable special tickets + the price. */
   voucherEntitlement: (nplId: string, venueId: number | null, gameSessionId: number | null = null) =>
-    request<{ entitled: boolean, voucher: DeskVoucher | null, already_covered?: OnlineCoverage | null, offline: boolean }>('/api/v1/vouchers/entitlement', {
+    request<{
+      entitled: boolean
+      voucher: DeskVoucher | null
+      already_covered?: OnlineCoverage | null
+      special_tickets?: DeskVoucher[] | null
+      entry_fee_cents?: number | null
+      offline: boolean
+    }>('/api/v1/vouchers/entitlement', {
       method: 'POST',
       body: JSON.stringify({ npl_id: nplId, venue_id: venueId, game_session_id: gameSessionId }),
     }),
 
-  /** One-tap apply — idempotent by reference, safe to retry. */
-  voucherRedeem: (reference: string, nplId: string, voucherId: number | null, venueId: number | null, gameSessionId: number | null = null) =>
-    request<{ voucher: DeskVoucher | null }>('/api/v1/vouchers/redeem', {
+  /** One-tap apply — idempotent by reference, safe to retry. Pass
+   *  voucherIds to consume a championship ticket stack in one batch. */
+  voucherRedeem: (reference: string, nplId: string, voucherId: number | null, venueId: number | null, gameSessionId: number | null = null, voucherIds: number[] | null = null) =>
+    request<{ voucher: DeskVoucher | null, vouchers?: DeskVoucher[] | null, covered_cents?: number | null }>('/api/v1/vouchers/redeem', {
       method: 'POST',
-      body: JSON.stringify({ reference, npl_id: nplId, voucher_id: voucherId, venue_id: venueId, game_session_id: gameSessionId }),
+      body: JSON.stringify({
+        reference,
+        npl_id: nplId,
+        voucher_id: voucherId,
+        ...(voucherIds && voucherIds.length ? { voucher_ids: voucherIds } : {}),
+        venue_id: venueId,
+        game_session_id: gameSessionId,
+      }),
     }),
 
   /** Cloud-scheduled sessions still ahead for the venue — express entry list. */

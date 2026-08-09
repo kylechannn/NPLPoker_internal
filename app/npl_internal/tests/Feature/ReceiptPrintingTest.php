@@ -151,6 +151,24 @@ class ReceiptPrintingTest extends TestCase
         $this->assertStringContainsString('Amount: $5.00', $this->lastReceiptText());
     }
 
+    public function test_a_ticket_stack_prints_the_tickets_and_the_deficit(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL7003', 'Kim Stack');
+        $this->fakeBridge();
+
+        $this->postJson("/api/v1/desk/{$id}/act", [
+            'player_npl_id' => 'NPL7003',
+            'action' => 'buy_in',
+            'voucher_codes' => ['STAAAA1111', 'STBBBB2222'],
+            'voucher_covered_cents' => 4000,
+        ])->assertOk();
+
+        $receipt = $this->lastReceiptText();
+        $this->assertStringContainsString('Tickets: STAAAA1111, STBBBB2222 ($40.00 covered)', $receipt);
+        $this->assertStringContainsString('Amount: $60.00', $receipt);
+    }
+
     public function test_disabled_printing_sells_without_touching_the_bridge(): void
     {
         DB::table('receipt_settings')->insert([

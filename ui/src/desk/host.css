@@ -2042,6 +2042,22 @@
   margin-top: 10px;
 }
 
+/* Championship stack: the multi-select ticket list inside the ask dialog —
+   reuses the popup's .host-tick rows, stacked vertically. */
+.host-ticket-ask__list {
+  display: grid;
+  gap: 8px;
+  align-self: stretch;
+  max-height: 250px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.host-voucher-ask__yes:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .host-voucher-ask__yes {
   display: flex;
   align-items: center;

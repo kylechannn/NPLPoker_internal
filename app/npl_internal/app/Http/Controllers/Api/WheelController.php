@@ -206,6 +206,10 @@ final class WheelController extends Controller
             // The player's ONLINE registration already consumed a voucher —
             // the desk must price the entry as paid, not charge again.
             'already_covered' => $data['already_covered'] ?? null,
+            // Championship sessions: the player's stackable special tickets
+            // and the entry price their values sum against.
+            'special_tickets' => $data['special_tickets'] ?? null,
+            'entry_fee_cents' => $data['entry_fee_cents'] ?? null,
             'offline' => false,
         ]);
     }
@@ -217,19 +221,23 @@ final class WheelController extends Controller
             'reference' => ['required', 'string', 'min:8', 'max:64'],
             'npl_id' => ['required', 'string', 'max:32'],
             'voucher_id' => ['sometimes', 'nullable', 'integer'],
+            // A championship ticket stack — several ids, one reference.
+            'voucher_ids' => ['sometimes', 'array', 'max:10'],
+            'voucher_ids.*' => ['integer', 'min:1'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
             'game_session_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
         try {
-            $result = $this->cloud->postJson('/api/v1/internal/vouchers/redeem', [
+            $result = $this->cloud->postJson('/api/v1/internal/vouchers/redeem', array_filter([
                 'reference' => $validated['reference'],
                 'npl_id' => trim($validated['npl_id']),
                 'voucher_id' => $validated['voucher_id'] ?? null,
+                'voucher_ids' => $validated['voucher_ids'] ?? null,
                 'venue_id' => $validated['venue_id'] ?? null,
                 // The cloud refuses vouchers outright for cash sessions.
                 'game_session_id' => $validated['game_session_id'] ?? null,
-            ], $validated['reference']);
+            ], fn ($value): bool => $value !== null), $validated['reference']);
         } catch (CloudException $e) {
             return response()->json([
                 'ok' => false,
@@ -242,7 +250,11 @@ final class WheelController extends Controller
             ], 502);
         }
 
-        return $this->ok(['voucher' => $result['voucher'] ?? null]);
+        return $this->ok([
+            'voucher' => $result['voucher'] ?? null,
+            'vouchers' => $result['vouchers'] ?? null,
+            'covered_cents' => $result['covered_cents'] ?? null,
+        ]);
     }
 
     private function ok(array $data): JsonResponse

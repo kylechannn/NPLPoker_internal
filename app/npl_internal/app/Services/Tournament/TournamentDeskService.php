@@ -383,9 +383,26 @@ final class TournamentDeskService
             ? max(0, (int) $options['voucher_limit_cents'])
             : null;
 
+        // Championship stacking rides on a summed COVERED amount instead of
+        // a single limit: N ticket values against the price, deficit due.
+        $voucherCodes = array_values(array_filter(array_map(
+            fn ($code): string => trim((string) $code),
+            (array) ($options['voucher_codes'] ?? []),
+        ), fn (string $code): bool => $code !== ''));
+
+        $stackCovered = isset($options['voucher_covered_cents']) && $options['voucher_covered_cents'] !== null
+            ? max(0, (int) $options['voucher_covered_cents'])
+            : null;
+
         $buyInPrice = (int) $session->buy_in_price_cents;
-        $voucherPrice = $voucherLimit === null ? 0 : max(0, $buyInPrice - $voucherLimit);
-        $coveredCents = $buyInPrice - $voucherPrice;
+
+        if ($stackCovered !== null) {
+            $voucherPrice = max(0, $buyInPrice - $stackCovered);
+            $coveredCents = min($stackCovered, $buyInPrice);
+        } else {
+            $voucherPrice = $voucherLimit === null ? 0 : max(0, $buyInPrice - $voucherLimit);
+            $coveredCents = $buyInPrice - $voucherPrice;
+        }
 
         $tableNumber = isset($options['table_number']) ? (int) $options['table_number'] : null;
         $seatNumber = isset($options['seat_number']) ? (int) $options['seat_number'] : null;
@@ -398,15 +415,25 @@ final class TournamentDeskService
             [$tableNumber, $seatNumber] = $this->autoAssignSeat($sessionId, $session, $nplId);
         }
 
+        $extras = [];
+
+        if ($voucherCodes !== [] || $stackCovered !== null) {
+            $extras = ['price_cents' => $voucherPrice, 'meta' => array_filter([
+                'voucher_code' => $voucherCode,
+                'voucher_codes' => $voucherCodes !== [] ? $voucherCodes : null,
+                'voucher_covered_cents' => $coveredCents,
+            ], fn ($value): bool => $value !== null)];
+        } elseif ($voucherCode !== null) {
+            $extras = ['price_cents' => $voucherPrice, 'meta' => ['voucher_code' => $voucherCode, 'voucher_covered_cents' => $coveredCents]];
+        }
+
         return $this->tournaments->register(
             $sessionId,
             $nplId,
             $player->display_name ?? null,
             $tableNumber,
             $seatNumber,
-            $voucherCode !== null
-                ? ['price_cents' => $voucherPrice, 'meta' => ['voucher_code' => $voucherCode, 'voucher_covered_cents' => $coveredCents]]
-                : [],
+            $extras,
         );
     }
 

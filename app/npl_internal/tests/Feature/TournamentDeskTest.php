@@ -361,6 +361,52 @@ class TournamentDeskTest extends TestCase
         $this->assertTrue($jackpotOption['allowed']);
     }
 
+    public function test_a_ticket_stack_books_the_buy_in_at_the_deficit(): void
+    {
+        $id = $this->tournament(['buy_in_price_cents' => 75000]);
+        $this->mirrorPlayer('NPL8001');
+
+        app(TournamentDeskService::class)->apply($id, 'NPL8001', 'buy_in', [
+            'voucher_codes' => ['STAAAA1111', 'STBBBB2222'],
+            'voucher_covered_cents' => 50000,
+        ]);
+
+        $action = DB::table('tournament_actions')
+            ->where('tournament_session_id', $id)
+            ->where('player_npl_id', 'NPL8001')
+            ->where('action', 'buy_in')
+            ->first();
+
+        $this->assertSame(25000, (int) $action->price_cents);
+
+        $meta = json_decode((string) $action->meta, true);
+        $this->assertSame(['STAAAA1111', 'STBBBB2222'], $meta['voucher_codes']);
+        $this->assertSame(50000, (int) $meta['voucher_covered_cents']);
+    }
+
+    public function test_an_over_covered_stack_books_a_free_entry(): void
+    {
+        $id = $this->tournament(['buy_in_price_cents' => 75000]);
+        $this->mirrorPlayer('NPL8101');
+
+        app(TournamentDeskService::class)->apply($id, 'NPL8101', 'buy_in', [
+            'voucher_codes' => ['STAAAA1111', 'STBBBB2222', 'STCCCC3333', 'STDDDD4444'],
+            'voucher_covered_cents' => 100000,
+        ]);
+
+        $action = DB::table('tournament_actions')
+            ->where('tournament_session_id', $id)
+            ->where('player_npl_id', 'NPL8101')
+            ->where('action', 'buy_in')
+            ->first();
+
+        $this->assertSame(0, (int) $action->price_cents);
+
+        // Covered is capped at the price — no phantom change owed.
+        $meta = json_decode((string) $action->meta, true);
+        $this->assertSame(75000, (int) $meta['voucher_covered_cents']);
+    }
+
     public function test_the_jackpot_option_is_hidden_when_it_is_not_running(): void
     {
         $id = $this->tournament(['jackpot_enabled' => false]);

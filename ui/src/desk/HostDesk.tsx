@@ -131,6 +131,11 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [voucherAsk, setVoucherAsk] = useState<{ result: ScanResult, voucher: DeskVoucher } | null>(null)
   // Yes was answered: this scan's buy-in is covered — shown at $0.
   const [useVoucher, setUseVoucher] = useState(false)
+  // Championship stack: the pre-popup multi-select of special tickets,
+  // and the stack the operator confirmed for this scan's buy-in.
+  const [ticketAsk, setTicketAsk] = useState<{ result: ScanResult, tickets: DeskVoucher[], entryFeeCents: number | null } | null>(null)
+  const [ticketPick, setTicketPick] = useState<Set<number>>(new Set())
+  const [useTickets, setUseTickets] = useState<DeskVoucher[] | null>(null)
   const [clockStatus, setClockStatus] = useState<string>("draft")
   // The redeem reference survives a failed attempt so retrying is safe.
   const voucherRefRef = useRef<string | null>(null)
@@ -306,6 +311,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     setError(null)
     setVoucher(null)
     setCoveredOnline(null)
+    setUseTickets(null)
     voucherRefRef.current = null
 
     try {
@@ -328,6 +334,13 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           if (check.already_covered) {
             setCoveredOnline(check.already_covered)
             openActions(result, false)
+            return
+          }
+          // Championship: stackable special tickets outrank the single
+          // entry-voucher question — the operator picks how many ride.
+          if (check.special_tickets && check.special_tickets.length > 0) {
+            setTicketPick(new Set())
+            setTicketAsk({ result, tickets: check.special_tickets, entryFeeCents: check.entry_fee_cents ?? null })
             return
           }
           if (check.entitled && check.voucher) {
@@ -387,11 +400,21 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     return Math.max(0, buyInCents - limit)
   }
 
-  /** Same maths for an online-covered entry: limit covers, rest is owed. */
+  /** Same maths for an online-covered entry: limit covers, rest is owed.
+   *  A championship stack states its deficit outright — that wins. */
   function coveredDeficitCents(coverage: OnlineCoverage, buyInCents: number): number {
+    if (coverage.deficit_cents !== null && coverage.deficit_cents !== undefined) {
+      return Math.min(coverage.deficit_cents, buyInCents)
+    }
     const limit = coverage.entry_fee_limit_cents ?? null
     if (limit === null) return 0
     return Math.max(0, buyInCents - limit)
+  }
+
+  /** A ticket stack covers its summed VALUE; the buy-in charges the rest. */
+  function ticketDeficitCents(stack: DeskVoucher[], buyInCents: number): number {
+    const covered = stack.reduce((sum, ticket) => sum + (ticket.value_cents ?? 0), 0)
+    return Math.max(0, buyInCents - covered)
   }
 
   /** What this option actually charges — the accepted voucher covers buy-in
@@ -399,6 +422,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   function priceFor(option: DeskOption): number {
     if (option.action === "buy_in" && coveredOnline) {
       return coveredDeficitCents(coveredOnline, option.price_cents)
+    }
+    if (useTickets && useTickets.length > 0 && option.action === "buy_in") {
+      return ticketDeficitCents(useTickets, option.price_cents)
     }
     if (useVoucher && voucher && option.action === "buy_in") {
       return voucherDeficitCents(voucher, option.price_cents)
@@ -476,6 +502,34 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           continue
         }
 
+        // A championship stack: redeem ALL tickets on the cloud in one
+        // idempotent batch, then book the entry locally at the deficit
+        // with the codes + covered total on the action.
+        if (option.action === "buy_in" && useTickets && useTickets.length > 0) {
+          const covered = useTickets.reduce((sum, ticket) => sum + (ticket.value_cents ?? 0), 0)
+          const deficit = ticketDeficitCents(useTickets, option.price_cents)
+          voucherRefRef.current ??= `DV-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
+          await deskApi.voucherRedeem(
+            voucherRefRef.current,
+            scan.player.npl_id,
+            null,
+            activeVenueId(),
+            seating?.game_session_id ?? null,
+            useTickets.map((ticket) => ticket.id),
+          )
+          const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+            voucher_codes: useTickets.map((ticket) => ticket.code),
+            voucher_covered_cents: Math.min(covered, option.price_cents),
+          })
+          voucherRefRef.current = null
+          setSeating(result.seating)
+          applied.push(deficit > 0
+            ? `Buy-in (${useTickets.length} special ticket${useTickets.length === 1 ? "" : "s"} + ${money(deficit)} difference)`
+            : `Buy-in (FREE — ${useTickets.length} special ticket${useTickets.length === 1 ? "" : "s"})`)
+          total += deficit
+          continue
+        }
+
         // A voucher-covered buy-in redeems on the cloud FIRST (idempotent
         // by reference — a retry can never consume twice), then books the
         // entry locally at zero with the code on the action.
@@ -522,6 +576,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       setVoucher(null)
       setCoveredOnline(null)
       setUseVoucher(false)
+      setUseTickets(null)
     } catch (e) {
       // Whatever landed before the failure is real: re-scan so the popup
       // shows the true remaining state, and name what got through.
@@ -889,8 +944,86 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         )
       })() : null}
 
+      {ticketAsk ? (() => {
+        const askBuyIn = ticketAsk.result.options.find((option) => option.action === "buy_in")
+        const askPrice = askBuyIn?.price_cents ?? ticketAsk.entryFeeCents ?? 0
+        const chosen = ticketAsk.tickets.filter((ticket) => ticketPick.has(ticket.id))
+        const covered = chosen.reduce((sum, ticket) => sum + (ticket.value_cents ?? 0), 0)
+        const deficit = Math.max(0, askPrice - covered)
+        return (
+          <div className="host-scan-modal" role="presentation">
+            <section className="host-scan-modal__panel" role="alertdialog" aria-modal="true" aria-label="Special tickets detected">
+              <div className="host-voucher-ask">
+                <span className="host-voucher-ask__icon"><Ticket size={24} /></span>
+                <h3>CHAMPIONSHIP TICKETS — {money(askPrice)} entry</h3>
+                <p>
+                  <strong>{ticketAsk.result.player.display_name}</strong> holds{" "}
+                  {ticketAsk.tickets.length} special ticket{ticketAsk.tickets.length === 1 ? "" : "s"}.
+                  Their values stack against the entry — tick the ones riding this buy-in.
+                </p>
+                <div className="host-ticket-ask__list" role="group" aria-label="Special tickets">
+                  {ticketAsk.tickets.map((ticket) => (
+                    <label key={ticket.id} className={ticketPick.has(ticket.id) ? "host-tick host-tick--on" : "host-tick"}>
+                      <input
+                        type="checkbox"
+                        checked={ticketPick.has(ticket.id)}
+                        onChange={() => setTicketPick((previous) => {
+                          const next = new Set(previous)
+                          if (next.has(ticket.id)) { next.delete(ticket.id) } else { next.add(ticket.id) }
+                          return next
+                        })}
+                      />
+                      <strong>{ticket.code}</strong>
+                      <span>{money(ticket.value_cents ?? 0)}</span>
+                      {ticket.expires_at ? <em>until {ticket.expires_at}</em> : null}
+                    </label>
+                  ))}
+                </div>
+                {chosen.length > 0 ? (
+                  <p>
+                    Tickets cover <strong>{money(Math.min(covered, askPrice))}</strong>
+                    {deficit > 0 ? <> — collect <strong>{money(deficit)}</strong> in cash.</> : <> — the entry is <strong>FREE</strong>.</>}
+                  </p>
+                ) : null}
+                <div className="host-voucher-ask__actions">
+                  <button
+                    type="button"
+                    className="host-scan-modal__cancel"
+                    onClick={() => {
+                      setUseTickets(null)
+                      openActions(ticketAsk.result, false)
+                      setTicketAsk(null)
+                    }}
+                  >
+                    No — normal fee
+                  </button>
+                  <button
+                    type="button"
+                    className="host-voucher-ask__yes"
+                    autoFocus
+                    disabled={chosen.length === 0}
+                    onClick={() => {
+                      setUseTickets(chosen)
+                      openActions(ticketAsk.result, false)
+                      setTicketAsk(null)
+                    }}
+                  >
+                    <Ticket size={15} />
+                    {chosen.length === 0
+                      ? "Tick tickets to use"
+                      : deficit > 0
+                        ? `Use ${chosen.length} ticket${chosen.length === 1 ? "" : "s"} — pay ${money(deficit)}`
+                        : `Use ${chosen.length} ticket${chosen.length === 1 ? "" : "s"} — FREE entry`}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )
+      })() : null}
+
       {scan ? (
-        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setCoveredOnline(null); setUseVoucher(false); focusScan() } }}>
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setCoveredOnline(null); setUseVoucher(false); setUseTickets(null); focusScan() } }}>
           <section
             className="host-scan-modal__panel"
             role="dialog"
@@ -986,6 +1119,20 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
               )
             })() : null}
 
+            {useTickets && useTickets.length > 0 && !scan.entry ? (() => {
+              const buyInOption = scan.options.find((option) => option.action === "buy_in")
+              const deficit = buyInOption ? ticketDeficitCents(useTickets, buyInOption.price_cents) : 0
+              const codes = useTickets.map((ticket) => ticket.code).join(", ")
+              return (
+                <p className="host-booking-banner host-booking-banner--voucher">
+                  <Ticket size={14} />
+                  {deficit > 0
+                    ? ` ${useTickets.length} special ticket${useTickets.length === 1 ? "" : "s"} (${codes}) ride this buy-in — collect the ${money(deficit)} difference.`
+                    : ` Buy-in fully covered by ${useTickets.length} special ticket${useTickets.length === 1 ? "" : "s"} (${codes}) — $0 due.`}
+                </p>
+              )
+            })() : null}
+
             <div className="host-scan-modal__options" role="group" aria-label="Tick the actions to take">
               {scan.options.filter((option) => mode !== "cash" || option.action !== "addon").map((option) => {
                 const key = optionKey(option)
@@ -1010,7 +1157,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                     <span>
                       {priceFor(option) > 0 ? money(priceFor(option)) : (
                         <>
-                          {useVoucher && option.action === "buy_in" && option.price_cents > 0
+                          {(useVoucher || (useTickets && useTickets.length > 0)) && option.action === "buy_in" && option.price_cents > 0
                             ? <s className="host-tick__was">{money(option.price_cents)}</s>
                             : null}
                           Free
