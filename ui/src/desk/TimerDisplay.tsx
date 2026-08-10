@@ -38,6 +38,8 @@ type Summary = {
   entries?: number
   total_chips?: number
   average_stack?: number
+  total_rebuys?: number
+  total_addons?: number
 }
 
 type DisplayExtras = {
@@ -203,6 +205,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           entries: seating.counts.entries,
           total_chips: seating.counts.total_chips,
           average_stack: seating.counts.average_stack,
+          total_rebuys: seating.counts.total_rebuys,
+          total_addons: seating.counts.total_addons,
         })
         setExtras({
           prize_breakdown: seating.display?.prize_breakdown ?? null,
@@ -625,11 +629,21 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               </div>
               <div className="scx-stat">
                 <div className="scx-stat__label">Rebuys</div>
-                <div className="scx-stat__value scx-stat__value--tiers">{tierRows(extras.rebuy_tiers, "Rebuy")}</div>
+                <div className="scx-stat__value scx-stat__value--tiers">
+                  {summary.total_rebuys !== undefined ? (
+                    <div className="scx-stat__count">{summary.total_rebuys.toLocaleString()} taken</div>
+                  ) : null}
+                  {tierRows(extras.rebuy_tiers, "Rebuy")}
+                </div>
               </div>
               <div className="scx-stat">
                 <div className="scx-stat__label">Add-ons</div>
-                <div className="scx-stat__value scx-stat__value--tiers">{tierRows(extras.addon_tiers, "Add on")}</div>
+                <div className="scx-stat__value scx-stat__value--tiers">
+                  {summary.total_addons !== undefined ? (
+                    <div className="scx-stat__count">{summary.total_addons.toLocaleString()} taken</div>
+                  ) : null}
+                  {tierRows(extras.addon_tiers, "Add on")}
+                </div>
               </div>
               {nextBreakLabel ? (
                 <div className="scx-stat">
