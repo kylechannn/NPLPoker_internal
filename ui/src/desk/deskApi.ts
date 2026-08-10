@@ -105,6 +105,8 @@ export type Seating = {
     prize_breakdown: PrizeBreakdownRow[] | null
     /** The game's guarantee money text (e.g. "$10,000") — tops the rail. */
     prize_guarantee: string | null
+    /** THIS session's own winner-voucher ladder — configured per session, not per venue. */
+    winner_vouchers: WinnerVoucherRow[] | null
   }
 }
 
@@ -112,6 +114,12 @@ export type Seating = {
 export type PrizeBreakdownRow = {
   place: string
   prize: string
+}
+
+/** One rung of the linked cloud session's winner-voucher ladder. */
+export type WinnerVoucherRow = {
+  position: number
+  label: string
 }
 
 export type OnlineBooking = {

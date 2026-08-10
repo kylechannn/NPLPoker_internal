@@ -752,6 +752,68 @@ class TournamentDeskTest extends TestCase
         $this->assertArrayNotHasKey('prize_pool_text', $response);
     }
 
+    public function test_the_winner_voucher_ladder_rides_in_from_the_linked_cloud_game(): void
+    {
+        // The mirror row is what Manual Update writes: the cloud session's
+        // OWN winner ladder — configured per session, not per venue.
+        DB::table('mirror_game_sessions')->insert([
+            'session_id' => 9002,
+            'source_type' => 'daily_game',
+            'source_id' => 78,
+            'category' => 'daily_game',
+            'title' => 'Friday Bounty',
+            'session_date' => now()->toDateString(),
+            'status' => 'scheduled',
+            'registrations_count' => 0,
+            'is_open_for_registration' => true,
+            'winner_vouchers' => json_encode([
+                ['position' => 1, 'label' => 'Champion Entry'],
+                ['position' => 2, 'label' => 'Runner-Up Entry'],
+            ]),
+            'payload' => json_encode([]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $id = $this->tournament(['game_session_id' => 9002]);
+
+        $display = $this->getJson("/api/v1/desk/{$id}/seating")->assertOk()->json('data.display');
+        $this->assertSame([
+            ['position' => 1, 'label' => 'Champion Entry'],
+            ['position' => 2, 'label' => 'Runner-Up Entry'],
+        ], $display['winner_vouchers']);
+    }
+
+    public function test_the_winner_voucher_ladder_is_null_when_the_session_has_none_configured(): void
+    {
+        DB::table('mirror_game_sessions')->insert([
+            'session_id' => 9003,
+            'source_type' => 'daily_game',
+            'source_id' => 79,
+            'category' => 'daily_game',
+            'title' => 'No Ladder Tuesday',
+            'session_date' => now()->toDateString(),
+            'status' => 'scheduled',
+            'registrations_count' => 0,
+            'is_open_for_registration' => true,
+            'winner_vouchers' => null,
+            'payload' => json_encode([]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $linked = $this->tournament(['game_session_id' => 9003]);
+        $display = $this->getJson("/api/v1/desk/{$linked}/seating")->assertOk()->json('data.display');
+        $this->assertNull($display['winner_vouchers']);
+    }
+
+    public function test_the_winner_voucher_ladder_is_null_for_an_unlinked_desk(): void
+    {
+        $unlinked = $this->tournament();
+        $display = $this->getJson("/api/v1/desk/{$unlinked}/seating")->assertOk()->json('data.display');
+        $this->assertNull($display['winner_vouchers']);
+    }
+
     // ----------------------------------------------------------- admin qr --
 
     public function test_the_admin_qr_carries_the_broadcast_identity(): void

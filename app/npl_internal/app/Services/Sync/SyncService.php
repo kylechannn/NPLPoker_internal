@@ -180,6 +180,11 @@ final class SyncService
                 'prize_breakdown' => isset($row['prize_breakdown']) && is_array($row['prize_breakdown'])
                     ? json_encode($row['prize_breakdown'])
                     : null,
+                // This session's own winner-voucher ladder — configured
+                // per session on the admin console, not per venue.
+                'winner_vouchers' => isset($row['winner_vouchers']) && is_array($row['winner_vouchers'])
+                    ? json_encode($row['winner_vouchers'])
+                    : null,
                 'image_url' => $this->str($row['image_url'] ?? $row['hero_image_url'] ?? null, 500),
                 'media_key' => isset($row['image_url']) ? $this->media->keyFor((string) $row['image_url']) : null,
                 'payload' => json_encode($row),

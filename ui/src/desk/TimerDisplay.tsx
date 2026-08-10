@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Copy, Minus, Square, X } from "lucide-react"
-import { countdown, deskApi, type AddonTier, type Gates, type PrizeBreakdownRow, type Seating } from "./deskApi"
+import { countdown, deskApi, type AddonTier, type Gates, type PrizeBreakdownRow, type Seating, type WinnerVoucherRow } from "./deskApi"
 import { wheelApi } from "../jackpot/wheelApi"
 import "./timer.css"
 
@@ -46,10 +46,19 @@ type DisplayExtras = {
   /** The linked cloud game's payout ladder — never typed at the desk. */
   prize_breakdown: PrizeBreakdownRow[] | null
   prize_guarantee: string | null
+  /** THIS session's own winner-voucher ladder — configured per session, never typed at the desk. */
+  winner_vouchers: WinnerVoucherRow[] | null
   /** Configured price/chip tiers — what the room clock shows, not a running count. */
   rebuy_tiers: AddonTier[]
   addon_tiers: AddonTier[]
   buy_in: AddonTier
+}
+
+/** 1st, 2nd, 3rd, 4th... 11th-13th stay "th" even though they end in 1/2/3. */
+function ordinal(position: number): string {
+  const teens = position % 100
+  if (teens >= 11 && teens <= 13) return `${position}th`
+  return `${position}${["th", "st", "nd", "rd"][position % 10] ?? "th"}`
 }
 
 const SYNC_MS = 5000
@@ -114,7 +123,7 @@ function tierRows(tiers: AddonTier[], noun: string) {
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
   const [summary, setSummary] = useState<Summary>({})
-  const [extras, setExtras] = useState<DisplayExtras>({ prize_breakdown: null, prize_guarantee: null, rebuy_tiers: [], addon_tiers: [], buy_in: { price_cents: 0, chips: 0 } })
+  const [extras, setExtras] = useState<DisplayExtras>({ prize_breakdown: null, prize_guarantee: null, winner_vouchers: null, rebuy_tiers: [], addon_tiers: [], buy_in: { price_cents: 0, chips: 0 } })
   const [gates, setGates] = useState<Gates | null>(null)
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
@@ -211,6 +220,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         setExtras({
           prize_breakdown: seating.display?.prize_breakdown ?? null,
           prize_guarantee: seating.display?.prize_guarantee ?? null,
+          winner_vouchers: seating.display?.winner_vouchers ?? null,
           rebuy_tiers: seating.rebuy_tiers ?? [],
           addon_tiers: seating.addon_tiers ?? [],
           buy_in: seating.buy_in ?? { price_cents: 0, chips: 0 },
@@ -381,7 +391,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     : null
 
   const prizeRows = extras.prize_breakdown ?? []
-  const hasSidePanel = prizeRows.length > 0
+  const winnerVoucherRows = extras.winner_vouchers ?? []
+  const hasSidePanel = prizeRows.length > 0 || winnerVoucherRows.length > 0
 
   // Sichuan's one run button, with poker's third state: Start when the
   // clock has never run, Pause while it runs, Resume after a pause.
@@ -587,24 +598,47 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               {!zoomed && hasSidePanel ? (
                 <aside className="scx-panel scx-panel--side">
                   <div className="scx-side__body">
-                    <div className="scx-plabel">Prizes</div>
                     {/* The linked game's ladder — Daily Games admin via
                         Manual Update. Guaranteed on top, then one row per
                         place. Read-only here. */}
-                    {extras.prize_guarantee ? (
-                      <div className="scx-payout-gtd">
-                        <span>Guaranteed</span>
-                        <strong>{extras.prize_guarantee}</strong>
-                      </div>
+                    {prizeRows.length > 0 ? (
+                      <>
+                        <div className="scx-plabel">Prizes</div>
+                        {extras.prize_guarantee ? (
+                          <div className="scx-payout-gtd">
+                            <span>Guaranteed</span>
+                            <strong>{extras.prize_guarantee}</strong>
+                          </div>
+                        ) : null}
+                        <ul className="scx-payout">
+                          {prizeRows.map((row, index) => (
+                            <li key={index}>
+                              <span className="scx-payout__place">{row.place}</span>
+                              <span className="scx-payout__prize">{row.prize}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
                     ) : null}
-                    <ul className="scx-payout">
-                      {prizeRows.map((row, index) => (
-                        <li key={index}>
-                          <span className="scx-payout__place">{row.place}</span>
-                          <span className="scx-payout__prize">{row.prize}</span>
-                        </li>
-                      ))}
-                    </ul>
+
+                    {/* THIS session's own winner-voucher ladder — Venue
+                        Vouchers admin via Manual Update, one voucher per
+                        configured finishing position. Paid automatically
+                        by the cloud the moment results are recorded; this
+                        is purely the room's preview of what's on offer. */}
+                    {winnerVoucherRows.length > 0 ? (
+                      <>
+                        <div className="scx-plabel scx-plabel--gap">Winner Vouchers</div>
+                        <ul className="scx-payout">
+                          {winnerVoucherRows.map((row) => (
+                            <li key={row.position}>
+                              <span className="scx-payout__place">{ordinal(row.position)}</span>
+                              <span className="scx-payout__prize">{row.label}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
                   </div>
                 </aside>
               ) : null}

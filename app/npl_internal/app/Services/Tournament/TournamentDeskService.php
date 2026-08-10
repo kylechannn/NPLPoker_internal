@@ -1274,35 +1274,38 @@ final class TournamentDeskService
         $settings = is_array($settings) ? $settings : [];
 
         $denoms = trim((string) ($settings['chip_denominations'] ?? ''));
-        [$rows, $guarantee] = $this->cloudPrizeDisplay($session);
+        [$rows, $guarantee, $winnerVouchers] = $this->cloudGameDisplay($session);
 
         return [
             'chip_denominations' => $denoms !== '' ? $denoms : null,
             'prize_breakdown' => $rows,
             'prize_guarantee' => $guarantee,
+            'winner_vouchers' => $winnerVouchers,
         ];
     }
 
     /**
-     * The payout ladder AND guarantee of the LINKED cloud game — authored in
-     * the Daily Games admin, mirrored on Manual Update. The clock's rail
-     * shows "Guaranteed" on top, then one row per place. Null for unlinked
-     * desks or games without a breakdown; the clock simply shows nothing.
+     * The payout ladder, guarantee, and winner-voucher ladder of the
+     * LINKED cloud game — all authored on the admin console, mirrored on
+     * Manual Update. The clock's rail shows "Guaranteed" on top, then one
+     * row per place; the winner-voucher rail shows one row per configured
+     * position. Null for unlinked desks or a game with nothing configured;
+     * the clock simply shows nothing.
      *
-     * @return array{0: ?array<int, array{place: string, prize: string}>, 1: ?string}
+     * @return array{0: ?array<int, array{place: string, prize: string}>, 1: ?string, 2: ?array<int, array{position: int, label: string}>}
      */
-    private function cloudPrizeDisplay(object $session): array
+    private function cloudGameDisplay(object $session): array
     {
         if (empty($session->game_session_id)) {
-            return [null, null];
+            return [null, null, null];
         }
 
         $mirror = DB::table('mirror_game_sessions')
             ->where('session_id', (int) $session->game_session_id)
-            ->first(['prize_breakdown', 'payload']);
+            ->first(['prize_breakdown', 'winner_vouchers', 'payload']);
 
         if ($mirror === null) {
-            return [null, null];
+            return [null, null, null];
         }
 
         $rows = json_decode((string) ($mirror->prize_breakdown ?? ''), true);
@@ -1321,16 +1324,40 @@ final class TournamentDeskService
             }
         }
 
-        if ($clean === []) {
-            return [null, null];
+        $guarantee = null;
+
+        if ($clean !== []) {
+            // The guarantee rides in the mirrored row's full payload (the
+            // cloud presenter's "guarantee" money text, e.g. "$10,000").
+            $payload = json_decode((string) ($mirror->payload ?? ''), true);
+            $guaranteeText = is_array($payload) ? trim((string) ($payload['guarantee'] ?? '')) : '';
+            $guarantee = $guaranteeText !== '' ? $guaranteeText : null;
         }
 
-        // The guarantee rides in the mirrored row's full payload (the cloud
-        // presenter's "guarantee" money text, e.g. "$10,000").
-        $payload = json_decode((string) ($mirror->payload ?? ''), true);
-        $guarantee = is_array($payload) ? trim((string) ($payload['guarantee'] ?? '')) : '';
+        $winnerRows = json_decode((string) ($mirror->winner_vouchers ?? ''), true);
+        $cleanWinners = [];
 
-        return [$clean, $guarantee !== '' ? $guarantee : null];
+        if (is_array($winnerRows)) {
+            foreach ($winnerRows as $row) {
+                if (! is_array($row) || (int) ($row['position'] ?? 0) < 1) {
+                    continue;
+                }
+
+                $label = trim((string) ($row['label'] ?? ''));
+
+                if ($label === '') {
+                    continue;
+                }
+
+                $cleanWinners[] = ['position' => (int) $row['position'], 'label' => $label];
+            }
+        }
+
+        return [
+            $clean !== [] ? $clean : null,
+            $guarantee,
+            $cleanWinners !== [] ? $cleanWinners : null,
+        ];
     }
 
     /** Per-request cache of each venue's valid club member codes, keyed by venue then npl_id. */
