@@ -1,22 +1,52 @@
 // Self-hosted copies of the fonts the frontend wheel loads from Google Fonts
 // (same families and weights), so the wheel renders identically offline.
-import "@fontsource/chakra-petch/500.css"
-import "@fontsource/chakra-petch/600.css"
-import "@fontsource/chakra-petch/700.css"
-import "@fontsource/jetbrains-mono/500.css"
-import "@fontsource/jetbrains-mono/600.css"
-import "@fontsource/jetbrains-mono/700.css"
-import "@fontsource/jetbrains-mono/800.css"
-import "@fontsource/inter/400.css"
-import "@fontsource/inter/500.css"
-import "@fontsource/inter/600.css"
-import "@fontsource/inter/700.css"
+// This is an English-only desk tool — the "latin-" entrypoints skip the
+// cyrillic/greek/vietnamese/etc. subsets the default imports bundle for
+// every weight, which cut this page's font weight from ~1.4MB to a
+// fraction of that.
+import "@fontsource/chakra-petch/latin-500.css"
+import "@fontsource/chakra-petch/latin-600.css"
+import "@fontsource/chakra-petch/latin-700.css"
+import "@fontsource/jetbrains-mono/latin-500.css"
+import "@fontsource/jetbrains-mono/latin-600.css"
+import "@fontsource/jetbrains-mono/latin-700.css"
+import "@fontsource/jetbrains-mono/latin-800.css"
+import "@fontsource/inter/latin-400.css"
+import "@fontsource/inter/latin-500.css"
+import "@fontsource/inter/latin-600.css"
+import "@fontsource/inter/latin-700.css"
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react"
 import { ScanLine, RefreshCw, ShieldCheck, Undo2 } from "lucide-react"
 import PrizeWheel, { type SpinOutcome } from "./PrizeWheel"
 import { toWheelPrizes, wheelApi, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier } from "./wheelApi"
-import type { WheelPrize } from "./wheelPrizes"
+import { hueGradients, type WheelPrize } from "./wheelPrizes"
 import "./jackpot-wheel.css"
+
+/** The odds legend beside the wheel: every prize, its chance, and a bar
+ *  coloured to match that prize's wedge — biggest chance first. */
+function WheelOddsList({ prizes, golden }: { prizes: WheelPrize[], golden: boolean }) {
+  const sorted = [...prizes].sort((a, b) => b.weight - a.weight)
+  const maxWeight = Math.max(1, ...prizes.map((prize) => prize.weight))
+
+  return (
+    <aside className={golden ? "wheel-odds wheel-odds--golden" : "wheel-odds"} aria-label="Wheel odds">
+      <p className="wheel-odds__title">Odds</p>
+      <ul className="wheel-odds__list">
+        {sorted.map((prize) => (
+          <li key={prize.id} className="wheel-odds__row">
+            <div className="wheel-odds__label">
+              <span>{prize.prize}</span>
+              <strong>{prize.weight}%</strong>
+            </div>
+            <div className="wheel-odds__bar" aria-hidden="true">
+              <i style={{ "--odds": `${(prize.weight / maxWeight) * 100}%`, "--odds-color": hueGradients[prize.hue][0] } as CSSProperties} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  )
+}
 
 /**
  * The Jackpot Wheel tab: scan the player first — exactly like registration —
@@ -290,7 +320,10 @@ export default function JackpotWheelWorkspace() {
             </p>
           </section>
         ) : (
-          <PrizeWheel key={activeWheel} prizes={prizes} golden={isGolden} locked={outcome !== null} requestSpin={requestSpin} onSettled={handleSettled} />
+          <>
+            <PrizeWheel key={activeWheel} prizes={prizes} golden={isGolden} locked={outcome !== null} requestSpin={requestSpin} onSettled={handleSettled} />
+            <WheelOddsList prizes={prizes} golden={isGolden} />
+          </>
         )}
       </div>
 

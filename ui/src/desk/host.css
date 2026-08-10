@@ -636,6 +636,7 @@
 
 @media (prefers-reduced-transparency: reduce) {
   .preset__bar { background: #0a1426; backdrop-filter: none; }
+  .host-desk__scan { background: #0a1426; backdrop-filter: none; }
 }
 
 /* =============================================================== desk == */
@@ -911,128 +912,6 @@
 
 .host-desk__idle,
 .host-desk__new { margin: 0; font-size: 0.85rem; color: var(--host-text-dim); }
-
-/* Free-entry voucher prompt: appears on scan when the cloud confirms one. */
-/* The desk clock strip (minimised mode) + full-screen mode dock. */
-.clock-panel {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 0 0 12px;
-  border: 1px solid var(--host-line);
-  border-radius: 12px;
-  padding: 9px 14px;
-  background: var(--host-surface, #0a1626);
-}
-
-.clock-panel__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--npl-faint, #7e93b4);
-}
-
-.clock-panel--running .clock-panel__dot {
-  background: #5fe5c0;
-  box-shadow: 0 0 8px #5fe5c0;
-  animation: backend-link-breathe 2.4s ease-in-out infinite;
-}
-
-.clock-panel--paused .clock-panel__dot {
-  background: var(--npl-gold, #ffc53d);
-  box-shadow: 0 0 8px rgba(255, 197, 61, 0.6);
-}
-
-.clock-panel__level {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  min-width: 0;
-}
-
-.clock-panel__level strong {
-  font-size: 0.88rem;
-}
-
-.clock-panel__level small {
-  color: var(--npl-faint, #7e93b4);
-  font-size: 0.74rem;
-}
-
-.clock-panel__time {
-  flex: 1;
-  font-family: var(--npl-font-mono, monospace);
-  font-size: 1.35rem;
-  font-weight: 800;
-  color: var(--npl-gold-hot, #ffe08a);
-  letter-spacing: 0.05em;
-}
-
-.clock-panel__controls {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.clock-panel__btn,
-.clock-panel__start {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 9px;
-  padding: 8px 12px;
-  font: inherit;
-  font-size: 0.76rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.clock-panel__btn {
-  border: 1px solid var(--host-line);
-  color: var(--npl-text, #e9f2ff);
-  background: transparent;
-}
-
-.clock-panel__btn--pause {
-  border-color: rgba(255, 197, 61, 0.5);
-  color: var(--npl-gold-hot, #ffe08a);
-}
-
-.clock-panel__start {
-  border: 1px solid rgba(95, 229, 192, 0.55);
-  color: #06251c;
-  background: linear-gradient(160deg, #7cf1cf, #2fbf96);
-}
-
-.clock-panel__finished {
-  color: var(--npl-faint, #7e93b4);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.clock-max {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  display: flex;
-  flex-direction: column;
-  background: #01030a;
-}
-
-.clock-max > :first-child {
-  flex: 1;
-  min-height: 0;
-}
-
-.clock-max__dock {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  border-top: 1px solid rgba(143, 169, 207, 0.16);
-  padding: 12px 16px;
-  background: rgba(2, 9, 22, 0.85);
-}
 
 /* Sessions hub — the Tournament tab's front door. */
 .host-hub {
@@ -1590,58 +1469,6 @@
     radial-gradient(circle at 8% 0%, rgba(95, 229, 192, 0.14), transparent 55%),
     rgba(95, 229, 192, 0.06);
   clip-path: var(--npl-clip-sm);
-}
-
-.host-voucher-banner {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid rgba(255, 197, 61, 0.6);
-  margin-bottom: 10px;
-  padding: 12px 15px;
-  text-align: left;
-  font: inherit;
-  color: var(--npl-gold-hot, #ffe08a);
-  cursor: pointer;
-  background:
-    radial-gradient(circle at 8% 0%, rgba(255, 197, 61, 0.18), transparent 55%),
-    rgba(255, 197, 61, 0.07);
-  clip-path: var(--npl-clip-sm);
-  box-shadow: 0 0 22px rgba(255, 197, 61, 0.16);
-  animation: host-voucher-pulse 2.2s ease-in-out infinite;
-}
-
-.host-voucher-banner:hover:not(:disabled) {
-  background:
-    radial-gradient(circle at 8% 0%, rgba(255, 197, 61, 0.26), transparent 55%),
-    rgba(255, 197, 61, 0.13);
-}
-
-.host-voucher-banner:disabled { cursor: default; opacity: 0.6; }
-
-.host-voucher-banner svg { flex: 0 0 auto; color: var(--npl-gold, #ffc53d); }
-
-.host-voucher-banner strong {
-  display: block;
-  font-family: var(--npl-font-display);
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.host-voucher-banner small {
-  display: block;
-  margin-top: 2px;
-  color: rgba(255, 224, 138, 0.75);
-  font-family: var(--npl-font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.06em;
-}
-
-@keyframes host-voucher-pulse {
-  0%, 100% { box-shadow: 0 0 18px rgba(255, 197, 61, 0.14); }
-  50% { box-shadow: 0 0 34px rgba(255, 197, 61, 0.32); }
 }
 
 .host-desk__actions { display: grid; gap: 9px; }

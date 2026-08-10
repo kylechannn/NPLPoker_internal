@@ -1233,6 +1233,11 @@ final class TournamentDeskService
             'seats_per_table' => $perTable,
             'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
             'rebuy_tiers' => TournamentService::rebuyTiers($session),
+            'addon_tiers' => TournamentService::addonTiers($session),
+            'buy_in' => [
+                'price_cents' => (int) $session->buy_in_price_cents,
+                'chips' => (int) $session->starting_stack,
+            ],
             'tables' => $tables,
             'unseated' => $active
                 ->filter(fn (object $row): bool => $row->table_number === null || $row->seat_number === null)

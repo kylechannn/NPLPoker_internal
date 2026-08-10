@@ -789,8 +789,11 @@ a:focus-visible {
   animation: backend-link-spin 0.9s linear infinite;
 }
 
+/* A few pulses to confirm the connection landed, then settle — this dot
+   is visible for an entire shift once connected, so "infinite" meant
+   hours of unnecessary repaint on venue laptops with weak GPUs. */
 .backend-link--connected .backend-link__light::before {
-  animation: backend-link-breathe 2.4s ease-in-out infinite;
+  animation: backend-link-breathe 2.4s ease-in-out 3;
 }
 
 @keyframes backend-link-spin {
@@ -2510,6 +2513,16 @@ a:focus-visible {
   padding: 28px;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* Lazy-loaded tab fallback — a chunk fetch off localhost is near-instant,
+   so this is intentionally plain text, not another animated loader. */
+.workspace-tab-loading {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  color: var(--npl-faint, #8fa9cf);
+  font-size: 0.9rem;
 }
 
 .page-heading {

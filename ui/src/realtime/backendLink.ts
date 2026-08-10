@@ -299,14 +299,17 @@ export function useBackendLink(venueId: number | null) {
 
     const timer = window.setInterval(() => {
       // navigator.onLine false means no network route at all — a pull would
-      // only stall the local PHP worker on connect timeouts.
-      if (statusRef.current !== "connected" && navigator.onLine !== false) {
+      // only stall the local PHP worker on connect timeouts. Skipped while
+      // the window is backgrounded — the socket connection above isn't
+      // gated by visibility, so session.touched events keep pulling data
+      // live in the meantime; this is only the fallback for a dead socket.
+      if (document.visibilityState === "visible" && statusRef.current !== "connected" && navigator.onLine !== false) {
         void pullSessionsNow(venueId).catch(() => {})
       }
     }, FALLBACK_PULL_MS)
 
     const reconcile = window.setInterval(() => {
-      if (statusRef.current === "connected") {
+      if (document.visibilityState === "visible" && statusRef.current === "connected") {
         void pullSessionsNow(venueId).catch(() => {})
       }
     }, RECONCILE_PULL_MS)

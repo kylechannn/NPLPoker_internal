@@ -72,6 +72,8 @@ export type Seating = {
   seats_per_table: number
   game_session_id: number | null
   rebuy_tiers: AddonTier[]
+  addon_tiers: AddonTier[]
+  buy_in: AddonTier
   tables: DeskTable[]
   unseated: SeatedPlayer[]
   eliminated: SeatedPlayer[]
@@ -380,13 +382,6 @@ export const deskApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-
-  /** Chip rail text — editable ANY time. Prizes come from the cloud game. */
-  updateTournamentDisplay: (sessionId: number, payload: { chip_denominations?: string | null }) =>
-    request<{ display: { chip_denominations: string | null } }>(
-      `/api/v1/tournaments/${sessionId}/display`,
-      { method: 'PUT', body: JSON.stringify(payload) },
-    ),
 
   /** The Admin QR payload: how the iOS admin app addresses this session. */
   adminQr: (sessionId: number) =>

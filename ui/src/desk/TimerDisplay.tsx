@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Copy, Minus, Square, X } from "lucide-react"
-import { countdown, deskApi, type Gates, type PrizeBreakdownRow, type Seating } from "./deskApi"
+import { countdown, deskApi, type AddonTier, type Gates, type PrizeBreakdownRow, type Seating } from "./deskApi"
 import { wheelApi } from "../jackpot/wheelApi"
 import "./timer.css"
 
@@ -37,20 +37,23 @@ type Summary = {
   active_players?: number
   entries?: number
   total_chips?: number
-  total_rebuys?: number
-  total_addons?: number
   average_stack?: number
 }
 
 type DisplayExtras = {
-  chip_denominations: string | null
   /** The linked cloud game's payout ladder — never typed at the desk. */
   prize_breakdown: PrizeBreakdownRow[] | null
   prize_guarantee: string | null
+  /** Configured price/chip tiers — what the room clock shows, not a running count. */
+  rebuy_tiers: AddonTier[]
+  addon_tiers: AddonTier[]
+  buy_in: AddonTier
 }
 
 const SYNC_MS = 5000
-const TICK_MS = 250
+// The bar's CSS transition is matched to this — a 4x/sec re-render bought
+// no visible smoothness the transition doesn't already give a 1s tick.
+const TICK_MS = 1000
 
 /** Matches the native window title in desktop_windows.go; also names
  *  the tab when the page runs in a plain browser during development. */
@@ -80,6 +83,22 @@ function chime(isBreak: boolean) {
   }
 }
 
+/** Cents → dollar text, no decimals unless the amount needs them. */
+function money(cents: number): string {
+  return `$${(cents / 100).toLocaleString(undefined, {
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+/** One line per configured tier — "Add on $20 - 20,000 chips" — not a count. */
+function tierRows(tiers: AddonTier[], noun: string) {
+  if (tiers.length === 0) return "—"
+  return tiers.map((tier, index) => (
+    <div key={index}>{noun} {money(tier.price_cents)} - {tier.chips.toLocaleString()} chips</div>
+  ))
+}
+
 /**
  * The room display: the clock as everyone at the tables reads it.
  *
@@ -93,12 +112,7 @@ function chime(isBreak: boolean) {
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
   const [summary, setSummary] = useState<Summary>({})
-  const [extras, setExtras] = useState<DisplayExtras>({ chip_denominations: null, prize_breakdown: null, prize_guarantee: null })
-  // The side panel wears one of two faces; the director flips it live.
-  // Prizes lead when the cloud game provides a breakdown.
-  const [sideView, setSideView] = useState<"denoms" | "prize">("prize")
-  // The chip rail text, edited right on the room clock — open at any stage.
-  const [editor, setEditor] = useState<null | { denoms: string, saving: boolean, error: string | null }>(null)
+  const [extras, setExtras] = useState<DisplayExtras>({ prize_breakdown: null, prize_guarantee: null, rebuy_tiers: [], addon_tiers: [], buy_in: { price_cents: 0, chips: 0 } })
   const [gates, setGates] = useState<Gates | null>(null)
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
@@ -142,7 +156,9 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     }
 
     void pullPool()
-    const handle = window.setInterval(() => void pullPool(), 60_000)
+    const handle = window.setInterval(() => {
+      if (document.visibilityState === "visible") void pullPool()
+    }, 60_000)
 
     return () => {
       cancelled = true
@@ -186,14 +202,14 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           active_players: seating.counts.active_players ?? seating.counts.active,
           entries: seating.counts.entries,
           total_chips: seating.counts.total_chips,
-          total_rebuys: seating.counts.total_rebuys,
-          total_addons: seating.counts.total_addons,
           average_stack: seating.counts.average_stack,
         })
         setExtras({
-          chip_denominations: seating.display?.chip_denominations ?? null,
           prize_breakdown: seating.display?.prize_breakdown ?? null,
           prize_guarantee: seating.display?.prize_guarantee ?? null,
+          rebuy_tiers: seating.rebuy_tiers ?? [],
+          addon_tiers: seating.addon_tiers ?? [],
+          buy_in: seating.buy_in ?? { price_cents: 0, chips: 0 },
         })
         setGates(seating.gates)
         setSyncedAt(Date.now())
@@ -203,41 +219,22 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     }
 
     void pull()
-    const handle = window.setInterval(() => void pull(), SYNC_MS)
+    const handle = window.setInterval(() => {
+      if (document.visibilityState === "visible") void pull()
+    }, SYNC_MS)
+    // Level/pause changes made from another window while this one was
+    // hidden need an actual sync to show up — the tick alone can't know.
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") void pull()
+    }
+    document.addEventListener("visibilitychange", syncWhenVisible)
 
     return () => {
       cancelled = true
       window.clearInterval(handle)
+      document.removeEventListener("visibilitychange", syncWhenVisible)
     }
   }, [sessionId, refreshKey])
-
-  function openEditor() {
-    setEditor({
-      denoms: extras.chip_denominations ?? "",
-      saving: false,
-      error: null,
-    })
-  }
-
-  async function saveEditor() {
-    if (!editor || editor.saving) return
-    setEditor({ ...editor, saving: true, error: null })
-
-    try {
-      const { display } = await deskApi.updateTournamentDisplay(sessionId, {
-        chip_denominations: editor.denoms.trim(),
-      })
-      setExtras((cur) => ({
-        ...cur,
-        chip_denominations: display.chip_denominations ?? null,
-      }))
-      setEditor(null)
-    } catch (e) {
-      setEditor((cur) => cur
-        ? { ...cur, saving: false, error: e instanceof Error ? e.message : "The text could not be saved." }
-        : cur)
-    }
-  }
 
   async function control(action: "start" | "pause" | "resume" | "next" | "prev") {
     if (busy) return
@@ -325,8 +322,20 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   // Ticks locally between syncs so the seconds move smoothly; every sync
   // re-bases against the server, so drift never accumulates.
   useEffect(() => {
-    const handle = window.setInterval(() => setNow(Date.now()), TICK_MS)
-    return () => window.clearInterval(handle)
+    const handle = window.setInterval(() => {
+      if (document.visibilityState === "visible") setNow(Date.now())
+    }, TICK_MS)
+    // now is a wall-clock read, not an accumulated counter, so a tick
+    // skipped while hidden causes no drift — this just repaints instantly
+    // instead of waiting up to a second for the next regular tick.
+    const tickWhenVisible = () => {
+      if (document.visibilityState === "visible") setNow(Date.now())
+    }
+    document.addEventListener("visibilitychange", tickWhenVisible)
+    return () => {
+      window.clearInterval(handle)
+      document.removeEventListener("visibilitychange", tickWhenVisible)
+    }
   }, [])
 
   const elapsed = now > syncedAt && syncedAt > 0 ? now - syncedAt : 0
@@ -342,9 +351,6 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const progress = clock && clock.level_duration_ms > 0
     ? Math.min(100, Math.max(0, (1 - remaining / clock.level_duration_ms) * 100))
     : 0
-  const wallTime = now > 0
-    ? new Date(now).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    : "—"
 
   const blindLabel = isBreak
     ? (level?.note || "Break")
@@ -357,12 +363,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
 
   const tone = paused ? "paused" : isBreak ? "break" : clock?.running ? "live" : "idle"
 
-  const jackpotLabel = jackpotCents !== null
-    ? `$${(jackpotCents / 100).toLocaleString(undefined, {
-        minimumFractionDigits: jackpotCents % 100 === 0 ? 0 : 2,
-        maximumFractionDigits: 2,
-      })}`
-    : null
+  const jackpotLabel = jackpotCents !== null ? money(jackpotCents) : null
 
   // Players remaining against total entries, the way the room reads it:
   // 50/65 — everyone still in versus everyone who bought a seat.
@@ -375,18 +376,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     ? (nextBreak.on_break ? "Now" : countdown(Math.max(0, nextBreak.in_ms - (clock?.running ? elapsed : 0))))
     : null
 
-  const denomLines = extras.chip_denominations
-    ? extras.chip_denominations.split(/\r?\n|,/).map((line) => line.trim()).filter(Boolean)
-    : []
   const prizeRows = extras.prize_breakdown ?? []
-  const hasSidePanel = denomLines.length > 0 || prizeRows.length > 0
-  // Prizes lead whenever the cloud game provides them; chips only when the
-  // director flips the tab (or when chips are all there is).
-  const activeSideView: "denoms" | "prize" = sideView === "denoms" && denomLines.length > 0
-    ? "denoms"
-    : prizeRows.length > 0
-      ? "prize"
-      : "denoms"
+  const hasSidePanel = prizeRows.length > 0
 
   // Sichuan's one run button, with poker's third state: Start when the
   // clock has never run, Pause while it runs, Resume after a pause.
@@ -472,7 +463,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               <div className="scm-label scm-label--gap">Time Remaining</div>
               <div className={`scm-clock${urgent ? " scm-clock--urgent" : ""}`}>{countdown(remaining)}</div>
               <div className="scm-progress" aria-hidden="true">
-                <span className={urgent ? "scm-progress--urgent" : undefined} style={{ width: `${progress}%` }} />
+                <span className={urgent ? "scm-progress--urgent" : undefined} style={{ transform: `scaleX(${progress / 100})` }} />
               </div>
               {paused ? <div className="scm-paused">Paused</div> : null}
               <div className="scm-next">Next · {nextLabel}</div>
@@ -566,7 +557,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 <div className="scx-plabel scx-plabel--gap">Time Remaining</div>
                 <div className={`scx-clock${urgent ? " scx-clock--urgent" : ""}`}>{countdown(remaining)}</div>
                 <div className="scx-progress" aria-hidden="true">
-                  <span className={urgent ? "scx-progress--urgent" : undefined} style={{ width: `${progress}%` }} />
+                  <span className={urgent ? "scx-progress--urgent" : undefined} style={{ transform: `scaleX(${progress / 100})` }} />
                 </div>
                 {paused ? (
                   <div className="scx-warn"><i />Paused</div>
@@ -591,70 +582,34 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
 
               {!zoomed && hasSidePanel ? (
                 <aside className="scx-panel scx-panel--side">
-                  <div className="scx-side__tabs">
-                    <button
-                      type="button"
-                      className={activeSideView === "denoms" ? "scx-side__tab scx-side__tab--on" : "scx-side__tab"}
-                      disabled={denomLines.length === 0}
-                      onClick={() => setSideView("denoms")}
-                    >
-                      Chips
-                    </button>
-                    <button
-                      type="button"
-                      className={activeSideView === "prize" ? "scx-side__tab scx-side__tab--on" : "scx-side__tab"}
-                      disabled={prizeRows.length === 0}
-                      onClick={() => setSideView("prize")}
-                    >
-                      Prizes
-                    </button>
-                    <button
-                      type="button"
-                      className="scx-side__tab scx-side__tab--edit"
-                      title="Edit the chip denominations"
-                      onClick={openEditor}
-                    >
-                      ✎
-                    </button>
+                  <div className="scx-side__body">
+                    <div className="scx-plabel">Prizes</div>
+                    {/* The linked game's ladder — Daily Games admin via
+                        Manual Update. Guaranteed on top, then one row per
+                        place. Read-only here. */}
+                    {extras.prize_guarantee ? (
+                      <div className="scx-payout-gtd">
+                        <span>Guaranteed</span>
+                        <strong>{extras.prize_guarantee}</strong>
+                      </div>
+                    ) : null}
+                    <ul className="scx-payout">
+                      {prizeRows.map((row, index) => (
+                        <li key={index}>
+                          <span className="scx-payout__place">{row.place}</span>
+                          <span className="scx-payout__prize">{row.prize}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-
-                  {activeSideView === "denoms" ? (
-                    <div className="scx-side__body">
-                      <div className="scx-plabel">Chip Values</div>
-                      <ul className="scx-denoms">
-                        {denomLines.map((line) => <li key={line}>{line}</li>)}
-                      </ul>
-                    </div>
-                  ) : (
-                    <div className="scx-side__body">
-                      <div className="scx-plabel">Prizes</div>
-                      {/* The linked game's ladder — Daily Games admin via
-                          Manual Update. Guaranteed on top, then one row per
-                          place. Read-only here. */}
-                      {extras.prize_guarantee ? (
-                        <div className="scx-payout-gtd">
-                          <span>Guaranteed</span>
-                          <strong>{extras.prize_guarantee}</strong>
-                        </div>
-                      ) : null}
-                      <ul className="scx-payout">
-                        {prizeRows.map((row, index) => (
-                          <li key={index}>
-                            <span className="scx-payout__place">{row.place}</span>
-                            <span className="scx-payout__prize">{row.prize}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                 </aside>
               ) : null}
             </div>
 
             <div className="scx-stats">
               <div className="scx-stat">
-                <div className="scx-stat__label">Local Time</div>
-                <div className="scx-stat__value">{wallTime}</div>
+                <div className="scx-stat__label">Buy In</div>
+                <div className="scx-stat__value scx-stat__value--tiers">{tierRows([extras.buy_in], "Buy In")}</div>
               </div>
               <div className="scx-stat">
                 <div className="scx-stat__label">Players</div>
@@ -670,11 +625,11 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               </div>
               <div className="scx-stat">
                 <div className="scx-stat__label">Rebuys</div>
-                <div className="scx-stat__value">{summary.total_rebuys?.toLocaleString() ?? "—"}</div>
+                <div className="scx-stat__value scx-stat__value--tiers">{tierRows(extras.rebuy_tiers, "Rebuy")}</div>
               </div>
               <div className="scx-stat">
                 <div className="scx-stat__label">Add-ons</div>
-                <div className="scx-stat__value">{summary.total_addons?.toLocaleString() ?? "—"}</div>
+                <div className="scx-stat__value scx-stat__value--tiers">{tierRows(extras.addon_tiers, "Add on")}</div>
               </div>
               {nextBreakLabel ? (
                 <div className="scx-stat">
@@ -693,46 +648,10 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   <div className="scx-stat__value">Closed</div>
                 </div>
               ) : null}
-              {!hasSidePanel && !zoomed ? (
-                // Nothing configured yet: a quiet way in, gone once the
-                // rail is up (the rail then carries its own edit pencil).
-                <button type="button" className="scx-stat scx-stat--setup" onClick={openEditor}>
-                  <div className="scx-stat__label">Room Display</div>
-                  <div className="scx-stat__value">＋ Chips</div>
-                </button>
-              ) : null}
             </div>
           </div>
         </div>
       </div>
-
-      {editor ? (
-        <div className="scx-editor" role="dialog" aria-modal="true" aria-label="Chip display">
-          <div className="scx-editor__card">
-            <div className="scx-editor__title">Room Display</div>
-
-            <label className="scx-editor__label" htmlFor="scx-denoms-input">
-              Chip denominations — one per line, e.g. "Green — 25"
-            </label>
-            <textarea
-              id="scx-denoms-input"
-              rows={5}
-              value={editor.denoms}
-              disabled={editor.saving}
-              onChange={(e) => setEditor((cur) => (cur ? { ...cur, denoms: e.target.value } : cur))}
-            />
-
-            {editor.error ? <div className="scx-editor__error">{editor.error}</div> : null}
-
-            <div className="scx-editor__actions">
-              <button type="button" onClick={() => setEditor(null)} disabled={editor.saving}>Cancel</button>
-              <button type="button" className="scx-editor__save" onClick={() => void saveEditor()} disabled={editor.saving}>
-                {editor.saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {error ? <p className="rc-stale">{error}</p> : null}
     </div>

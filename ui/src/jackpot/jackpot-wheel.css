@@ -294,22 +294,6 @@
     radial-gradient(circle at 28% 24%, rgba(0, 229, 255, 0.15), transparent 55%),
     radial-gradient(circle at 74% 72%, rgba(255, 43, 214, 0.13), transparent 55%),
     radial-gradient(circle, rgba(61, 123, 255, 0.1), transparent 70%);
-  animation: npl-wheel-aura 4s ease-in-out infinite;
-  pointer-events: none;
-}
-
-.npl-wheel-stage--spinning::before {
-  animation-duration: 1.1s;
-}
-
-/* Procedural lightning canvas — above the wheel so strikes can land on it. */
-.npl-wheel-storm {
-  position: absolute;
-  inset: -14%;
-  z-index: 3;
-  width: 128%;
-  height: 128%;
-  mix-blend-mode: screen;
   pointer-events: none;
 }
 
@@ -333,40 +317,8 @@
   pointer-events: none;
 }
 
-/* Counter-rotating energy arcs around the rim. */
-.npl-wheel-arc {
-  fill: none;
-  stroke-linecap: round;
-  transform-origin: 50% 50%;
-}
-
-.npl-wheel-arc--a {
-  stroke: rgba(0, 229, 255, 0.6);
-  stroke-width: 2.4;
-  stroke-dasharray: 120 260 40 1500;
-  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.85));
-  animation: npl-arc-spin 9s linear infinite;
-}
-
-.npl-wheel-arc--b {
-  stroke: rgba(255, 43, 214, 0.5);
-  stroke-width: 1.6;
-  stroke-dasharray: 60 420 200 1100;
-  filter: drop-shadow(0 0 6px rgba(255, 43, 214, 0.75));
-  animation: npl-arc-spin 13s linear infinite reverse;
-}
-
-.npl-wheel-stage--spinning .npl-wheel-arc--a {
-  animation-duration: 1.6s;
-}
-
-.npl-wheel-stage--spinning .npl-wheel-arc--b {
-  animation-duration: 2.2s;
-}
-
 .npl-wheel-bulb {
   fill: var(--bulb, #00e5ff);
-  animation: npl-bulb-glow 2s ease-in-out infinite;
 }
 
 .npl-wheel-bulb--cyan {
@@ -516,7 +468,6 @@
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
-  animation: npl-hub-ring 3.2s linear infinite;
   pointer-events: none;
 }
 
@@ -550,8 +501,10 @@
   animation: npl-hub-pulse 0.9s ease-in-out infinite;
 }
 
+/* The hub's orbiting ring is otherwise static — it only spins while the
+   button is busy (spinning/drawing), same as the thunder on the stage. */
 .npl-wheel-hub:disabled::before {
-  animation-duration: 0.8s;
+  animation: npl-hub-ring 0.8s linear infinite;
 }
 
 .npl-wheel-hub strong {
@@ -787,30 +740,6 @@
 
 /* --- Keyframes ------------------------------------------------------------- */
 
-@keyframes npl-wheel-aura {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.98);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.03);
-  }
-}
-
-@keyframes npl-bulb-glow {
-  0%,
-  100% {
-    opacity: 1;
-    filter: drop-shadow(0 0 7px var(--bulb, #00e5ff));
-  }
-  50% {
-    opacity: 0.22;
-    filter: none;
-  }
-}
-
 @keyframes npl-bulb-chase {
   0%,
   18% {
@@ -822,12 +751,6 @@
   100% {
     opacity: 0.18;
     filter: none;
-  }
-}
-
-@keyframes npl-arc-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 
@@ -939,17 +862,6 @@
   z-index: 1;
 }
 
-.npl-wheel-storm {
-  --npl-thunder-bleed: clamp(128px, 22vw, 240px);
-  top: calc(-1 * var(--npl-thunder-bleed));
-  left: 50%;
-  right: auto;
-  bottom: auto;
-  width: calc(100% + var(--npl-thunder-bleed) + var(--npl-thunder-bleed));
-  height: calc(100% + var(--npl-thunder-bleed) + var(--npl-thunder-bleed));
-  transform: translateX(-50%);
-}
-
 .npl-wheel-hub {
   width: clamp(68px, 24%, 130px);
   touch-action: manipulation;
@@ -965,10 +877,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .npl-wheel-arc,
   .npl-wheel-bulb,
-  .npl-wheel-hub::before,
-  .npl-wheel-stage::before {
+  .npl-wheel-hub::before {
     animation: none;
   }
 
@@ -1010,9 +920,14 @@
   overflow: hidden;
 }
 
-/* The wheel grows to the room. */
+/* The wheel grows to the room. Its own status line lives BELOW the dial
+   (absolutely positioned, see .npl-wheel-status) and reserves space via
+   a 52px bottom margin with only 6px on top — that asymmetry is what
+   read as "too high" once centred by the flex stage below, so this
+   override balances it with a matching top margin instead. */
 .wheel-fullscreen .npl-wheel-stage {
   width: min(74vmin, 820px);
+  margin-top: 34px;
 }
 
 .wheel-fullscreen__stage {
@@ -1021,6 +936,101 @@
   min-height: 0;
   align-items: center;
   justify-content: center;
+  gap: 44px;
+}
+
+/* ---- Odds legend, right of the wheel -------------------------------- */
+
+.wheel-odds {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 14px;
+  width: min(300px, 26vw);
+  max-height: min(74vmin, 820px);
+  overflow-y: auto;
+  border: 1px solid rgba(143, 169, 207, 0.25);
+  border-radius: 16px;
+  padding: 20px;
+  background: rgba(4, 12, 27, 0.78);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.4);
+}
+
+.wheel-odds--golden {
+  border-color: rgba(255, 197, 61, 0.4);
+  box-shadow: 0 0 34px rgba(255, 197, 61, 0.15);
+}
+
+.wheel-odds__title {
+  margin: 0;
+  color: var(--npl-cyan);
+  font-family: var(--npl-font-mono);
+  font-size: 11.52px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.wheel-odds__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.wheel-odds__row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wheel-odds__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: #e9f2ff;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.wheel-odds__label strong {
+  flex-shrink: 0;
+  color: #ffd766;
+  font-family: var(--npl-font-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.wheel-odds__bar {
+  position: relative;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(143, 169, 207, 0.15);
+  overflow: hidden;
+}
+
+.wheel-odds__bar i {
+  position: absolute;
+  inset: 0;
+  width: var(--odds, 0%);
+  border-radius: inherit;
+  background: var(--odds-color, #3d7bff);
+}
+
+@media (max-width: 980px) {
+  .wheel-fullscreen__stage {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .wheel-odds {
+    width: min(460px, 100%);
+    max-height: 220px;
+  }
 }
 
 .wheel-fullscreen__leave {
@@ -1178,11 +1188,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wheel-golden-banner { animation: none; }
-}
-
-/* Gild the lightning canvas too when the golden stage is up. */
-.wheel-fullscreen--golden .npl-wheel-storm {
-  filter: sepia(1) saturate(2.6) hue-rotate(-10deg);
 }
 
 /* ---- Golden unlock take-over ------------------------------------------- */

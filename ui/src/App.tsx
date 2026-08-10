@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { QRCodeSVG } from "qrcode.react"
 import NplTransitLoader from "./NplTransitLoader"
-import HostWorkspace from "./desk/HostWorkspace"
-import ExportWorkspace from "./export/ExportWorkspace"
-import JackpotWheelWorkspace from "./jackpot/JackpotWheelWorkspace"
-import MembershipWorkspace from "./membership/MembershipWorkspace"
-import PlayersWorkspace from "./players/PlayersWorkspace"
-import RegistrationsWorkspace from "./registrations/RegistrationsWorkspace"
+// Each tab's code, CSS and (for the wheel) fonts only load once you open
+// that tab — previously all six shipped in the one bundle every boot.
+const HostWorkspace = lazy(() => import("./desk/HostWorkspace"))
+const ExportWorkspace = lazy(() => import("./export/ExportWorkspace"))
+const JackpotWheelWorkspace = lazy(() => import("./jackpot/JackpotWheelWorkspace"))
+const MembershipWorkspace = lazy(() => import("./membership/MembershipWorkspace"))
+const PlayersWorkspace = lazy(() => import("./players/PlayersWorkspace"))
+const RegistrationsWorkspace = lazy(() => import("./registrations/RegistrationsWorkspace"))
 import { deskApi, type ActiveSession, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
@@ -630,6 +632,20 @@ function DesktopWindowControls({ hasPendingChanges }: { hasPendingChanges: boole
  * admin app's only door into a session.
  */
 function SidebarAdminQR({ session }: { session: ActiveSession | null }) {
+  // Keyed on the primitive QR fields, not the session object itself — the
+  // 15s desk poll hands back a fresh object every time even when nothing
+  // relevant changed, and QR encoding is real work, not a cheap format.
+  const qrValue = useMemo(() => {
+    if (!session) return ""
+    return JSON.stringify({
+      npl: "session",
+      uid: session.qr.tournament_uid,
+      gs: session.qr.game_session_id,
+      name: session.qr.name,
+      venue: session.qr.venue_name,
+    })
+  }, [session?.qr.tournament_uid, session?.qr.game_session_id, session?.qr.name, session?.qr.venue_name])
+
   if (!session) return null
 
   const statusLabel = session.status === "running"
@@ -648,13 +664,7 @@ function SidebarAdminQR({ session }: { session: ActiveSession | null }) {
       </header>
       <div className="sidebar-admin-qr__code">
         <QRCodeSVG
-          value={JSON.stringify({
-            npl: "session",
-            uid: session.qr.tournament_uid,
-            gs: session.qr.game_session_id,
-            name: session.qr.name,
-            venue: session.qr.venue_name,
-          })}
+          value={qrValue}
           size={164}
           level="M"
           marginSize={1}
@@ -735,12 +745,19 @@ export default function App() {
         .catch(() => { /* backend starting up — keep the last known state */ })
     }
     refresh()
-    const timer = window.setInterval(refresh, 15000)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refresh()
+    }, 15000)
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh()
+    }
+    document.addEventListener("visibilitychange", refreshWhenVisible)
     window.addEventListener("npl:sessions-updated", refresh)
     window.addEventListener("npl:desk-session-changed", refresh)
     return () => {
       cancelled = true
       window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", refreshWhenVisible)
       window.removeEventListener("npl:sessions-updated", refresh)
       window.removeEventListener("npl:desk-session-changed", refresh)
     }
@@ -792,6 +809,7 @@ export default function App() {
     // reload once the host's boot-time licence check brings the cloud's
     // version policy in — and at the 6-hourly re-checks after that.
     const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return
       void fetch("/api/health", { headers: { Accept: "application/json" } })
         .then((response) => (response.ok ? response.json() : null))
         .then((body) => {
@@ -1098,22 +1116,26 @@ export default function App() {
 
         <div className={notificationOpen ? "app-content app-content--notification-open" : "app-content"}>
           <main className="workspace">
-            {activeSection === "tournament" ? (
-              <HostWorkspace venue={activeVenue} />
-            ) : activeSection === "jackpot" ? (
-              <JackpotWheelWorkspace />
-            ) : activeSection === "membership" ? (
-              <MembershipWorkspace venue={activeVenue} />
-            ) : activeSection === "players" ? (
-              <PlayersWorkspace venue={activeVenue} />
-            ) : activeSection === "overview" ? (
+            {activeSection === "overview" ? (
               <OverviewWorkspace venue={activeVenue} onNavigate={chooseSection} onNotice={setNotice} />
-            ) : activeSection === "cashgame" ? (
-              <HostWorkspace venue={activeVenue} mode="cash" />
-            ) : activeSection === "export" ? (
-              <ExportWorkspace venue={activeVenue} />
             ) : (
-              <RegistrationsWorkspace venue={activeVenue} />
+              <Suspense fallback={<div className="workspace-tab-loading">Loading…</div>}>
+                {activeSection === "tournament" ? (
+                  <HostWorkspace venue={activeVenue} />
+                ) : activeSection === "jackpot" ? (
+                  <JackpotWheelWorkspace />
+                ) : activeSection === "membership" ? (
+                  <MembershipWorkspace venue={activeVenue} />
+                ) : activeSection === "players" ? (
+                  <PlayersWorkspace venue={activeVenue} />
+                ) : activeSection === "cashgame" ? (
+                  <HostWorkspace venue={activeVenue} mode="cash" />
+                ) : activeSection === "export" ? (
+                  <ExportWorkspace venue={activeVenue} />
+                ) : (
+                  <RegistrationsWorkspace venue={activeVenue} />
+                )}
+              </Suspense>
             )}
           </main>
 
