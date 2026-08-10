@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Play, QrCode, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
+import { AlertTriangle, Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Play, QrCode, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { notify } from "../notifications/store"
 import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
@@ -65,6 +65,24 @@ function optionKey(option: DeskOption): string {
   return `${option.action}:${option.tier ?? "-"}`
 }
 
+/**
+ * Club membership at a glance: a valid holder's name is hoverable to reveal
+ * their avatar + membership code (see the `memberCard` state and its fixed-
+ * position render in HostDesk — a CSS :hover popover here would get its
+ * top sliced off by the table card's own `overflow: hidden`, used to round
+ * its corners). A player who isn't a valid holder gets a static yellow
+ * warning instead, visible without hovering. Null (no register data for
+ * this venue) renders nothing either way — see clubMembership() on the
+ * backend for why that's deliberate.
+ */
+function ClubMembershipMark({ player }: { player: SeatedPlayer }) {
+  if (player.club_member === false) {
+    return <span className="club-member-warn" title="No club membership ID"><AlertTriangle size={11} /></span>
+  }
+
+  return null
+}
+
 /** The slice of the clock snapshot the cash timer needs. */
 type CashClockState = {
   status?: string
@@ -117,6 +135,10 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [seating, setSeating] = useState<Seating | null>(null)
   const [menu, setMenu] = useState<SeatMenu | null>(null)
   const [tableMenu, setTableMenu] = useState<{ x: number, y: number, tableNumber: number } | null>(null)
+  // Fixed-position, not a CSS :hover popover — a table card clips overflow
+  // for its rounded corners, which would silently chop the card off for
+  // any seat near the top or the packed grid's edges.
+  const [memberCard, setMemberCard] = useState<{ x: number, y: number, player: SeatedPlayer } | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [removeCandidate, setRemoveCandidate] = useState<SeatedPlayer | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1233,8 +1255,12 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       e.preventDefault()
                       setMenu({ x: e.clientX, y: e.clientY, player })
                     }}
+                    onMouseEnter={(e) => {
+                      if (player.club_member === true) setMemberCard({ x: e.clientX, y: e.clientY, player })
+                    }}
+                    onMouseLeave={() => setMemberCard(null)}
                   >
-                    {player.club_member === false ? <span className="club-flag" title="No club membership ID" /> : null}
+                    <ClubMembershipMark player={player} />
                     {player.display_name}
                     {player.live_chips != null ? (
                       <em className="host-chip__stack" title={chipCountTitle(player)}>
@@ -1305,8 +1331,14 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                     >
                       <span className="host-seat__no">{seat.seat_number}</span>
                       {seat.player ? (
-                        <span className="host-seat__name">
-                          {seat.player.club_member === false ? <span className="club-flag" title="No club membership ID" /> : null}
+                        <span
+                          className="host-seat__name"
+                          onMouseEnter={(e) => {
+                            if (seat.player!.club_member === true) setMemberCard({ x: e.clientX, y: e.clientY, player: seat.player! })
+                          }}
+                          onMouseLeave={() => setMemberCard(null)}
+                        >
+                          <ClubMembershipMark player={seat.player} />
                           {seat.player.display_name}
                           {seat.player.in_jackpot ? <em title="In the jackpot">★</em> : null}
                         </span>
@@ -1441,6 +1473,15 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           >
             <X size={14} /> Remove player
           </button>
+        </div>
+      ) : null}
+
+      {memberCard ? (
+        <div className="club-member-card" style={{ left: memberCard.x + 14, top: memberCard.y - 40 }}>
+          {memberCard.player.avatar_url
+            ? <img src={memberCard.player.avatar_url} alt="" />
+            : <span className="club-member-card__avatar-fallback" aria-hidden="true">{memberCard.player.display_name.charAt(0).toUpperCase()}</span>}
+          <code>{memberCard.player.club_member_code}</code>
         </div>
       ) : null}
 

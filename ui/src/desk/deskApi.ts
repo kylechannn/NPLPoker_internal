@@ -46,6 +46,10 @@ export type SeatedPlayer = {
    * the whole room.
    */
   club_member?: boolean | null
+  /** The venue's own membership code, present only when club_member is true. */
+  club_member_code?: string | null
+  /** The player mirror's avatar, straight from the cloud — same as the scan card. */
+  avatar_url?: string | null
   /** Admin-counted live stack — null/absent means "not counted", never zero. */
   live_chips?: number | null
   /** ISO time the stack was counted, straight from the cloud. */

@@ -1600,6 +1600,64 @@
 .host-seat__open { color: rgba(214, 232, 255, 0.3); }
 .host-seat__name em { font-style: normal; color: #ffc53d; margin-left: 5px; }
 
+/* No valid club ID for this venue: a static warning, visible without
+   hovering, so the desk sees it at a glance. */
+.club-member-warn {
+  display: inline-flex;
+  align-items: center;
+  color: #facc15;
+  margin-right: 5px;
+  flex-shrink: 0;
+  vertical-align: -1px;
+}
+
+/* Valid club ID: hovering the player reveals their avatar + membership
+   code. Fixed-position (state-driven, see `memberCard` in HostDesk), not a
+   CSS :hover popover — the table card's own `overflow: hidden` (for its
+   rounded corners) would otherwise chop the top off it for any seat near
+   the top of a card. */
+.club-member-card {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: #0b1526;
+  border: 1px solid rgba(250, 204, 21, 0.32);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  font-size: 0.72rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 250;
+}
+
+.club-member-card img,
+.club-member-card__avatar-fallback {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.club-member-card__avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 204, 21, 0.18);
+  color: #facc15;
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.club-member-card code {
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  color: #facc15;
+}
+
 /* Admin-counted live stack: only counted players carry the pill. */
 .host-seat__stack {
   border: 1px solid rgba(255, 197, 61, 0.3);

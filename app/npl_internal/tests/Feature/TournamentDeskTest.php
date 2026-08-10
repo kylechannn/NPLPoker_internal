@@ -487,7 +487,29 @@ class TournamentDeskTest extends TestCase
         $desk = app(TournamentDeskService::class);
         $players = collect($desk->seating($id)['tables'][0]['seats'])->pluck('player')->filter();
         $this->assertTrue($players->firstWhere('npl_id', 'NPL7601')['club_member']);
+        $this->assertSame('STG-0001', $players->firstWhere('npl_id', 'NPL7601')['club_member_code']);
         $this->assertFalse($players->firstWhere('npl_id', 'NPL7602')['club_member']);
+        $this->assertNull($players->firstWhere('npl_id', 'NPL7602')['club_member_code']);
+    }
+
+    public function test_seating_carries_the_player_mirrors_avatar(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL7701');
+        DB::table('mirror_players')->where('npl_id', 'NPL7701')
+            ->update(['avatar_url' => 'https://cdn.nplpokerclub.com.au/avatars/npl7701.webp']);
+        $this->mirrorPlayer('NPL7702');
+
+        $desk = app(TournamentDeskService::class);
+        $desk->apply($id, 'NPL7701', 'buy_in');
+        $desk->apply($id, 'NPL7702', 'buy_in');
+
+        $players = collect($desk->seating($id)['tables'][0]['seats'])->pluck('player')->filter();
+        $this->assertSame(
+            'https://cdn.nplpokerclub.com.au/avatars/npl7701.webp',
+            $players->firstWhere('npl_id', 'NPL7701')['avatar_url'],
+        );
+        $this->assertNull($players->firstWhere('npl_id', 'NPL7702')['avatar_url']);
     }
 
     public function test_tables_hold_eight_seats_and_a_taken_seat_is_refused(): void

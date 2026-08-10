@@ -1333,8 +1333,11 @@ final class TournamentDeskService
         return [$clean, $guarantee !== '' ? $guarantee : null];
     }
 
-    /** Per-request cache of each venue's valid club IDs, keyed by venue. */
+    /** Per-request cache of each venue's valid club member codes, keyed by venue then npl_id. */
     private array $clubMemberCache = [];
+
+    /** Per-request cache of avatar URLs from the player mirror, keyed by session. */
+    private array $playerAvatarCache = [];
 
     /** Per-request cache of admin-counted chip stacks, keyed by session. */
     private array $chipCountCache = [];
@@ -1382,33 +1385,57 @@ final class TournamentDeskService
     }
 
     /**
-     * Whether this player holds a valid club ID for the session's venue.
-     * Null means "no data" — venue unknown, or the register has never been
-     * mirrored — and the desk hides the flag rather than shouting at
-     * everyone.
+     * Whether this player holds a valid club ID for the session's venue,
+     * and the code itself when they do.
+     *
+     * Null member state means "no data" — venue unknown, or the register
+     * has never been mirrored — and the desk hides the flag rather than
+     * shouting at everyone. A register with rows but no match for this
+     * player is a real "no membership" (member: false, code: null), not
+     * "no data".
+     *
+     * @return array{member: ?bool, code: ?string}
      */
-    private function hasClubMembership(object $session, string $nplId): ?bool
+    private function clubMembership(object $session, string $nplId): array
     {
         $venueId = $session->venue_id !== null ? (int) $session->venue_id : null;
 
         if ($venueId === null) {
-            return null;
+            return ['member' => null, 'code' => null];
         }
 
         $this->clubMemberCache[$venueId] ??= DB::table('mirror_club_memberships')
             ->where('venue_id', $venueId)
             ->where('valid', true)
             ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>=', now()->toDateString()))
-            ->pluck('npl_id')
-            ->map(fn ($id): string => strtoupper((string) $id))
-            ->flip()
+            ->pluck('club_member_code', 'npl_id')
+            ->mapWithKeys(fn ($code, $id): array => [strtoupper((string) $id) => (string) $code])
             ->all();
 
         if ($this->clubMemberCache[$venueId] === []) {
-            return null;
+            return ['member' => null, 'code' => null];
         }
 
-        return isset($this->clubMemberCache[$venueId][strtoupper($nplId)]);
+        $code = $this->clubMemberCache[$venueId][strtoupper($nplId)] ?? null;
+
+        return ['member' => $code !== null, 'code' => $code];
+    }
+
+    /**
+     * The player mirror's avatar for one entry — batched per session on
+     * first use, same reasoning as actionSummaryFor(): presentEntry() runs
+     * once per roster row, so this must not be one query per player.
+     */
+    private function avatarFor(int $sessionId, string $nplId): ?string
+    {
+        $this->playerAvatarCache[$sessionId] ??= DB::table('mirror_players')
+            ->whereIn('npl_id', DB::table('tournament_entries')->where('tournament_session_id', $sessionId)->pluck('player_npl_id'))
+            ->whereNotNull('avatar_url')
+            ->pluck('avatar_url', 'npl_id')
+            ->mapWithKeys(fn ($url, $id): array => [strtoupper((string) $id) => (string) $url])
+            ->all();
+
+        return $this->playerAvatarCache[$sessionId][strtoupper($nplId)] ?? null;
     }
 
     /**
@@ -1454,11 +1481,14 @@ final class TournamentDeskService
         $nplId = (string) $entry->player_npl_id;
         $chips = $this->liveChips($sessionId, $nplId);
         $actions = $this->actionSummaryFor($sessionId, $nplId);
+        $club = $this->clubMembership($session, $nplId);
 
         return [
             'npl_id' => $nplId,
             'display_name' => $entry->player_name ?: $nplId,
-            'club_member' => $this->hasClubMembership($session, $nplId),
+            'club_member' => $club['member'],
+            'club_member_code' => $club['code'],
+            'avatar_url' => $this->avatarFor($sessionId, $nplId),
             'live_chips' => $chips !== null ? (int) $chips->chips : null,
             'live_chips_at' => $chips->counted_at ?? null,
             'status' => $entry->status,
