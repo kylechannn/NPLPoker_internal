@@ -1339,6 +1339,12 @@ final class TournamentDeskService
     /** Per-request cache of admin-counted chip stacks, keyed by session. */
     private array $chipCountCache = [];
 
+    /** Per-request cache of rebuy/addon action counts, keyed by session. */
+    private array $actionCountCache = [];
+
+    /** Per-request cache of per-player total spend, keyed by session. */
+    private array $actionSpendCache = [];
+
     /**
      * The rail's "counted stacks" figures: how many players an admin has
      * counted and what those stacks add to. Null total when nobody has
@@ -1405,10 +1411,49 @@ final class TournamentDeskService
         return isset($this->clubMemberCache[$venueId][strtoupper($nplId)]);
     }
 
+    /**
+     * Net rebuy/addon counts and total spend for one player — two grouped
+     * queries per session instead of five ungrouped ones per player.
+     * presentEntry() runs once per roster row and seating() is the room
+     * clock's 5-second poll, so this scaled with the field size before.
+     *
+     * @return array{rebuys: int, addons: int, spend_cents: int}
+     */
+    private function actionSummaryFor(int $sessionId, string $nplId): array
+    {
+        $this->actionCountCache[$sessionId] ??= DB::table('tournament_actions')
+            ->where('tournament_session_id', $sessionId)
+            ->whereIn('action', ['rebuy', 'rebuy_void', 'addon', 'addon_void'])
+            ->select('player_npl_id', 'action', DB::raw('count(*) as total'))
+            ->groupBy('player_npl_id', 'action')
+            ->get()
+            ->groupBy(fn (object $row): string => strtoupper((string) $row->player_npl_id))
+            ->map(fn ($rows) => $rows->pluck('total', 'action'))
+            ->all();
+
+        $this->actionSpendCache[$sessionId] ??= DB::table('tournament_actions')
+            ->where('tournament_session_id', $sessionId)
+            ->select('player_npl_id', DB::raw('sum(price_cents) as total'))
+            ->groupBy('player_npl_id')
+            ->get()
+            ->mapWithKeys(fn (object $row): array => [strtoupper((string) $row->player_npl_id) => (int) $row->total])
+            ->all();
+
+        $key = strtoupper($nplId);
+        $counts = $this->actionCountCache[$sessionId][$key] ?? collect();
+
+        return [
+            'rebuys' => max(0, (int) ($counts['rebuy'] ?? 0) - (int) ($counts['rebuy_void'] ?? 0)),
+            'addons' => max(0, (int) ($counts['addon'] ?? 0) - (int) ($counts['addon_void'] ?? 0)),
+            'spend_cents' => $this->actionSpendCache[$sessionId][$key] ?? 0,
+        ];
+    }
+
     private function presentEntry(object $entry, int $sessionId, object $session): array
     {
         $nplId = (string) $entry->player_npl_id;
         $chips = $this->liveChips($sessionId, $nplId);
+        $actions = $this->actionSummaryFor($sessionId, $nplId);
 
         return [
             'npl_id' => $nplId,
@@ -1421,14 +1466,11 @@ final class TournamentDeskService
             'seat_number' => $entry->seat_number !== null ? (int) $entry->seat_number : null,
             'finish_position' => $entry->finish_position !== null ? (int) $entry->finish_position : null,
             'in_jackpot' => (bool) $entry->in_jackpot,
-            'rebuys' => $this->usedCount($sessionId, $nplId, 'rebuy'),
-            'addons' => $this->usedCount($sessionId, $nplId, 'addon'),
+            'rebuys' => $actions['rebuys'],
+            'addons' => $actions['addons'],
             'max_rebuys' => (int) $session->max_rebuys_per_player,
             'max_addons' => (int) $session->max_addons_per_player,
-            'spend_cents' => (int) DB::table('tournament_actions')
-                ->where('tournament_session_id', $sessionId)
-                ->where('player_npl_id', $nplId)
-                ->sum('price_cents'),
+            'spend_cents' => $actions['spend_cents'],
         ];
     }
 
