@@ -9,7 +9,8 @@ import { deskApi, type ChatRecentRow, type Venue } from "../desk/deskApi"
  * cloud tools — nothing is composed here.
  */
 
-function lineTime(iso: string): string {
+function lineTime(iso: string | null): string {
+  if (!iso) return ""
   const parsed = new Date(iso)
   return Number.isNaN(parsed.getTime())
     ? ""
@@ -55,7 +56,11 @@ export default function ChatPane({ venue }: { venue: Venue | null }) {
     // fallback for a quiet or broken socket.
     const onChatTouched = () => load(false)
     window.addEventListener("npl:chat-touched", onChatTouched)
-    const interval = window.setInterval(() => load(false), 30_000)
+    // Backgrounded window: don't stack proxy calls on the single PHP
+    // worker — the signal listener above still fires when something lands.
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") load(false)
+    }, 30_000)
 
     return () => {
       cancelled = true

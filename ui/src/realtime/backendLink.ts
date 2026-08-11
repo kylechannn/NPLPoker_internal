@@ -25,6 +25,8 @@ type RealtimeDetails = {
   scheme: string
   channel_prefix: string
   event: string
+  /** Advertised chat event name — the endpoint exists so this stays soft. */
+  chat_event?: string
 }
 
 const FALLBACK_PULL_MS = 60_000
@@ -253,10 +255,15 @@ export function useBackendLink(venueId: number | null) {
           void pullSessionsNow(venueId).catch(() => {})
         }
 
-        if (message?.event === "chat.touched") {
-          const data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as
-            | { game_session_id?: number, scope?: string, sender?: string }
-            | undefined
+        if (message?.event === (details.chat_event ?? "chat.touched")) {
+          let data: { game_session_id?: number, scope?: string, sender?: string } | undefined
+          try {
+            data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as typeof data
+          } catch {
+            // A malformed payload must not kill the handler — the pane's
+            // interval heals whatever a dropped signal missed.
+            data = undefined
+          }
           // Only player-authored lines raise a notice — the director wrote
           // the TD ones, so telling them about their own message is noise.
           if (data?.sender === "player") {

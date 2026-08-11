@@ -111,7 +111,7 @@ final class DeskController
     {
         $validated = $request->validate([
             'venue_id' => ['sometimes', 'nullable', 'integer'],
-            'after' => ['sometimes', 'integer'],
+            'after' => ['sometimes', 'integer', 'min:1'],
         ]);
 
         try {

@@ -736,20 +736,19 @@ export default function App() {
   // Unseen tracking for the bell badge and the Chat sub-tab badge. Both
   // start at boot time so the 300 persisted notices never badge a fresh
   // launch — only what arrives while the OS is running counts as unseen.
-  const allNotices = useNotices()
+  // The notice-store subscription lives in BellBadge, NOT here: a busy
+  // night fires notify() on every desk signal, and each one re-rendering
+  // the whole App (host desk included) is a real cost on venue hardware.
   const [noticesSeenAt, setNoticesSeenAt] = useState<number>(() => Date.now())
   const [chatSeenAt, setChatSeenAt] = useState<number>(() => Date.now())
 
-  // While the panel is open the operator is looking at the stream — keep
-  // the bell clear even as new notices land.
+  // Everything on screen while the panel was open counts as seen the
+  // moment it closes.
   useEffect(() => {
-    if (notificationOpen) setNoticesSeenAt(Date.now())
-  }, [notificationOpen, allNotices])
+    if (!notificationOpen) return
+    return () => setNoticesSeenAt(Date.now())
+  }, [notificationOpen])
 
-  const unseenNoticeCount = useMemo(
-    () => allNotices.filter((entry) => new Date(entry.at).getTime() > noticesSeenAt).length,
-    [allNotices, noticesSeenAt],
-  )
   const markChatSeen = useCallback(() => setChatSeenAt(Date.now()), [])
 
   // The sidebar admin QR mirrors the desk: it exists exactly while the room
@@ -1127,9 +1126,7 @@ export default function App() {
                 }}
               >
                 <Bell size={18} />
-                {unseenNoticeCount > 0 ? (
-                  <span className="notification-button__badge">{unseenNoticeCount > 99 ? "99+" : unseenNoticeCount}</span>
-                ) : null}
+                <BellBadge seenAt={noticesSeenAt} suppressed={notificationOpen} />
               </button>
             </div>
             <DesktopWindowControls hasPendingChanges={false} />
@@ -1215,6 +1212,23 @@ const NOTICE_TABS: { id: "all" | NoticeCategory, label: string }[] = [
   { id: "system", label: "System" },
 ]
 
+/**
+ * The bell's unseen count. Isolated so IT subscribes to the notice store,
+ * not App — every notify() would otherwise re-render the whole shell.
+ * Suppressed while the panel is open: the operator is already looking.
+ */
+function BellBadge({ seenAt, suppressed }: { seenAt: number, suppressed: boolean }) {
+  const notices = useNotices()
+
+  if (suppressed) return null
+
+  const unseen = notices.filter((entry) => new Date(entry.at).getTime() > seenAt).length
+
+  if (unseen === 0) return null
+
+  return <span className="notification-button__badge">{unseen > 99 ? "99+" : unseen}</span>
+}
+
 function NotificationSession({ venue, chatSeenAt, onChatSeen }: {
   venue: Venue | null
   onNavigate: (id: NavId) => void
@@ -1227,14 +1241,19 @@ function NotificationSession({ venue, chatSeenAt, onChatSeen }: {
   const visible = tab === "all" ? notices : notices.filter((notice) => notice.category === tab)
 
   // While the Chat pane is on screen the operator is reading the feed —
-  // keep its badge clear even as new lines arrive.
+  // its badge stays suppressed at render time (no one-frame flash), and
+  // leaving the pane watermarks everything shown as seen.
   useEffect(() => {
-    if (pane === "chat") onChatSeen()
+    if (pane !== "chat") return
+    onChatSeen()
+    return () => onChatSeen()
   }, [pane, notices, onChatSeen])
 
-  const unseenChat = notices.filter(
-    (entry) => entry.category === "chat" && new Date(entry.at).getTime() > chatSeenAt,
-  ).length
+  const unseenChat = pane === "chat"
+    ? 0
+    : notices.filter(
+        (entry) => entry.category === "chat" && new Date(entry.at).getTime() > chatSeenAt,
+      ).length
 
   return (
     <aside className="notification-session" aria-label="Persistent operations notification session">
