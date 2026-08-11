@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { CalendarDays, ListChecks, Loader2, Users, X } from "lucide-react"
 import { deskApi, type OnlineRegistration, type SessionSummary, type Venue } from "../desk/deskApi"
 import "./registrations.css"
@@ -15,12 +15,41 @@ export default function RegistrationsWorkspace({ venue }: { venue: Venue | null 
   const [open, setOpen] = useState<SessionSummary | null>(null)
 
   const venueId = venue?.id ?? null
+  // The date filter defaults to today once per venue load — a live refresh
+  // must never snap it back while staff are reading another day.
+  const defaultedDateRef = useRef(false)
 
   useEffect(() => {
     setSessions(null)
-    deskApi.allSessions(venueId)
-      .then((result) => setSessions(result.sessions))
-      .catch((e) => setError(e instanceof Error ? e.message : "Sessions could not be loaded."))
+    defaultedDateRef.current = false
+    let cancelled = false
+
+    const load = (initial: boolean) => {
+      deskApi.allSessions(venueId)
+        .then((result) => {
+          if (cancelled) return
+          setSessions(result.sessions)
+          setError(null)
+        })
+        .catch((e) => {
+          // A failed background refresh keeps the last good grid; only the
+          // first load has nothing to fall back on.
+          if (!cancelled && initial) setError(e instanceof Error ? e.message : "Sessions could not be loaded.")
+        })
+    }
+
+    load(true)
+
+    // The backend link fires this after every pulled change — an online
+    // registration reaches the grid the moment the cloud signals it,
+    // without anyone switching tabs or reopening the workspace.
+    const onSessionsUpdated = () => load(false)
+    window.addEventListener("npl:sessions-updated", onSessionsUpdated)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener("npl:sessions-updated", onSessionsUpdated)
+    }
   }, [venueId])
 
   // Only dates that actually hold a session are offered as filters.
@@ -32,8 +61,10 @@ export default function RegistrationsWorkspace({ venue }: { venue: Venue | null 
 
   useEffect(() => {
     // Default to today when today has sessions; otherwise show everything.
+    if (sessions === null || defaultedDateRef.current) return
+    defaultedDateRef.current = true
     const today = new Date().toISOString().slice(0, 10)
-    if (sessions !== null && dates.includes(today)) setDate(today)
+    if (dates.includes(today)) setDate(today)
   }, [sessions, dates])
 
   const shown = useMemo(
@@ -119,15 +150,44 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
   // One in-flight action at a time; a confirm step guards both actions.
   const [busyNpl, setBusyNpl] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ action: "promote" | "remove", row: OnlineRegistration } | null>(null)
+  // Monotonic fetch guard: live refreshes overlap the initial and
+  // post-action loads, and a slow older response must never overwrite a
+  // newer table.
+  const seqRef = useRef(0)
+  const busyRef = useRef<string | null>(null)
+  busyRef.current = busyNpl
 
-  const load = () => {
+  const load = (silent = false) => {
+    const seq = ++seqRef.current
     deskApi.onlineRegistrations(session.session_id)
-      .then(setRows)
-      .catch((e) => setError(e instanceof Error ? e.message : "The registration record could not be loaded."))
+      .then((result) => {
+        if (seq === seqRef.current) setRows(result)
+      })
+      .catch((e) => {
+        // A silent (signal-driven) refresh keeps the last good table
+        // rather than flashing an error the operator did nothing to cause.
+        if (seq === seqRef.current && !silent) {
+          setError(e instanceof Error ? e.message : "The registration record could not be loaded.")
+        }
+      })
   }
 
   useEffect(() => {
     load()
+
+    // The backend link fires this after every pulled change — the open
+    // record re-reads the cloud so a phone registration lands in the table
+    // without closing the popup. Skipped mid-action; the action reloads on
+    // completion anyway.
+    const onSessionsUpdated = () => {
+      if (busyRef.current === null) load(true)
+    }
+    window.addEventListener("npl:sessions-updated", onSessionsUpdated)
+
+    return () => {
+      seqRef.current += 1
+      window.removeEventListener("npl:sessions-updated", onSessionsUpdated)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.session_id])
 
