@@ -7,6 +7,7 @@ import {
   countdown,
   deskApi,
   money,
+  privateGatherMinutes,
   type AdminQr,
   type DeskOption,
   type DeskVoucher, type OnlineCoverage,
@@ -1274,10 +1275,21 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           ) : null}
 
           <div className="host-desk__grid">
-            {seating?.tables.map((table) => (
+            {seating?.tables.map((table) => {
+              const gather = privateGatherMinutes(table)
+              const meta = [
+                table.creator_display_name ? `${table.creator_display_name}'s table` : null,
+                table.game_mode,
+                table.blinds_text,
+              ].filter(Boolean).join(" · ")
+
+              return (
               <article
                 key={table.table_number}
-                className="host-table"
+                className={[
+                  "host-table",
+                  table.table_kind === "private" ? "host-table--private" : "",
+                ].filter(Boolean).join(" ")}
                 onContextMenu={(e) => {
                   // Right-click on the table itself (not a seat) offers
                   // deletion — but only when nobody is sitting there.
@@ -1288,8 +1300,16 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
               >
                 <header>
                   <strong>Table {table.table_number}</strong>
+                  {table.table_kind === "private" ? <i className="host-table__pill">PRIVATE</i> : null}
                   <span>{table.occupied} / {seating.seats_per_table}</span>
                 </header>
+                {table.table_kind === "private" ? (
+                  <p className="host-table__meta">
+                    {meta ? <span>{meta}</span> : null}
+                    {table.allow_strangers ? <i className="host-table__pill host-table__pill--open">OPEN TO ALL</i> : null}
+                    {gather !== null ? <em>{gather} min to gather 6</em> : null}
+                  </p>
+                ) : null}
                 <ul>
                   {table.seats.map((seat) => (
                     <li key={seat.seat_number}
@@ -1357,7 +1377,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   ))}
                 </ul>
               </article>
-            ))}
+              )
+            })}
 
             <button
               type="button"

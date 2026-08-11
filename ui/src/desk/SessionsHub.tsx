@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { CalendarDays, ChevronDown, Loader2, Play, Table2, Trash2, Users, X } from "lucide-react"
-import { deskApi, type RosterTable, type UpcomingSession, type Venue } from "./deskApi"
+import { deskApi, privateGatherMinutes, type RosterTable, type UpcomingSession, type Venue } from "./deskApi"
 import { notify } from "../notifications/store"
 import "./host.css"
 
@@ -200,10 +200,25 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                     ) : !roster || roster.length === 0 ? (
                       <p className="host-hub__empty">No tables yet — they appear as bookings and buy-ins come in.</p>
                     ) : (
-                      roster.map((table) => (
-                        <div key={table.table_number} className="host-hub__table">
+                      roster.map((table) => {
+                        const gather = privateGatherMinutes(table)
+                        const meta = [
+                          table.creator_display_name ? `${table.creator_display_name}'s table` : null,
+                          table.game_mode,
+                          table.blinds_text,
+                        ].filter(Boolean).join(" · ")
+
+                        return (
+                        <div
+                          key={table.table_number}
+                          className={[
+                            "host-hub__table",
+                            table.table_kind === "private" ? "host-hub__table--private" : "",
+                          ].filter(Boolean).join(" ")}
+                        >
                           <header>
                             <strong>Table {table.table_number}</strong>
+                            {table.table_kind === "private" ? <i className="host-table__pill">PRIVATE</i> : null}
                             <span>{table.players.filter((p) => p.status !== "waitlisted").length} / {table.max_seats}</span>
                             <button
                               type="button"
@@ -222,6 +237,13 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                               <Trash2 size={14} />
                             </button>
                           </header>
+                          {table.table_kind === "private" ? (
+                            <p className="host-table__meta">
+                              {meta ? <span>{meta}</span> : null}
+                              {table.allow_strangers ? <i className="host-table__pill host-table__pill--open">OPEN TO ALL</i> : null}
+                              {gather !== null ? <em>{gather} min to gather 6</em> : null}
+                            </p>
+                          ) : null}
                           <ul>
                             {table.players.map((player) => (
                               <li key={player.npl_id}>
@@ -251,7 +273,8 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                             ))}
                           </ul>
                         </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
                 ) : null}

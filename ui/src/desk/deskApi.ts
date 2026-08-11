@@ -66,7 +66,37 @@ export type SeatedPlayer = {
   spend_cents: number
 }
 
-export type DeskTable = {
+/**
+ * Table-level meta mirrored from the cloud on every table object —
+ * player-created private cash tables carry a creator, game mode, blinds
+ * and a gathering deadline. All optional: unlinked (ad-hoc) sessions and
+ * pre-migration mirrors simply omit them.
+ */
+export type TableMirrorMeta = {
+  table_kind?: 'house' | 'private' | null
+  creator_npl_id?: string | null
+  creator_display_name?: string | null
+  game_mode?: string | null
+  blinds_text?: string | null
+  allow_strangers?: boolean | null
+  activation_deadline_at?: string | null
+  activated_at?: string | null
+}
+
+/**
+ * Whole minutes left for a private table to gather its players — null
+ * unless the table is private, not yet activated, and the deadline is
+ * still ahead. Coarse by design: the grids refresh every ~15s anyway.
+ */
+export const privateGatherMinutes = (table: TableMirrorMeta): number | null => {
+  if (table.table_kind !== 'private' || table.activated_at || !table.activation_deadline_at) return null
+  const deadline = Date.parse(table.activation_deadline_at)
+  if (!Number.isFinite(deadline)) return null
+  const remaining = deadline - Date.now()
+  return remaining > 0 ? Math.max(1, Math.ceil(remaining / 60_000)) : null
+}
+
+export type DeskTable = TableMirrorMeta & {
   table_number: number
   occupied: number
   seats: Array<{ seat_number: number, player: SeatedPlayer | null }>
@@ -267,7 +297,7 @@ export type RosterPlayer = {
   waitlist_position: number | null
 }
 
-export type RosterTable = {
+export type RosterTable = TableMirrorMeta & {
   table_number: number
   status: string | null
   max_seats: number

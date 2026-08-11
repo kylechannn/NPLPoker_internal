@@ -1207,6 +1207,26 @@ final class TournamentDeskService
             ? max($cloudTableCount, $highestTable)
             : max($highestTable, (int) ceil(max(1, $active->count()) / $perTable));
 
+        // Table-level meta the cloud mirrors onto every seat row (private
+        // player-created tables carry a creator, game mode, blinds and a
+        // gathering deadline). One grouped read; first row per table speaks
+        // for the whole table. Empty for unlinked (ad-hoc) sessions and for
+        // table numbers with no mirror rows.
+        $mirrorMeta = collect();
+        if ($session->game_session_id !== null) {
+            $mirrorMeta = DB::table('mirror_session_tables')
+                ->where('session_id', $session->game_session_id)
+                ->orderBy('table_number')
+                ->orderBy('seat_number')
+                ->get([
+                    'table_number', 'table_kind', 'creator_npl_id', 'creator_display_name',
+                    'game_mode', 'blinds_text', 'allow_strangers',
+                    'activation_deadline_at', 'activated_at',
+                ])
+                ->groupBy('table_number')
+                ->map(fn ($rows) => $rows->first());
+        }
+
         $tables = [];
         for ($number = 1; $number <= $tableCount; $number++) {
             $seats = [];
@@ -1222,10 +1242,22 @@ final class TournamentDeskService
                 ];
             }
 
+            $meta = $mirrorMeta->get($number);
+
             $tables[] = [
                 'table_number' => $number,
                 'seats' => $seats,
                 'occupied' => $seated->where('table_number', $number)->count(),
+                'table_kind' => optional($meta)->table_kind,
+                'creator_npl_id' => optional($meta)->creator_npl_id,
+                'creator_display_name' => optional($meta)->creator_display_name,
+                'game_mode' => optional($meta)->game_mode,
+                'blinds_text' => optional($meta)->blinds_text,
+                'allow_strangers' => optional($meta)->allow_strangers === null
+                    ? null
+                    : (bool) $meta->allow_strangers,
+                'activation_deadline_at' => optional($meta)->activation_deadline_at,
+                'activated_at' => optional($meta)->activated_at,
             ];
         }
 

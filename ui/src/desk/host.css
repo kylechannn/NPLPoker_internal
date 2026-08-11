@@ -12,6 +12,9 @@
   --host-sunken: rgba(4, 12, 26, 0.6);
   --host-accent: #4ade9b;
   --host-text-dim: rgba(214, 232, 255, 0.62);
+  /* Violet marks player-created private tables — green means ok, gold
+     warns, red destroys, so private needed an unclaimed hue. */
+  --host-private: #a78bfa;
 }
 
 .host-spin {
@@ -2191,3 +2194,61 @@
 .host-svc__handle:active { transform: scale(0.97); }
 
 .host-svc__handle:disabled { opacity: 0.55; }
+
+/* ====================================================== private tables == */
+/* Player-created private cash tables, mirrored from the cloud. Violet
+   tint on the card + header so staff can tell a member's gathering table
+   from a house one at a glance. Sizes stay in rem so they scale with the
+   accessible-sizing root font. */
+
+.host-table--private,
+.host-hub__table--private {
+  border-color: rgba(167, 139, 250, 0.42);
+}
+
+.host-table--private > header,
+.host-hub__table--private > header {
+  background: rgba(109, 78, 209, 0.2);
+}
+
+/* PRIVATE / OPEN TO ALL badge — .host-hub__done's shape, violet palette. */
+.host-table__pill {
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  color: var(--host-private);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/* In the desk grid's space-between header, hug the table title and leave
+   the seat count pinned right. */
+.host-table > header .host-table__pill {
+  margin-right: auto;
+  margin-left: 0.55rem;
+}
+
+/* "{creator}'s table · game · blinds" + gathering countdown. */
+.host-table__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.55rem;
+  margin: 0;
+  padding: 0.5rem 0.85rem 0;
+  color: var(--host-text-dim);
+  font-size: 0.72rem;
+}
+
+.host-hub__table--private .host-table__meta {
+  padding: 0.5rem 0.7rem 0;
+}
+
+.host-table__meta em {
+  color: var(--host-private);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}

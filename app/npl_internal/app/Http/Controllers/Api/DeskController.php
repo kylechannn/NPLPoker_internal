@@ -205,6 +205,18 @@ final class DeskController
                 'table_number' => (int) $tableNumber,
                 'status' => optional($seats->first())->table_status,
                 'max_seats' => (int) (optional($seats->first())->max_seats ?? 8),
+                // Table-level meta rides on every seat row (the mirror is
+                // seat-grained), so the first row speaks for the table.
+                'table_kind' => optional($seats->first())->table_kind,
+                'creator_npl_id' => optional($seats->first())->creator_npl_id,
+                'creator_display_name' => optional($seats->first())->creator_display_name,
+                'game_mode' => optional($seats->first())->game_mode,
+                'blinds_text' => optional($seats->first())->blinds_text,
+                'allow_strangers' => optional($seats->first())->allow_strangers === null
+                    ? null
+                    : (bool) $seats->first()->allow_strangers,
+                'activation_deadline_at' => optional($seats->first())->activation_deadline_at,
+                'activated_at' => optional($seats->first())->activated_at,
                 'players' => $seats
                     ->filter(fn (object $seat): bool => $seat->player_npl_id !== null)
                     ->map(fn (object $seat): array => [
