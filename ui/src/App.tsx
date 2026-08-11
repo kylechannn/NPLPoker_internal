@@ -10,6 +10,7 @@ const JackpotWheelWorkspace = lazy(() => import("./jackpot/JackpotWheelWorkspace
 const MembershipWorkspace = lazy(() => import("./membership/MembershipWorkspace"))
 const PlayersWorkspace = lazy(() => import("./players/PlayersWorkspace"))
 const RegistrationsWorkspace = lazy(() => import("./registrations/RegistrationsWorkspace"))
+const ChatPane = lazy(() => import("./notifications/ChatPane"))
 import { deskApi, type ActiveSession, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
@@ -732,6 +733,25 @@ export default function App() {
   const [startupPhase, setStartupPhase] = useState<"visible" | "leaving" | "hidden">("visible")
   const [notificationOpen, setNotificationOpen] = useState(false)
 
+  // Unseen tracking for the bell badge and the Chat sub-tab badge. Both
+  // start at boot time so the 300 persisted notices never badge a fresh
+  // launch — only what arrives while the OS is running counts as unseen.
+  const allNotices = useNotices()
+  const [noticesSeenAt, setNoticesSeenAt] = useState<number>(() => Date.now())
+  const [chatSeenAt, setChatSeenAt] = useState<number>(() => Date.now())
+
+  // While the panel is open the operator is looking at the stream — keep
+  // the bell clear even as new notices land.
+  useEffect(() => {
+    if (notificationOpen) setNoticesSeenAt(Date.now())
+  }, [notificationOpen, allNotices])
+
+  const unseenNoticeCount = useMemo(
+    () => allNotices.filter((entry) => new Date(entry.at).getTime() > noticesSeenAt).length,
+    [allNotices, noticesSeenAt],
+  )
+  const markChatSeen = useCallback(() => setChatSeenAt(Date.now()), [])
+
   // The sidebar admin QR mirrors the desk: it exists exactly while the room
   // has an unfinished session. Poll + the same signals the sessions hub uses,
   // plus the desk's own local create/finish/discard event.
@@ -1107,7 +1127,9 @@ export default function App() {
                 }}
               >
                 <Bell size={18} />
-                <span />
+                {unseenNoticeCount > 0 ? (
+                  <span className="notification-button__badge">{unseenNoticeCount > 99 ? "99+" : unseenNoticeCount}</span>
+                ) : null}
               </button>
             </div>
             <DesktopWindowControls hasPendingChanges={false} />
@@ -1139,7 +1161,14 @@ export default function App() {
             )}
           </main>
 
-          {notificationOpen ? <NotificationSession onNavigate={chooseSection} /> : null}
+          {notificationOpen ? (
+            <NotificationSession
+              venue={activeVenue}
+              onNavigate={chooseSection}
+              chatSeenAt={chatSeenAt}
+              onChatSeen={markChatSeen}
+            />
+          ) : null}
         </div>
 
         <footer className="statusbar">
@@ -1186,10 +1215,26 @@ const NOTICE_TABS: { id: "all" | NoticeCategory, label: string }[] = [
   { id: "system", label: "System" },
 ]
 
-function NotificationSession(_props: { onNavigate: (id: NavId) => void }) {
+function NotificationSession({ venue, chatSeenAt, onChatSeen }: {
+  venue: Venue | null
+  onNavigate: (id: NavId) => void
+  chatSeenAt: number
+  onChatSeen: () => void
+}) {
   const notices = useNotices()
+  const [pane, setPane] = useState<"notifications" | "chat">("notifications")
   const [tab, setTab] = useState<"all" | NoticeCategory>("all")
   const visible = tab === "all" ? notices : notices.filter((notice) => notice.category === tab)
+
+  // While the Chat pane is on screen the operator is reading the feed —
+  // keep its badge clear even as new lines arrive.
+  useEffect(() => {
+    if (pane === "chat") onChatSeen()
+  }, [pane, notices, onChatSeen])
+
+  const unseenChat = notices.filter(
+    (entry) => entry.category === "chat" && new Date(entry.at).getTime() > chatSeenAt,
+  ).length
 
   return (
     <aside className="notification-session" aria-label="Persistent operations notification session">
@@ -1201,9 +1246,39 @@ function NotificationSession(_props: { onNavigate: (id: NavId) => void }) {
             <h2>Notification session</h2>
           </div>
         </div>
-        <strong>{visible.length}</strong>
+        {pane === "chat" ? null : <strong>{visible.length}</strong>}
       </header>
 
+      <div className="notification-session__tabs" role="tablist" aria-label="Notification panes">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={pane === "notifications"}
+          className={pane === "notifications" ? "notification-tab notification-pane-tab notification-tab--active" : "notification-tab notification-pane-tab"}
+          onClick={() => setPane("notifications")}
+        >
+          Notifications
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={pane === "chat"}
+          className={pane === "chat" ? "notification-tab notification-pane-tab notification-tab--active" : "notification-tab notification-pane-tab"}
+          onClick={() => setPane("chat")}
+        >
+          Chat
+          {unseenChat > 0 ? (
+            <span className="notification-chat-badge">{unseenChat > 99 ? "99+" : unseenChat}</span>
+          ) : null}
+        </button>
+      </div>
+
+      {pane === "chat" ? (
+        <Suspense fallback={<p className="chat-pane__empty">Loading chat…</p>}>
+          <ChatPane venue={venue} />
+        </Suspense>
+      ) : (
+      <>
       <div className="notification-session__tabs" role="tablist" aria-label="Notice categories">
         {NOTICE_TABS.map((entry) => (
           <button
@@ -1242,6 +1317,8 @@ function NotificationSession(_props: { onNavigate: (id: NavId) => void }) {
           ))
         )}
       </div>
+      </>
+      )}
 
       <footer>
         <ShieldCheck size={16} />

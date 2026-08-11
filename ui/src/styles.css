@@ -2240,15 +2240,24 @@ a:focus-visible {
   background: rgba(56, 229, 255, 0.09);
 }
 
-.notification-button > span {
+/* Unseen-notice count on the bell — cloned from .host-desk__requests-badge
+   so the two red bubbles read as the same signal across the OS. */
+.notification-button__badge {
   position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 6px;
-  height: 6px;
+  top: 2px;
+  right: 2px;
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border: 1px solid var(--npl-deep);
-  border-radius: 50%;
-  background: var(--npl-red);
+  border-radius: 999px;
+  color: #fff;
+  background: #ff4d4d;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .app-content {
@@ -6045,4 +6054,167 @@ a.console-gate__submit {
   color: var(--npl-faint);
   font-size: 0.72rem;
   line-height: 1.5;
+}
+
+/* ============================================================== chat == */
+/* The Chat sub-tab of the notification rail: a read-only feed of
+   cash-game chat pulled from the cloud — table-room lines and player→TD
+   requests, grouped by session. Appended after the accessible-sizing
+   region, so these metrics are the final word at 18px root size. */
+
+.notification-pane-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* Unseen chat count on the Chat chip — same red bubble as the bell and
+   the desk's phone-requests badge. */
+.notification-chat-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: #fff;
+  background: #ff4d4d;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.chat-pane {
+  display: grid;
+}
+
+.chat-pane__empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 22px 16px;
+  color: var(--npl-faint);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.chat-pane__spin {
+  animation: chat-pane-rotate 900ms linear infinite;
+}
+
+@keyframes chat-pane-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-pane__spin { animation: none; }
+}
+
+.chat-pane__error {
+  margin: 0;
+  padding: 22px 16px;
+  color: #fda4a4;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.chat-group {
+  border-bottom: 1px solid var(--npl-hairline);
+  padding-bottom: 8px;
+}
+
+.chat-group__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 15px 5px;
+}
+
+.chat-group__head strong {
+  min-width: 0;
+  color: var(--npl-gold);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.chat-group__head span {
+  flex-shrink: 0;
+  color: var(--npl-faint);
+  font-family: var(--npl-font-mono);
+  font-size: 0.6rem;
+}
+
+.chat-line {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 15px;
+}
+
+.chat-line__time {
+  padding-top: 2px;
+  color: #7189aa;
+  font-family: var(--npl-font-mono);
+  font-size: 0.6rem;
+}
+
+.chat-line__content {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.chat-line__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.chat-line__name {
+  color: var(--npl-cyan);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.chat-line__name--td {
+  color: var(--npl-gold);
+}
+
+.chat-pill {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.56rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.chat-pill--td {
+  border: 1px solid rgba(255, 197, 61, 0.4);
+  color: var(--npl-gold);
+  background: rgba(255, 197, 61, 0.08);
+}
+
+.chat-pill--request {
+  border: 1px solid rgba(255, 93, 122, 0.45);
+  color: #ff8da2;
+  background: rgba(255, 93, 122, 0.1);
+}
+
+.chat-line__scope {
+  color: var(--npl-faint);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.chat-line__body {
+  margin: 0;
+  color: var(--npl-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }

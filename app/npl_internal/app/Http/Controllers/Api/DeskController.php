@@ -106,6 +106,34 @@ final class DeskController
         return $this->ok(['result' => $result['data'] ?? $result]);
     }
 
+    /** Recent cash-game chat — table-room lines and TD requests, straight from the cloud. */
+    public function chatRecent(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+            'after' => ['sometimes', 'integer'],
+        ]);
+
+        try {
+            $result = $this->cloud->getJson('/api/v1/internal/chat/recent', array_filter([
+                'venue_id' => $validated['venue_id'] ?? null,
+                'after' => $validated['after'] ?? null,
+            ], fn ($v) => $v !== null));
+        } catch (\App\Services\Cloud\CloudException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => [
+                    'code' => $e->errorCode,
+                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                        ? 'The NPL cloud could not be reached — chat needs a connection.'
+                        : $e->getMessage(),
+                ],
+            ], 502);
+        }
+
+        return $this->ok(['result' => $result['data'] ?? $result]);
+    }
+
     public function upcomingSessions(Request $request): JsonResponse
     {
         $validated = $request->validate([

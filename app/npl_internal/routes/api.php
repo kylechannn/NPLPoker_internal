@@ -110,6 +110,7 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::delete('sessions/{gameSessionId}/registrations/{nplId}', 'removeCloudRegistration')->whereNumber('gameSessionId');
     Route::post('sessions/{gameSessionId}/registrations/{nplId}/promote', 'promoteCloudRegistration')->whereNumber('gameSessionId');
     Route::post('structure-preview', 'previewStructure');
+    Route::get('chat/recent', 'chatRecent');
 
     Route::post('{id}/scan', 'scan')->whereNumber('id');
     Route::post('{id}/act', 'act')->whereNumber('id');

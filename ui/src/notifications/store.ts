@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react"
  * close. The notification panel renders it with category sub-tabs.
  */
 
-export type NoticeCategory = "registration" | "system"
+export type NoticeCategory = "registration" | "system" | "chat"
 
 export type NoticeTone = "info" | "success" | "warning"
 

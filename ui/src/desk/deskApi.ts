@@ -192,6 +192,21 @@ export type Venue = {
   media_key: string | null
 }
 
+/** One cash-game chat line from the cloud — table-room talk or a TD thread. */
+export type ChatRecentRow = {
+  id: number
+  game_session_id: number
+  session_title: string | null
+  session_date: string | null
+  scope: 'table' | 'td'
+  sender: 'player' | 'td'
+  sender_name: string | null
+  npl_id: string | null
+  thread: { player_id: number, npl_id: string | null, display_name: string | null } | null
+  body: string
+  created_at: string
+}
+
 export type GeneratedLevel = {
   level_no: number
   type: 'blind' | 'break'
@@ -369,6 +384,12 @@ export const deskApi = {
     request<{ result: { registrations: OnlineRegistration[] } }>(
       `/api/v1/desk/sessions/${gameSessionId}/online-registrations`,
     ).then((data) => data.result.registrations),
+
+  /** Recent cash-game chat — table rooms + TD requests, newest first. */
+  chatRecent: (venueId: number | null) =>
+    request<{ result: { data: ChatRecentRow[] } }>(
+      `/api/v1/desk/chat/recent${venueId ? `?venue_id=${venueId}` : ''}`,
+    ).then((r) => r.result.data),
 
   previewStructure: (options: Record<string, unknown>) =>
     request<{ levels: GeneratedLevel[], preview: string[], total_minutes: number }>(

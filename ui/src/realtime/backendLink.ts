@@ -252,6 +252,24 @@ export function useBackendLink(venueId: number | null) {
           )
           void pullSessionsNow(venueId).catch(() => {})
         }
+
+        if (message?.event === "chat.touched") {
+          const data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as
+            | { game_session_id?: number, scope?: string, sender?: string }
+            | undefined
+          // Only player-authored lines raise a notice — the director wrote
+          // the TD ones, so telling them about their own message is noise.
+          if (data?.sender === "player") {
+            notify(
+              "chat",
+              data?.scope === "td" ? "Chat request for the TD" : "Table chat message",
+              `Session #${data?.game_session_id ?? "?"} — open the Chat tab.`,
+              data?.scope === "td" ? "warning" : "info",
+            )
+          }
+          // The Chat pane listens for this and re-fetches the feed.
+          window.dispatchEvent(new CustomEvent("npl:chat-touched"))
+        }
       }
 
       socket.onclose = (event: CloseEvent) => {
