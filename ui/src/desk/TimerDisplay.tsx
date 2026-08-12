@@ -814,20 +814,26 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           </main>
 
           <aside className="mx-col mx-col--right">
+            {/* Keyed by face: every 10s swap remounts, and the cascade
+                animation announces the change like a broadcast graphic. */}
             {rail === "chips" || !hasPrizes ? (
-              <>
+              <div className="mx-railface" key="chips">
                 <h3 className="mx-railhead">Chip Denominations</h3>
                 <div className="mx-raillist">
-                  {denominations.map((denom) => (
-                    <div key={denom} className="mx-card mx-card--rail">
+                  {denominations.map((denom, index) => (
+                    <div
+                      key={denom}
+                      className="mx-card mx-card--rail"
+                      style={{ animationDelay: `${index * 45}ms` }}
+                    >
                       <ChipIcon color={chipColor(denom)} />
                       <strong className="mx-card__value mx-card__value--rail">{denom}</strong>
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             ) : (
-              <>
+              <div className="mx-railface" key="prizes">
                 <h3 className="mx-railhead">Prize Distribution</h3>
                 <div className="mx-raillist">
                   {extras.prize_guarantee ? (
@@ -837,13 +843,17 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                     </div>
                   ) : null}
                   {prizeRows.map((row, index) => (
-                    <div key={index} className="mx-card mx-card--rail">
+                    <div
+                      key={index}
+                      className="mx-card mx-card--rail"
+                      style={{ animationDelay: `${(index + (extras.prize_guarantee ? 1 : 0)) * 45}ms` }}
+                    >
                       <span className="mx-prize__place">{row.place}</span>
                       <strong className="mx-card__value mx-card__value--rail">{row.prize}</strong>
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             )}
           </aside>
         </div>
@@ -903,9 +913,6 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           )}
         </div>
 
-        <footer className="mx-tagline">
-          <span>NPL</span> — Where players compete. Champions are made.
-        </footer>
       </div>
 
       {error ? <p className="rc-stale">{error}</p> : null}

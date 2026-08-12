@@ -968,6 +968,31 @@
 
 /* -- the right rail: chips ⇄ prizes -- */
 
+.mx-railface {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The face swap: heading tracks in, rows cascade from the right. */
+.mx-railface .mx-railhead {
+  animation: mx-railhead-in 0.5s ease both;
+}
+
+.mx-railface .mx-card--rail {
+  animation: mx-railrow-in 0.45s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+@keyframes mx-railhead-in {
+  from { opacity: 0; letter-spacing: 0.55em; }
+  to { opacity: 1; letter-spacing: 0.26em; }
+}
+
+@keyframes mx-railrow-in {
+  from { opacity: 0; transform: translateX(36px); }
+  to { opacity: 1; transform: none; }
+}
+
 .mx-railhead {
   margin: 0 0 clamp(2px, 0.6vh, 8px);
   font-size: clamp(11px, 1.05vw, 17px);
@@ -1022,6 +1047,7 @@
   justify-content: center;
   min-height: clamp(40px, 5.4vh, 58px);
   margin-top: clamp(4px, 1vh, 10px);
+  margin-bottom: clamp(6px, 1.4vh, 16px);
 }
 
 .mx-bar {
@@ -1113,21 +1139,9 @@
   color: #94a3b8;
 }
 
-/* -- footer tagline -- */
-
-.mx-tagline {
-  padding-top: clamp(6px, 1.2vh, 14px);
-  text-align: center;
-  font-size: clamp(11px, 1.15vw, 18px);
-  font-weight: 700;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  color: #d4d9e2;
-}
-
-.mx-tagline span { color: #e11d3c; }
-
 @media (prefers-reduced-motion: reduce) {
   .mx-ring__arc { transition: none; }
   .mx-bar { animation: none; }
+  .mx-railface .mx-railhead,
+  .mx-railface .mx-card--rail { animation: none; }
 }
