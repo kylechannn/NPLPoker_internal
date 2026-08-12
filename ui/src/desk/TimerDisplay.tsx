@@ -661,11 +661,11 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
             <img src={nplLogoUrl} alt="NPL" />
             <span className="mx-brand__name">National<br />Poker League</span>
           </div>
-          <div className="mx-url">www.npl.com.au</div>
+          <div className="mx-url">www.nplpokerclub.com.au</div>
         </header>
 
         <div className="mx-grid">
-          <aside className="mx-col">
+          <aside className="mx-col mx-col--left">
             <div className="mx-card">
               <Clock className="mx-card__icon" strokeWidth={1.9} />
               <div className="mx-card__text">
@@ -746,9 +746,9 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                     <stop offset="1" stopColor="rgba(255,255,255,0)" />
                   </radialGradient>
                   <radialGradient id="mxRingFace" cx="0.5" cy="0.42" r="0.75">
-                    <stop offset="0" stopColor="#15171c" />
-                    <stop offset="0.72" stopColor="#0b0c0f" />
-                    <stop offset="1" stopColor="#060708" />
+                    <stop offset="0" stopColor="#130c0d" />
+                    <stop offset="0.72" stopColor="#090607" />
+                    <stop offset="1" stopColor="#030303" />
                   </radialGradient>
                 </defs>
                 <circle className="mx-ring__face" cx="500" cy="500" r={RING_RADIUS} fill="url(#mxRingFace)" />
@@ -832,12 +832,12 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               </svg>
 
               <div className="mx-face">
-                <span className="mx-tag">Level</span>
+                <span className="mx-tag mx-tag--level">Level</span>
                 <span className="mx-levelno">{level?.level_no ?? "—"}</span>
                 <span className={`mx-clock${urgent ? " mx-clock--urgent" : ""}`}>{countdown(remaining)}</span>
                 <i className="mx-cut" aria-hidden="true" />
-                <span className="mx-tag">{isBreak ? "Break" : "Blinds"}</span>
-                <span className="mx-blinds">{blindLabel}</span>
+                <span className="mx-tag mx-tag--blinds">{isBreak ? "Break" : "Blinds"}</span>
+                <span className={`mx-blinds${isBreak ? " mx-blinds--break" : ""}`}>{blindLabel}</span>
                 <span className="mx-tag mx-tag--next">Next Level</span>
                 <span className="mx-nextblinds">{nextLabel}</span>
               </div>
@@ -858,7 +858,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                       style={{ animationDelay: `${index * 45}ms` }}
                     >
                       <ChipIcon color={chipColor(denom)} />
-                      <strong className="mx-card__value mx-card__value--rail">{denom}</strong>
+                      <strong className={`mx-card__value mx-card__value--rail${chipTokenValue(denom) === null ? " mx-card__value--text" : ""}`}>{denom}</strong>
                     </div>
                   ))}
                 </div>

@@ -47,11 +47,12 @@
   z-index: 40;
   border-bottom: 0;
   background: transparent;
-  opacity: 0.05;
+  opacity: 0;
   transition: opacity 0.25s ease, background 0.25s ease;
 }
 
-.rc--max .rc-titlebar:hover {
+.rc--max .rc-titlebar:hover,
+.rc--max .rc-titlebar:focus-within {
   opacity: 1;
   background: rgba(2, 6, 23, 0.88);
 }
@@ -458,13 +459,16 @@
    viewport so a projector and a laptop read the same design. ---- */
 
 .mx-page {
+  --mx-gutter: clamp(28px, 2vw, 40px);
+  --mx-stage-top: clamp(8px, 1.2vh, 13px);
+  --mx-header-top: clamp(20px, 2.4vh, 26px);
   position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  padding: clamp(30px, 4.5vh, 48px) clamp(16px, 2.6vw, 40px) clamp(10px, 2vh, 26px);
-  background: #050505;
+  padding: var(--mx-stage-top) var(--mx-gutter) 10px;
+  background: #020202;
   color: #f4f6fa;
   overflow: hidden;
   /* Bahnschrift is Windows' bundled DIN — the art's condensed voice.
@@ -494,7 +498,7 @@
   top: -14vw;
   width: 48vw;
   height: 48vw;
-  background: radial-gradient(circle, rgba(216, 31, 61, 0.22) 0%, transparent 64%);
+  background: radial-gradient(circle, rgba(216, 31, 61, 0.12) 0%, transparent 64%);
 }
 
 .mx-glow--rightlow {
@@ -502,7 +506,7 @@
   bottom: -16vw;
   width: 44vw;
   height: 44vw;
-  background: radial-gradient(circle, rgba(216, 31, 61, 0.14) 0%, transparent 62%);
+  background: radial-gradient(circle, rgba(216, 31, 61, 0.025) 0%, transparent 62%);
 }
 
 /* The right half's whisper of diagonal red texture (upper-right light). */
@@ -511,7 +515,7 @@
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: repeating-linear-gradient(115deg, rgba(216, 31, 61, 0.05) 0 1px, transparent 1px 30px);
+  background: repeating-linear-gradient(115deg, rgba(216, 31, 61, 0.02) 0 1px, transparent 1px 14px);
   -webkit-mask-image: linear-gradient(90deg, transparent 48%, #000 82%);
   mask-image: linear-gradient(90deg, transparent 48%, #000 82%);
   pointer-events: none;
@@ -530,6 +534,11 @@
 /* -- header: brand left, url right -- */
 
 .mx-top {
+  position: absolute;
+  top: var(--mx-header-top);
+  right: var(--mx-gutter);
+  left: var(--mx-gutter);
+  z-index: 3;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -539,17 +548,17 @@
 .mx-brand {
   display: flex;
   align-items: center;
-  gap: clamp(10px, 1.2vw, 18px);
+  gap: clamp(18px, 1.85vw, 36px);
 }
 
 .mx-brand img {
-  width: clamp(52px, 6.4vw, 96px);
+  width: clamp(72px, 7.3vw, 142px);
   height: auto;
   filter: drop-shadow(0 0 18px rgba(216, 31, 61, 0.35));
 }
 
 .mx-brand__name {
-  font-size: clamp(15px, 1.75vw, 27px);
+  font-size: clamp(18px, 1.9vw, 36px);
   font-weight: 800;
   letter-spacing: 0.18em;
   line-height: 1.22;
@@ -558,52 +567,72 @@
 }
 
 .mx-url {
+  margin-right: clamp(12px, 1.45vw, 24px);
   padding-top: clamp(6px, 1vh, 14px);
-  font-size: clamp(12px, 1.25vw, 19px);
+  font-size: clamp(13px, 1.25vw, 22px);
   font-weight: 700;
-  letter-spacing: 0.42em;
+  letter-spacing: 0.46em;
   color: #eef1f5;
 }
 
 /* -- the three columns -- */
 
 .mx-grid {
+  position: relative;
+  z-index: 2;
   display: grid;
   flex: 1;
   min-height: 0;
-  grid-template-columns: minmax(240px, 22vw) 1fr minmax(240px, 22vw);
+  grid-template-columns: minmax(260px, 24vw) minmax(0, 1fr) minmax(260px, 24vw);
   align-items: center;
-  gap: clamp(14px, 2vw, 34px);
+  gap: clamp(8px, 1vw, 18px);
 }
 
 .mx-col {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: clamp(8px, 1.5vh, 16px);
+  gap: clamp(18px, 3vh, 32px);
   min-height: 0;
+}
+
+.mx-col--left {
+  transform: translateY(7.5vh);
+}
+
+.mx-col--right {
+  width: 18vw;
+  height: 76vh;
+  justify-self: end;
+  justify-content: flex-start;
+  gap: 0;
+  margin-right: clamp(4px, 0.45vw, 8px);
+  transform: translateY(3.6vh);
 }
 
 /* -- the stat cards -- */
 
 .mx-card {
-  --mx-cut: 13px;
+  --mx-cut: clamp(12px, 1vw, 16px);
   position: relative;
   display: flex;
   align-items: center;
   gap: clamp(9px, 1vw, 15px);
   padding: clamp(8px, 1.5vh, 15px) clamp(12px, 1.3vw, 20px);
   clip-path: polygon(
-    0 0,
+    var(--mx-cut) 0,
     calc(100% - var(--mx-cut)) 0,
     100% var(--mx-cut),
-    100% 100%,
+    100% calc(100% - var(--mx-cut)),
     var(--mx-cut) 100%,
-    0 calc(100% - var(--mx-cut))
+    0 calc(100% - var(--mx-cut)),
+    0 var(--mx-cut)
   );
   /* drop-shadow (unlike box-shadow) is applied after the clip, so the
      red haze follows the cut shape outward. */
-  filter: drop-shadow(0 0 16px rgba(216, 31, 61, 0.14));
+  filter: drop-shadow(0 0 14px rgba(216, 31, 61, 0.12));
 }
 
 /* The outline layer: red gradient, brightest toward the light. */
@@ -612,11 +641,11 @@
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: linear-gradient(115deg,
-    rgba(255, 122, 136, 0.95) 0%,
-    rgba(216, 31, 61, 0.55) 28%,
-    rgba(140, 22, 42, 0.5) 64%,
-    rgba(255, 100, 114, 0.7) 100%);
+  background: linear-gradient(90deg,
+    rgba(255, 92, 108, 0.95) 0%,
+    rgba(216, 31, 61, 0.62) 12%,
+    rgba(137, 141, 151, 0.34) 54%,
+    rgba(195, 199, 207, 0.46) 100%);
 }
 
 /* The face, 1px inside, re-cut so the outline shows on the chamfers too. */
@@ -626,19 +655,44 @@
   inset: 1px;
   z-index: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.015) 6%, transparent 15%),
-    linear-gradient(112deg, transparent 32%, rgba(255, 255, 255, 0.05) 45%, rgba(255, 255, 255, 0.012) 57%, transparent 66%),
-    radial-gradient(130% 160% at 0% 50%, rgba(216, 31, 61, 0.30) 0%, rgba(216, 31, 61, 0.08) 30%, transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.012) 7%, transparent 17%),
+    linear-gradient(112deg, transparent 32%, rgba(255, 255, 255, 0.04) 45%, rgba(255, 255, 255, 0.01) 57%, transparent 66%),
+    radial-gradient(130% 160% at 0% 50%, rgba(216, 31, 61, 0.18) 0%, rgba(216, 31, 61, 0.045) 30%, transparent 44%),
     linear-gradient(0deg, rgba(0, 0, 0, 0.35) 0%, transparent 24%),
-    linear-gradient(115deg, #190a0e 0%, #111219 34%, #08090c 100%);
+    linear-gradient(115deg, #14090d 0%, #101116 34%, #07080a 100%);
   clip-path: polygon(
-    0 0,
+    calc(var(--mx-cut) - 1px) 0,
     calc(100% - var(--mx-cut) + 1px) 0,
     100% calc(var(--mx-cut) - 1px),
-    100% 100%,
+    100% calc(100% - var(--mx-cut) + 1px),
     calc(var(--mx-cut) - 1px) 100%,
-    0 calc(100% - var(--mx-cut) + 1px)
+    0 calc(100% - var(--mx-cut) + 1px),
+    0 calc(var(--mx-cut) - 1px)
   );
+}
+
+.mx-col--left > .mx-card {
+  min-height: clamp(82px, 11.5vh, 124px);
+  gap: clamp(26px, 2.55vw, 49px);
+  padding: clamp(10px, 1.5vh, 17px) clamp(28px, 2.7vw, 52px);
+  filter:
+    drop-shadow(-4px 0 10px rgba(216, 31, 61, 0.24))
+    drop-shadow(0 0 14px rgba(216, 31, 61, 0.10));
+}
+
+.mx-col--left > .mx-card .mx-card__icon {
+  width: clamp(44px, 6.4vh, 70px);
+  height: clamp(44px, 6.4vh, 70px);
+}
+
+.mx-col--left > .mx-card .mx-card__label {
+  font-size: clamp(11px, 0.95vw, 18px);
+  letter-spacing: 0.19em;
+}
+
+.mx-col--left > .mx-card .mx-card__value {
+  font-size: clamp(24px, 2.7vw, 51px);
+  letter-spacing: 0.03em;
 }
 
 .mx-card > * {
@@ -650,10 +704,10 @@
   flex: none;
   width: clamp(24px, 2.7vw, 44px);
   height: clamp(24px, 2.7vw, 44px);
-  color: #ff2e42;
+  color: #ef383c;
   filter:
-    drop-shadow(0 0 3px rgba(255, 46, 66, 0.5))
-    drop-shadow(0 0 12px rgba(255, 46, 66, 0.4));
+    drop-shadow(0 0 3px rgba(239, 56, 60, 0.5))
+    drop-shadow(0 0 12px rgba(239, 56, 60, 0.4));
 }
 
 .mx-card__text {
@@ -666,10 +720,11 @@
 .mx-card__label {
   font-size: clamp(9px, 0.85vw, 14px);
   font-weight: 800;
+  line-height: 1.1;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #ff2e42;
-  text-shadow: 0 0 9px rgba(255, 46, 66, 0.35);
+  color: #ef383c;
+  text-shadow: 0 0 9px rgba(239, 56, 60, 0.35);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -678,6 +733,7 @@
 .mx-card__value {
   font-size: clamp(17px, 2vw, 32px);
   font-weight: 800;
+  line-height: 1;
   letter-spacing: 0.06em;
   background: linear-gradient(180deg, #ffffff 0%, #f0f2f6 54%, #b6bcc8 100%);
   -webkit-background-clip: text;
@@ -690,15 +746,33 @@
 .mx-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: clamp(8px, 0.9vw, 14px);
+  gap: clamp(14px, 1.5vw, 29px);
 }
 
-.mx-card--half { padding-right: clamp(8px, 0.9vw, 13px); }
+.mx-card--half {
+  min-height: clamp(70px, 9.7vh, 105px);
+  gap: clamp(12px, 1.1vw, 21px);
+  padding: clamp(8px, 1.2vh, 13px) clamp(10px, 1vw, 19px);
+}
+
+.mx-card--half .mx-card__icon {
+  width: clamp(38px, 5.2vh, 56px);
+  height: clamp(38px, 5.2vh, 56px);
+}
+
+.mx-card--half .mx-card__label {
+  font-size: clamp(10px, 1vw, 19px);
+}
+
+.mx-card--half .mx-card__value {
+  font-size: clamp(21px, 2.2vw, 42px);
+}
 
 /* -- the dial -- */
 
 .mx-center {
   position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -708,7 +782,8 @@
 
 .mx-dial {
   position: relative;
-  width: min(96%, 76vh);
+  width: min(50vw, 87.5vh);
+  max-width: none;
   aspect-ratio: 1;
   filter: drop-shadow(0 22px 44px rgba(0, 0, 0, 0.6));
 }
@@ -739,7 +814,7 @@
 
 .mx-ring__track {
   fill: none;
-  stroke-width: 26;
+  stroke-width: 36;
 }
 
 .mx-ring__rim {
@@ -833,18 +908,18 @@
 
 .mx-ring__halo {
   stroke: rgba(225, 29, 60, 0.45);
-  stroke-width: 40;
+  stroke-width: 50;
   filter: blur(12px);
 }
 
 .mx-ring__fill {
-  stroke-width: 22;
+  stroke-width: 32;
   filter: drop-shadow(0 0 10px rgba(225, 29, 60, 0.55));
 }
 
 /* The lit centre of the tube — what sells the 3D. */
 .mx-ring__core {
-  stroke-width: 8;
+  stroke-width: 10;
   opacity: 0.9;
 }
 
@@ -852,7 +927,7 @@
 .mx-ring__notches {
   fill: none;
   stroke: rgba(0, 0, 0, 0.35);
-  stroke-width: 26;
+  stroke-width: 36;
   stroke-dasharray: 2.5 95;
 }
 
@@ -860,7 +935,7 @@
 .mx-ring__spec {
   fill: none;
   stroke: rgba(255, 255, 255, 0.13);
-  stroke-width: 16;
+  stroke-width: 24;
   stroke-linecap: round;
   transform: rotate(158deg);
   transform-origin: 500px 500px;
@@ -869,41 +944,53 @@
 
 .mx-face {
   position: absolute;
-  inset: 9%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  inset: 0;
   text-align: center;
-  gap: clamp(1px, 0.5vh, 6px);
 }
 
 .mx-tag {
-  font-size: clamp(11px, 1.2vw, 20px);
+  position: absolute;
+  left: 50%;
+  font-size: clamp(13px, 1.65vw, 32px);
   font-weight: 700;
+  line-height: 1;
   letter-spacing: 0.52em;
   text-indent: 0.52em;
   text-transform: uppercase;
-  color: #ff2e42;
+  color: #ef383c;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
-.mx-tag--next { margin-top: clamp(2px, 0.9vh, 10px); }
+.mx-tag--level { top: 12.7%; }
+.mx-tag--blinds { top: 67.7%; }
+.mx-tag--next {
+  top: 85.4%;
+  font-size: clamp(11px, 1.35vw, 26px);
+}
 
 .mx-levelno {
-  font-size: clamp(34px, 5.2vw, 94px);
+  position: absolute;
+  top: 17.5%;
+  left: 50%;
+  margin: 0;
+  font-size: clamp(42px, 5.7vw, 110px);
   font-weight: 800;
-  line-height: 1.05;
+  line-height: 1;
   color: #ececf0;
   font-variant-numeric: tabular-nums;
   text-shadow: 0 0 18px rgba(255, 255, 255, 0.10);
-  margin-bottom: clamp(6px, 1.8vh, 22px);
+  transform: translateX(-50%);
 }
 
 .mx-clock {
-  font-size: clamp(64px, 11.5vw, 204px);
+  position: absolute;
+  top: 31%;
+  left: 50%;
+  font-size: clamp(96px, 19vw, 360px);
   font-weight: 800;
   font-stretch: 78%;
-  line-height: 0.98;
+  line-height: 1;
   letter-spacing: 0.015em;
   background: linear-gradient(180deg, #ffffff 0%, #f2f4f7 52%, #b7bdc9 100%);
   -webkit-background-clip: text;
@@ -911,6 +998,9 @@
   color: transparent;
   font-variant-numeric: tabular-nums;
   filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.12)) drop-shadow(0 3px 3px rgba(0, 0, 0, 0.55));
+  transform: translateX(-50%) scaleX(0.86);
+  transform-origin: top center;
+  white-space: nowrap;
 }
 
 .mx-clock--urgent {
@@ -921,12 +1011,15 @@
 }
 
 .mx-cut {
-  position: relative;
+  position: absolute;
+  top: 64%;
+  left: 50%;
   width: 84%;
   height: 2px;
-  margin: clamp(1px, 0.4vh, 5px) 0 clamp(3px, 0.9vh, 10px);
+  margin: 0;
   background: linear-gradient(90deg, transparent 0%, #b3122a 14%, #ff8391 50%, #b3122a 86%, transparent 100%);
   box-shadow: 0 0 14px rgba(225, 29, 60, 0.8);
+  transform: translateX(-50%);
 }
 
 /* The hot centre of the beam. */
@@ -959,21 +1052,38 @@
 }
 
 .mx-blinds {
-  font-size: clamp(32px, 4.8vw, 86px);
+  position: absolute;
+  top: 71.1%;
+  left: 50%;
+  font-size: clamp(42px, 5vw, 96px);
   font-weight: 700;
-  line-height: 1.05;
+  line-height: 1;
   background: linear-gradient(180deg, #ffffff 0%, #eef0f4 55%, #c3c9d4 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   font-variant-numeric: tabular-nums;
+  transform: translateX(-50%) scaleX(1.35);
+  transform-origin: top center;
+  white-space: nowrap;
+}
+
+.mx-blinds--break {
+  font-size: clamp(36px, 4.4vw, 84px);
+  transform: translateX(-50%);
 }
 
 .mx-nextblinds {
-  font-size: clamp(20px, 2.7vw, 48px);
+  position: absolute;
+  top: 88.4%;
+  left: 50%;
+  font-size: clamp(24px, 3.4vw, 65px);
   font-weight: 800;
+  line-height: 1;
   color: #c7ccd6;
   font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 /* -- the right rail: chips ⇄ prizes -- */
@@ -981,6 +1091,7 @@
 .mx-railface {
   display: flex;
   flex-direction: column;
+  width: 100%;
   min-height: 0;
 }
 
@@ -1005,67 +1116,163 @@
 
 .mx-railhead {
   margin: 0 0 clamp(2px, 0.6vh, 8px);
-  font-size: clamp(11px, 1.05vw, 17px);
+  font-size: clamp(13px, 1.45vw, 26px);
   font-weight: 800;
   letter-spacing: 0.26em;
   text-transform: uppercase;
   text-align: center;
-  color: #e11d3c;
+  color: #ef383c;
 }
 
 .mx-raillist {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: clamp(6px, 1.1vh, 12px);
+  gap: clamp(5px, 0.65vh, 7px);
   min-height: 0;
 }
 
 .mx-card--rail {
-  padding: clamp(5px, 1vh, 10px) clamp(11px, 1.2vw, 18px);
-  gap: clamp(10px, 1.1vw, 18px);
+  min-height: clamp(60px, 8.5vh, 92px);
+  padding: clamp(3px, 0.4vh, 5px) clamp(11px, 1.1vw, 21px);
+  gap: clamp(18px, 2.2vw, 42px);
 }
 
 .mx-card__value--rail {
-  font-size: clamp(16px, 1.9vw, 30px);
+  min-width: 0;
+  font-size: clamp(24px, 3.2vw, 62px);
   letter-spacing: 0.14em;
+}
+
+.mx-card__value--text {
+  font-size: clamp(16px, 1.5vw, 28px);
+  line-height: 1.05;
+  letter-spacing: 0.08em;
+  overflow-wrap: anywhere;
 }
 
 .mx-chipicon {
   flex: none;
-  width: clamp(34px, 3.4vw, 56px);
-  height: clamp(34px, 3.4vw, 56px);
+  width: clamp(50px, 7.4vh, 80px);
+  height: clamp(50px, 7.4vh, 80px);
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.65));
 }
 
 .mx-prize__place {
-  flex: none;
-  min-width: clamp(34px, 3vw, 50px);
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: clamp(13px, 1.3vw, 21px);
   font-weight: 800;
+  line-height: 1.05;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #e11d3c;
+  color: #ef383c;
+  overflow-wrap: anywhere;
+}
+
+.mx-prize__place + .mx-card__value--rail {
+  flex: 0 1 auto;
+  font-size: clamp(20px, 2vw, 38px);
+  letter-spacing: 0.1em;
+  overflow-wrap: anywhere;
 }
 
 .mx-card--gtd .mx-card__value--rail { color: #ffd75e; }
 
+/* Nine configured denominations still fit without hiding or clipping a row. */
+.mx-raillist:has(> .mx-card--rail:nth-child(9)) {
+  gap: clamp(3px, 0.45vh, 5px);
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(9)) .mx-card--rail {
+  min-height: clamp(54px, 7.5vh, 81px);
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(9)) .mx-chipicon {
+  width: clamp(46px, 6.4vh, 69px);
+  height: clamp(46px, 6.4vh, 69px);
+}
+
+/* A guarantee plus nine payout rows creates ten cards. Keep every row. */
+.mx-raillist:has(> .mx-card--rail:nth-child(10)) {
+  gap: clamp(2px, 0.3vh, 3px);
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(10)) .mx-card--rail {
+  min-height: clamp(48px, 6.7vh, 72px);
+  padding-block: clamp(2px, 0.25vh, 3px);
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(10)) .mx-prize__place {
+  font-size: clamp(11px, 1vw, 18px);
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(10)) .mx-prize__place + .mx-card__value--rail {
+  font-size: clamp(18px, 1.65vw, 32px);
+}
+
+/* Cloud payout ladders are not capped. Compress longer lists inside the rail
+   and keep every configured row reachable instead of letting cards escape the
+   display frame. Normal chip and prize lists never enter this rule. */
+.mx-railface:has(.mx-card--rail:nth-child(11)) {
+  height: 100%;
+  overflow: hidden;
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(11)) {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  gap: clamp(2px, 0.25vh, 3px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(239, 56, 60, 0.48) transparent;
+  scrollbar-width: thin;
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(11)) .mx-card--rail {
+  min-height: clamp(44px, 5.6vh, 60px);
+  padding-block: 2px;
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(11)) .mx-prize__place {
+  font-size: clamp(10px, 0.85vw, 16px);
+}
+
+.mx-raillist:has(> .mx-card--rail:nth-child(11)) .mx-prize__place + .mx-card__value--rail {
+  font-size: clamp(16px, 1.35vw, 26px);
+}
+
 /* -- the bottom strip: info at rest, controls on touch -- */
 
 .mx-bottombar {
+  position: relative;
   display: flex;
+  align-items: center;
   justify-content: center;
   min-height: clamp(40px, 5.4vh, 58px);
   margin-top: clamp(4px, 1vh, 10px);
-  margin-bottom: clamp(6px, 1.4vh, 16px);
+  margin-bottom: 6px;
+}
+
+.mx-bottombar::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.11) 12%, rgba(255, 255, 255, 0.11) 88%, transparent);
 }
 
 .mx-bar {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: clamp(16px, 2.6vw, 48px);
   padding: 0 clamp(18px, 2.4vw, 40px);
+  background: #020202;
   animation: mx-bar-in 0.28s ease;
 }
 
@@ -1092,7 +1299,7 @@
   font-weight: 800;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: #e11d3c;
+  color: #ef383c;
 }
 
 .mx-bbtn {
