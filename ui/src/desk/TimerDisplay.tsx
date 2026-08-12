@@ -623,12 +623,31 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
             <div className="mx-dial">
               <svg className="mx-ring" viewBox="0 0 1000 1000" aria-hidden="true">
                 <defs>
+                  {/* The arc: deep red into the tail, hot red toward the head. */}
                   <linearGradient id="mxRingRed" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0" stopColor="#ff4a5c" />
-                    <stop offset="1" stopColor="#b30d20" />
+                    <stop offset="0" stopColor="#f5314a" />
+                    <stop offset="0.55" stopColor="#d81f3d" />
+                    <stop offset="1" stopColor="#7f0817" />
                   </linearGradient>
+                  {/* The bezel: machined gunmetal, lit from the upper left. */}
+                  <linearGradient id="mxRingBezel" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="#3a3e46" />
+                    <stop offset="0.5" stopColor="#1b1d22" />
+                    <stop offset="1" stopColor="#0c0d10" />
+                  </linearGradient>
+                  {/* The face: a screen-dark radial, faintly lit centre. */}
+                  <radialGradient id="mxRingFace" cx="0.5" cy="0.42" r="0.75">
+                    <stop offset="0" stopColor="#15171c" />
+                    <stop offset="0.72" stopColor="#0b0c0f" />
+                    <stop offset="1" stopColor="#060708" />
+                  </radialGradient>
                 </defs>
-                <circle className="mx-ring__track" cx="500" cy="500" r={RING_RADIUS} />
+                <circle className="mx-ring__face" cx="500" cy="500" r={RING_RADIUS} fill="url(#mxRingFace)" />
+                <circle className="mx-ring__track" cx="500" cy="500" r={RING_RADIUS} stroke="url(#mxRingBezel)" />
+                <circle className="mx-ring__rim mx-ring__rim--outer" cx="500" cy="500" r={RING_RADIUS + 13} />
+                <circle className="mx-ring__rim mx-ring__rim--inner" cx="500" cy="500" r={RING_RADIUS - 13} />
+                {/* Decorative instrument ticks, barely-there, like the art. */}
+                <circle className="mx-ring__ticks" cx="500" cy="500" r={RING_RADIUS - 34} />
                 <circle
                   className="mx-ring__fill"
                   cx="500"
@@ -638,6 +657,18 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   strokeDasharray={RING_CIRCUMFERENCE}
                   strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress / 100)}
                 />
+                {progress > 0.4 && progress < 99.8 ? (() => {
+                  // The arc's leading tip, burning brighter — the lap hand.
+                  const headAngle = (progress / 100) * 2 * Math.PI - Math.PI / 2
+                  const headX = 500 + RING_RADIUS * Math.cos(headAngle)
+                  const headY = 500 + RING_RADIUS * Math.sin(headAngle)
+                  return (
+                    <>
+                      <circle className="mx-ring__headglow" cx={headX} cy={headY} r="26" />
+                      <circle className="mx-ring__head" cx={headX} cy={headY} r="10" />
+                    </>
+                  )
+                })() : null}
               </svg>
 
               <div className="mx-face">
