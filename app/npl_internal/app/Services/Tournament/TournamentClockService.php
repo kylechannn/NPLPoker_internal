@@ -124,6 +124,8 @@ final class TournamentClockService
                 'label' => $current->note ?: 'Break',
                 'in_ms' => 0,
                 'on_break' => true,
+                // The room display's card reads "NEXT 15 MINUTE BREAK".
+                'duration_min' => (int) $current->duration_min,
             ];
         }
 
@@ -140,6 +142,7 @@ final class TournamentClockService
                     'label' => $levels[$i]->note ?: 'Break',
                     'in_ms' => $accumMs,
                     'on_break' => false,
+                    'duration_min' => (int) $levels[$i]->duration_min,
                 ];
             }
 

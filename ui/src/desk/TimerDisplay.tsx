@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import { Copy, Minus, Square, X } from "lucide-react"
-import { countdown, deskApi, type AddonTier, type Gates, type PrizeBreakdownRow, type Seating, type WinnerVoucherRow } from "./deskApi"
-import { wheelApi } from "../jackpot/wheelApi"
+import { Clock, Coffee, Coins, Copy, Minus, PlusCircle, RefreshCw, Square, Users, X } from "lucide-react"
+import { countdown, deskApi, type PrizeBreakdownRow, type Seating } from "./deskApi"
+import nplLogoUrl from "../assets/npl-logo.png"
 import "./timer.css"
 
 type ClockState = {
@@ -29,6 +29,7 @@ type ClockState = {
     label: string
     in_ms: number
     on_break: boolean
+    duration_min?: number | null
   } | null
 }
 
@@ -46,19 +47,8 @@ type DisplayExtras = {
   /** The linked cloud game's payout ladder — never typed at the desk. */
   prize_breakdown: PrizeBreakdownRow[] | null
   prize_guarantee: string | null
-  /** THIS session's own winner-voucher ladder — configured per session, never typed at the desk. */
-  winner_vouchers: WinnerVoucherRow[] | null
-  /** Configured price/chip tiers — what the room clock shows, not a running count. */
-  rebuy_tiers: AddonTier[]
-  addon_tiers: AddonTier[]
-  buy_in: AddonTier
-}
-
-/** 1st, 2nd, 3rd, 4th... 11th-13th stay "th" even though they end in 1/2/3. */
-function ordinal(position: number): string {
-  const teens = position % 100
-  if (teens >= 11 && teens <= 13) return `${position}th`
-  return `${position}${["th", "st", "nd", "rd"][position % 10] ?? "th"}`
+  /** The venue's chip set, typed once in the session settings. */
+  chip_denominations: string | null
 }
 
 const SYNC_MS = 5000
@@ -94,20 +84,69 @@ function chime(isBreak: boolean) {
   }
 }
 
-/** Cents → dollar text, no decimals unless the amount needs them. */
-function money(cents: number): string {
-  return `$${(cents / 100).toLocaleString(undefined, {
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  })}`
+/** The right rail alternates chips ↔ prizes on this fixed cadence. */
+const RAIL_SWAP_MS = 10_000
+
+/** The standard NPL chip set — shown when the desk typed no denominations. */
+const DEFAULT_DENOMS = ["25", "100", "500", "1K", "5K", "10K", "25K", "100K"]
+
+/** Casino colour per canonical chip value; slate for anything unusual. */
+const CHIP_COLORS: Array<[number, string]> = [
+  [25, "#1e9e50"],
+  [100, "#3c434e"],
+  [500, "#d81f3d"],
+  [1_000, "#d9a514"],
+  [5_000, "#2160d8"],
+  [10_000, "#7c3aed"],
+  [25_000, "#e2661b"],
+  [100_000, "#d81f8f"],
+]
+
+/** "1K" → 1000, "25,000" → 25000, "100k" → 100000; null when not a number. */
+function chipTokenValue(token: string): number | null {
+  const match = /^\$?\s*([\d.,]+)\s*(k|K)?$/.exec(token.trim())
+  if (!match) return null
+  const base = Number(match[1].replace(/,/g, ""))
+  if (!Number.isFinite(base)) return null
+  return Math.round(base * (match[2] ? 1000 : 1))
 }
 
-/** One line per configured tier — "Add on $20 - 20,000 chips" — not a count. */
-function tierRows(tiers: AddonTier[], noun: string) {
-  if (tiers.length === 0) return "—"
-  return tiers.map((tier, index) => (
-    <div key={index}>{noun} {money(tier.price_cents)} - {tier.chips.toLocaleString()} chips</div>
-  ))
+function chipColor(token: string): string {
+  const value = chipTokenValue(token)
+  return CHIP_COLORS.find(([denom]) => denom === value)?.[1] ?? "#4a5261"
+}
+
+/** The desk's free-text chip list → up to 9 rail rows. */
+function parseDenominations(text: string | null): string[] {
+  const tokens = (text ?? "")
+    .split(/[,;|\n]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, 9)
+  return tokens.length > 0 ? tokens : DEFAULT_DENOMS
+}
+
+/** A stylised NPL chip: coloured rim, six edge stripes, dark inlay. */
+function ChipIcon({ color }: { color: string }) {
+  return (
+    <svg className="mx-chipicon" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="19" fill={color} />
+      {Array.from({ length: 6 }, (_, index) => (
+        <rect
+          key={index}
+          x="17.4"
+          y="1.4"
+          width="5.2"
+          height="6.4"
+          rx="1.8"
+          fill="#eef1f5"
+          transform={`rotate(${index * 60} 20 20)`}
+        />
+      ))}
+      <circle cx="20" cy="20" r="11.6" fill="#111520" stroke="rgba(255,255,255,0.72)" strokeWidth="1.1" />
+      <text x="20" y="23" textAnchor="middle" fontSize="8" fontWeight="800" fill="#ffffff">NPL</text>
+    </svg>
+  )
 }
 
 /**
@@ -123,59 +162,42 @@ function tierRows(tiers: AddonTier[], noun: string) {
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
   const [summary, setSummary] = useState<Summary>({})
-  const [extras, setExtras] = useState<DisplayExtras>({ prize_breakdown: null, prize_guarantee: null, winner_vouchers: null, rebuy_tiers: [], addon_tiers: [], buy_in: { price_cents: 0, chips: 0 } })
-  const [gates, setGates] = useState<Gates | null>(null)
+  const [extras, setExtras] = useState<DisplayExtras>({ prize_breakdown: null, prize_guarantee: null, chip_denominations: null })
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const [error, setError] = useState<string | null>(null)
   // The window opens as the mini widget (the Go host sizes it to match)
-  // and grows to the projector display on demand.
-  const [mode, setMode] = useState<"max" | "mini">("mini")
-  // Sichuan's Zoom: hide everything but blind + time, oversized.
-  const [zoomed, setZoomed] = useState(false)
+  // and grows to the projector display on demand. `?layout=max` starts
+  // straight on the big design — projector setups and screenshots.
+  const [mode, setMode] = useState<"max" | "mini">(() =>
+    new URLSearchParams(window.location.search).get("layout") === "max" ? "max" : "mini")
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   // Level-change cue, the way the mahjong room clock announces a new
   // round: a short flash and a two-tone chime.
   const [levelFlash, setLevelFlash] = useState(false)
   const prevLevelRef = useRef<number | null>(null)
-  // The live jackpot pool, worn as the gold crown of the big display.
-  // Null (offline / no jackpot running) simply hides the badge.
-  const [jackpotCents, setJackpotCents] = useState<number | null>(null)
+  // The right rail's two faces: the chip set and the payout ladder.
+  const [rail, setRail] = useState<"chips" | "prizes">("chips")
 
   useEffect(() => {
     document.title = WINDOW_TITLE
   }, [])
 
+  // The rail alternates on a fixed 10s cadence — only when there is a
+  // prize ladder to alternate TO; otherwise the chips simply stay.
+  const hasPrizes = (extras.prize_breakdown?.length ?? 0) > 0 || Boolean(extras.prize_guarantee)
   useEffect(() => {
-    if (mode !== "max") setZoomed(false)
-  }, [mode])
-
-  // The pool figure moves slowly (the host caches it a minute anyway), so
-  // one refresh a minute keeps the badge honest without touching the 5s
-  // clock sync.
-  useEffect(() => {
-    let cancelled = false
-
-    async function pullPool() {
-      try {
-        const { pool } = await wheelApi.pool()
-        if (!cancelled) setJackpotCents(pool?.amount_cents ?? null)
-      } catch {
-        if (!cancelled) setJackpotCents(null)
-      }
+    if (!hasPrizes) {
+      setRail("chips")
+      return
     }
-
-    void pullPool()
-    const handle = window.setInterval(() => {
-      if (document.visibilityState === "visible") void pullPool()
-    }, 60_000)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(handle)
-    }
-  }, [])
+    const handle = window.setInterval(
+      () => setRail((face) => (face === "chips" ? "prizes" : "chips")),
+      RAIL_SWAP_MS,
+    )
+    return () => window.clearInterval(handle)
+  }, [hasPrizes])
 
   useEffect(() => {
     const levelNo = clock?.current_level?.level_no ?? null
@@ -220,12 +242,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         setExtras({
           prize_breakdown: seating.display?.prize_breakdown ?? null,
           prize_guarantee: seating.display?.prize_guarantee ?? null,
-          winner_vouchers: seating.display?.winner_vouchers ?? null,
-          rebuy_tiers: seating.rebuy_tiers ?? [],
-          addon_tiers: seating.addon_tiers ?? [],
-          buy_in: seating.buy_in ?? { price_cents: 0, chips: 0 },
+          chip_denominations: seating.display?.chip_denominations ?? null,
         })
-        setGates(seating.gates)
         setSyncedAt(Date.now())
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Lost contact with the desk.")
@@ -368,16 +386,14 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
 
   const blindLabel = isBreak
     ? (level?.note || "Break")
-    : `${(level?.small_blind ?? 0).toLocaleString()} / ${(level?.big_blind ?? 0).toLocaleString()}`
+    : `${(level?.small_blind ?? 0).toLocaleString()}/${(level?.big_blind ?? 0).toLocaleString()}`
   const nextLabel = clock?.next_level
     ? (clock.next_level.is_break
         ? (clock.next_level.note || "Break")
-        : `${clock.next_level.small_blind.toLocaleString()} / ${clock.next_level.big_blind.toLocaleString()}`)
+        : `${clock.next_level.small_blind.toLocaleString()}/${clock.next_level.big_blind.toLocaleString()}`)
     : "Final level"
 
   const tone = paused ? "paused" : isBreak ? "break" : clock?.running ? "live" : "idle"
-
-  const jackpotLabel = jackpotCents !== null ? money(jackpotCents) : null
 
   // Players remaining against total entries, the way the room reads it:
   // 50/65 — everyone still in versus everyone who bought a seat.
@@ -390,9 +406,26 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     ? (nextBreak.on_break ? "Now" : countdown(Math.max(0, nextBreak.in_ms - (clock?.running ? elapsed : 0))))
     : null
 
+  // The big display's cards, in the design's own voice.
+  const wallTime = (at: number) => new Date(at)
+    .toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })
+    .toUpperCase()
+  const timeNowLabel = wallTime(now)
+  const breakCardLabel = nextBreak?.duration_min
+    ? `Next ${nextBreak.duration_min} Minute Break`
+    : "Next Break"
+  const breakAtLabel = nextBreak
+    ? (nextBreak.on_break
+        ? "NOW"
+        : wallTime(now + Math.max(0, nextBreak.in_ms - (clock?.running ? elapsed : 0))))
+    : "—"
+  const entriesLabel = `${(summary.active_players ?? 0).toLocaleString()}/${(summary.entries ?? 0).toLocaleString()}`
+  const averageStackLabel = (summary.average_stack ?? 0).toLocaleString()
+  const rebuysLabel = (summary.total_rebuys ?? 0).toLocaleString()
+  const addonsLabel = (summary.total_addons ?? 0).toLocaleString()
+
+  const denominations = parseDenominations(extras.chip_denominations)
   const prizeRows = extras.prize_breakdown ?? []
-  const winnerVoucherRows = extras.winner_vouchers ?? []
-  const hasSidePanel = prizeRows.length > 0 || winnerVoucherRows.length > 0
 
   // Sichuan's one run button, with poker's third state: Start when the
   // clock has never run, Pause while it runs, Resume after a pause.
@@ -513,192 +546,151 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     )
   }
 
+  // The countdown ring: red = time ELAPSED in the current level. Empty at
+  // the level's first second, a full red lap exactly as it rolls over.
+  const RING_RADIUS = 468
+  const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+
   return (
-    <div className={`rc rc--sichuan${levelFlash ? " rc--flash" : ""}`}>
+    <div className={`rc rc--sichuan rc--max${levelFlash ? " rc--flash" : ""}`}>
       {titlebar}
 
-      <div className="scx-page">
-        <div className="scx-stage">
-          <div className="scx-bg" aria-hidden="true" />
-          <div className="scx-scrim" aria-hidden="true" />
+      <div className="mx-page">
+        <div className="mx-glow mx-glow--left" aria-hidden="true" />
+        <div className="mx-glow mx-glow--right" aria-hidden="true" />
 
-          <div className="scx-content">
-            <div className="scx-head">
-              <div className="scx-head__side">
-                <div className="scx-title">{clock?.name ?? "Tournament"}</div>
-                <span className="scx-chip">Level {level?.level_no ?? "—"} / {clock?.level_count ?? "—"}</span>
-              </div>
-              {jackpotLabel ? (
-                <div className="scx-jackpot" role="status">
-                  <span className="scx-jackpot__label">Jackpot</span>
-                  <span className="scx-jackpot__amount">{jackpotLabel}</span>
-                </div>
-              ) : null}
-              <div className="scx-head__side scx-head__side--end">
-                <span className="scx-chip">Next: {nextLabel}</span>
-                {run ? (
-                  <button
-                    type="button"
-                    className={`scx-run${run.go ? " scx-run--go" : ""}`}
-                    disabled={busy || !clock}
-                    onClick={() => void control(run.action)}
-                  >
-                    {run.label}
-                  </button>
-                ) : (
-                  <span className="scx-chip">Finished</span>
-                )}
+        <header className="mx-top">
+          <div className="mx-brand">
+            <img src={nplLogoUrl} alt="NPL" />
+            <span className="mx-brand__name">National<br />Poker League</span>
+          </div>
+          <div className="mx-url">www.npl.com.au</div>
+        </header>
+
+        <div className="mx-grid">
+          <aside className="mx-col">
+            <div className="mx-card">
+              <Clock className="mx-card__icon" strokeWidth={1.9} />
+              <div className="mx-card__text">
+                <span className="mx-card__label">Current Time</span>
+                <strong className="mx-card__value">{timeNowLabel}</strong>
               </div>
             </div>
 
-            <div className={`scx-center${hasSidePanel && !zoomed ? " scx-center--rail" : ""}`}>
-              <div className="scx-main">
-              <div className={`scx-panel${zoomed ? " scx-panel--zoomed" : ""}`}>
-                <button
-                  type="button"
-                  className="scx-zoom"
-                  title={zoomed ? "Back to the normal full timer" : "Zoom blind and timer"}
-                  onClick={() => setZoomed((z) => !z)}
-                >
-                  {zoomed ? "Unzoom" : "Zoom"}
-                </button>
-
-                <div className="scx-plabel">Current Blind</div>
-                <div className="scx-blind">{blindLabel}</div>
-                <div className="scx-meta">
-                  Level {level?.level_no ?? "—"} / {clock?.level_count ?? "—"}
-                  {!isBreak && level && level.bb_ante > 0 ? ` · Ante ${level.bb_ante.toLocaleString()}` : ""}
-                </div>
-                <div className="scx-plabel scx-plabel--gap">Time Remaining</div>
-                <div className={`scx-clock${urgent ? " scx-clock--urgent" : ""}`}>{countdown(remaining)}</div>
-                <div className="scx-progress" aria-hidden="true">
-                  <span className={urgent ? "scx-progress--urgent" : undefined} style={{ transform: `scaleX(${progress / 100})` }} />
-                </div>
-                {paused ? (
-                  <div className="scx-warn"><i />Paused</div>
-                ) : urgent ? (
-                  <div className="scx-warn"><i />Less than 60 seconds</div>
-                ) : null}
+            <div className="mx-card">
+              <Coffee className="mx-card__icon" strokeWidth={1.9} />
+              <div className="mx-card__text">
+                <span className="mx-card__label">{breakCardLabel}</span>
+                <strong className="mx-card__value">{breakAtLabel}</strong>
               </div>
+            </div>
 
-              {!zoomed ? (
-                <div className="scx-panel scx-panel--next">
-                  <div className="scx-plabel">Next</div>
-                  <div className="scx-next">{nextLabel}</div>
-                  {canStep ? (
-                    <div className="scx-nav">
-                      <button type="button" disabled={busy} onClick={() => void control("prev")}>Prev</button>
-                      <button type="button" disabled={busy} onClick={() => void control("next")}>Next</button>
+            <div className="mx-card">
+              <Users className="mx-card__icon" strokeWidth={1.9} />
+              <div className="mx-card__text">
+                <span className="mx-card__label">Entries</span>
+                <strong className="mx-card__value">{entriesLabel}</strong>
+              </div>
+            </div>
+
+            <div className="mx-card">
+              <Coins className="mx-card__icon" strokeWidth={1.9} />
+              <div className="mx-card__text">
+                <span className="mx-card__label">Average Stack</span>
+                <strong className="mx-card__value">{averageStackLabel}</strong>
+              </div>
+            </div>
+
+            <div className="mx-pair">
+              <div className="mx-card mx-card--half">
+                <RefreshCw className="mx-card__icon" strokeWidth={1.9} />
+                <div className="mx-card__text">
+                  <span className="mx-card__label">Re-entries</span>
+                  <strong className="mx-card__value">{rebuysLabel}</strong>
+                </div>
+              </div>
+              <div className="mx-card mx-card--half">
+                <PlusCircle className="mx-card__icon" strokeWidth={1.9} />
+                <div className="mx-card__text">
+                  <span className="mx-card__label">Add-ons</span>
+                  <strong className="mx-card__value">{addonsLabel}</strong>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <main className="mx-center">
+            <div className="mx-dial">
+              <svg className="mx-ring" viewBox="0 0 1000 1000" aria-hidden="true">
+                <defs>
+                  <linearGradient id="mxRingRed" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="#ff4a5c" />
+                    <stop offset="1" stopColor="#b30d20" />
+                  </linearGradient>
+                </defs>
+                <circle className="mx-ring__track" cx="500" cy="500" r={RING_RADIUS} />
+                <circle
+                  className="mx-ring__fill"
+                  cx="500"
+                  cy="500"
+                  r={RING_RADIUS}
+                  stroke="url(#mxRingRed)"
+                  strokeDasharray={RING_CIRCUMFERENCE}
+                  strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress / 100)}
+                />
+              </svg>
+
+              <div className="mx-face">
+                <span className="mx-tag">Level</span>
+                <span className="mx-levelno">{level?.level_no ?? "—"}</span>
+                <span className={`mx-clock${urgent ? " mx-clock--urgent" : ""}`}>{countdown(remaining)}</span>
+                <i className="mx-cut" aria-hidden="true" />
+                <span className="mx-tag">{isBreak ? "Break" : "Blinds"}</span>
+                <span className="mx-blinds">{blindLabel}</span>
+                <span className="mx-tag mx-tag--next">Next Level</span>
+                <span className="mx-nextblinds">{nextLabel}</span>
+              </div>
+            </div>
+          </main>
+
+          <aside className="mx-col mx-col--right">
+            {rail === "chips" || !hasPrizes ? (
+              <>
+                <h3 className="mx-railhead">Chip Denominations</h3>
+                <div className="mx-raillist">
+                  {denominations.map((denom) => (
+                    <div key={denom} className="mx-card mx-card--rail">
+                      <ChipIcon color={chipColor(denom)} />
+                      <strong className="mx-card__value mx-card__value--rail">{denom}</strong>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="mx-railhead">Prize Distribution</h3>
+                <div className="mx-raillist">
+                  {extras.prize_guarantee ? (
+                    <div className="mx-card mx-card--rail mx-card--gtd">
+                      <span className="mx-prize__place">GTD</span>
+                      <strong className="mx-card__value mx-card__value--rail">{extras.prize_guarantee}</strong>
                     </div>
                   ) : null}
+                  {prizeRows.map((row, index) => (
+                    <div key={index} className="mx-card mx-card--rail">
+                      <span className="mx-prize__place">{row.place}</span>
+                      <strong className="mx-card__value mx-card__value--rail">{row.prize}</strong>
+                    </div>
+                  ))}
                 </div>
-              ) : null}
-              </div>
-
-              {!zoomed && hasSidePanel ? (
-                <aside className="scx-panel scx-panel--side">
-                  <div className="scx-side__body">
-                    {/* The linked game's ladder — Daily Games admin via
-                        Manual Update. Guaranteed on top, then one row per
-                        place. Read-only here. */}
-                    {prizeRows.length > 0 ? (
-                      <>
-                        <div className="scx-plabel">Prizes</div>
-                        {extras.prize_guarantee ? (
-                          <div className="scx-payout-gtd">
-                            <span>Guaranteed</span>
-                            <strong>{extras.prize_guarantee}</strong>
-                          </div>
-                        ) : null}
-                        <ul className="scx-payout">
-                          {prizeRows.map((row, index) => (
-                            <li key={index}>
-                              <span className="scx-payout__place">{row.place}</span>
-                              <span className="scx-payout__prize">{row.prize}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : null}
-
-                    {/* THIS session's own winner-voucher ladder — Venue
-                        Vouchers admin via Manual Update, one voucher per
-                        configured finishing position. Paid automatically
-                        by the cloud the moment results are recorded; this
-                        is purely the room's preview of what's on offer. */}
-                    {winnerVoucherRows.length > 0 ? (
-                      <>
-                        <div className="scx-plabel scx-plabel--gap">Winner Vouchers</div>
-                        <ul className="scx-payout">
-                          {winnerVoucherRows.map((row) => (
-                            <li key={row.position}>
-                              <span className="scx-payout__place">{ordinal(row.position)}</span>
-                              <span className="scx-payout__prize">{row.label}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : null}
-                  </div>
-                </aside>
-              ) : null}
-            </div>
-
-            <div className="scx-stats">
-              <div className="scx-stat">
-                <div className="scx-stat__label">Buy In</div>
-                <div className="scx-stat__value scx-stat__value--tiers">{tierRows([extras.buy_in], "Buy In")}</div>
-              </div>
-              <div className="scx-stat">
-                <div className="scx-stat__label">Players</div>
-                <div className="scx-stat__value">{playersLabel}</div>
-              </div>
-              <div className="scx-stat">
-                <div className="scx-stat__label">Avg Stack</div>
-                <div className="scx-stat__value">{summary.average_stack ? summary.average_stack.toLocaleString() : "—"}</div>
-              </div>
-              <div className="scx-stat">
-                <div className="scx-stat__label">Total Chips</div>
-                <div className="scx-stat__value">{summary.total_chips ? summary.total_chips.toLocaleString() : "—"}</div>
-              </div>
-              <div className="scx-stat">
-                <div className="scx-stat__label">Rebuys</div>
-                <div className="scx-stat__value scx-stat__value--tiers">
-                  {summary.total_rebuys !== undefined ? (
-                    <div className="scx-stat__count">{summary.total_rebuys.toLocaleString()} taken</div>
-                  ) : null}
-                  {tierRows(extras.rebuy_tiers, "Rebuy")}
-                </div>
-              </div>
-              <div className="scx-stat">
-                <div className="scx-stat__label">Add-ons</div>
-                <div className="scx-stat__value scx-stat__value--tiers">
-                  {summary.total_addons !== undefined ? (
-                    <div className="scx-stat__count">{summary.total_addons.toLocaleString()} taken</div>
-                  ) : null}
-                  {tierRows(extras.addon_tiers, "Add on")}
-                </div>
-              </div>
-              {nextBreakLabel ? (
-                <div className="scx-stat">
-                  <div className="scx-stat__label">Next Break</div>
-                  <div className="scx-stat__value">{nextBreakLabel}</div>
-                </div>
-              ) : null}
-              {gates?.registration.open && gates.registration.closes_in_ms !== null ? (
-                <div className="scx-stat">
-                  <div className="scx-stat__label">Reg Closes</div>
-                  <div className="scx-stat__value">{countdown(Math.max(0, gates.registration.closes_in_ms - (clock?.running ? elapsed : 0)))}</div>
-                </div>
-              ) : gates && !gates.registration.open ? (
-                <div className="scx-stat">
-                  <div className="scx-stat__label">Registration</div>
-                  <div className="scx-stat__value">Closed</div>
-                </div>
-              ) : null}
-            </div>
-          </div>
+              </>
+            )}
+          </aside>
         </div>
+
+        <footer className="mx-tagline">
+          <span>NPL</span> — Where players compete. Champions are made.
+        </footer>
       </div>
 
       {error ? <p className="rc-stale">{error}</p> : null}
