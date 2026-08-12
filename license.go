@@ -44,10 +44,11 @@ type licenseLease struct {
 
 // versionPolicy is the cloud's verdict on this build, carried back on every
 // licence activate/check. It is persisted with the lease so a desk that was
-// told to update still knows after an offline restart. update_required is
-// never trusted as stored — it is recomputed against the running build via
-// updateRequiredFor, so updating the app clears the gate immediately instead
-// of waiting for the next successful check.
+// told to update still knows after an offline restart. The gate is the AND
+// of two voices: the cloud's stored update_required (the authority — it
+// carries the OS_VERSION_LOCK kill switch and block_unknown policy) and a
+// local recompute against the RUNNING build, so installing an update clears
+// the gate immediately instead of waiting for the next successful check.
 type versionPolicy struct {
 	CurrentVersion         string `json:"current_version"`
 	LatestVersion          string `json:"latest_version"`
@@ -303,11 +304,16 @@ func (m *licenseManager) versionPolicy() *versionPolicy {
 	return &policy
 }
 
-// updateRequiredFor recomputes the gate against the given running build.
-// Builds that cannot state a comparable version ("dev", unstamped runs) fail
-// open, matching the cloud's own gate.
+// updateRequiredFor decides the gate for the given running build. The cloud
+// is the authority — its stored update_required verdict already folds in the
+// OS_VERSION_LOCK kill switch, so a stood-down cloud can never be overruled
+// locally. The local version compare only ever CLEARS the gate: a desk that
+// just installed the update passes immediately, without waiting for the
+// next successful check to refresh the cached policy. Builds that cannot
+// state a comparable version ("dev", unstamped runs) fail open, matching
+// the cloud's own gate.
 func (p *versionPolicy) updateRequiredFor(current string) bool {
-	if p == nil {
+	if p == nil || !p.UpdateRequired {
 		return false
 	}
 	minimum := normalizeVersion(p.MinimumRequiredVersion)
