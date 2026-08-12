@@ -2231,6 +2231,96 @@
   margin-left: 0.55rem;
 }
 
+/* STOP sits right beside PRIVATE; when present it takes over the auto
+   margin so the pair hugs the title together. */
+.host-table > header .host-table__pill:has(+ .host-table__stop) {
+  margin-right: 0;
+}
+
+.host-table__stop {
+  margin-right: auto;
+  margin-left: 0.4rem;
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.host-table__stop:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.24);
+}
+
+.host-table__stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* An online booking holding the seat: dimmed occupant, PRE tag in front
+   of the name. Drops still land here — the desk outranks the booking. */
+.host-seat--booking {
+  opacity: 0.75;
+}
+
+.host-seat__pre {
+  border: 1px solid rgba(250, 204, 21, 0.5);
+  border-radius: 4px;
+  margin-right: 5px;
+  padding: 0 4px;
+  background: rgba(250, 204, 21, 0.12);
+  color: #facc15;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
+
+/* The private table's whole creation record, on header hover. */
+.host-table-card {
+  position: fixed;
+  z-index: 250;
+  max-width: 300px;
+  padding: 10px 12px;
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 10px;
+  background: #0b1526;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.host-table-card h4 {
+  margin: 0 0 6px;
+  color: var(--host-private, #a78bfa);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.host-table-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+  font-size: 0.7rem;
+}
+
+.host-table-card dt {
+  color: var(--host-text-dim, #94a3b8);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.host-table-card dd {
+  margin: 0;
+  color: #e2e8f0;
+  overflow-wrap: anywhere;
+}
+
 /* "{creator}'s table · game · blinds" + gathering countdown. */
 .host-table__meta {
   display: flex;

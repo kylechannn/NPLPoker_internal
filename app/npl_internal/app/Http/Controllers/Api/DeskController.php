@@ -245,6 +245,19 @@ final class DeskController
         ), $gameSessionId);
     }
 
+    /**
+     * Stop a private table's gather countdown, cloud-side: the 30-minute
+     * sweep can then never dismiss it. Synchronous, then refresh.
+     */
+    public function stopCloudTableCountdown(int $gameSessionId, int $tableNumber): JsonResponse
+    {
+        return $this->cloudDeskCall(sprintf(
+            '/api/v1/internal/sessions/%d/tables/%d/stop-countdown',
+            $gameSessionId,
+            $tableNumber,
+        ), $gameSessionId, method: 'post');
+    }
+
     /** Remove a player's online registration — synchronous, then refresh. */
     public function removeCloudRegistration(int $gameSessionId, string $nplId): JsonResponse
     {
@@ -279,10 +292,12 @@ final class DeskController
         return $this->ok(['result' => $result['data'] ?? $result]);
     }
 
-    private function cloudDeskCall(string $path, ?int $gameSessionId = null): JsonResponse
+    private function cloudDeskCall(string $path, ?int $gameSessionId = null, string $method = 'delete'): JsonResponse
     {
         try {
-            $result = $this->cloud->deleteJson($path);
+            $result = $method === 'post'
+                ? $this->cloud->postJson($path, [])
+                : $this->cloud->deleteJson($path);
         } catch (\App\Services\Cloud\CloudException $e) {
             return response()->json([
                 'ok' => false,

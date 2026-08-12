@@ -832,4 +832,64 @@ class TournamentDeskTest extends TestCase
         $device = app(\App\Services\Cloud\LicenseKeyProvider::class)->deviceId() ?: 'unknown';
         $this->assertSame(sprintf('npl:%s:%s', $device, substr($uuid, 0, 8)), $qr['tournament_uid']);
     }
+
+    // ------------------------------------------------- online pre-bookings --
+
+    public function test_online_bookings_wear_pre_on_the_grid_until_the_desk_buys_them_in(): void
+    {
+        $id = $this->tournament(['game_session_id' => 501]);
+
+        // The cloud mirror: Ana booked seat 3 online (not checked in yet);
+        // Ben paid with a voucher (seat secured — shown, but never PRE).
+        // The table itself is a private one carrying its creator's record.
+        $tableMeta = [
+            'table_status' => 'open', 'max_seats' => 8, 'table_kind' => 'private',
+            'creator_npl_id' => 'ANA001', 'creator_display_name' => 'Ana Online',
+            'game_mode' => "No Limit Texas Hold'em", 'blinds_text' => '$1/$2 Min $100 Max $500',
+            'rules_text' => 'No hit and run.', 'allow_strangers' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ];
+        DB::table('mirror_session_tables')->insert([
+            [
+                'session_table_key' => '501:1:3', 'session_id' => 501, 'table_number' => 1, 'seat_number' => 3,
+                'player_npl_id' => 'ANA001', 'player_display_name' => 'Ana Online',
+                'registration_status' => 'registered', 'pre_registered' => true,
+            ] + $tableMeta,
+            [
+                'session_table_key' => '501:1:4', 'session_id' => 501, 'table_number' => 1, 'seat_number' => 4,
+                'player_npl_id' => 'BEN002', 'player_display_name' => 'Ben Voucher',
+                'registration_status' => 'registered', 'pre_registered' => false,
+            ] + $tableMeta,
+        ]);
+
+        $seating = app(TournamentDeskService::class)->seating($id);
+        $tableOne = collect($seating['tables'])->firstWhere('table_number', 1);
+
+        // The creator's whole record travels to the grid (hover card).
+        $this->assertSame('No hit and run.', $tableOne['rules_text']);
+
+        $seatThree = collect($tableOne['seats'])->firstWhere('seat_number', 3);
+        $this->assertSame('ANA001', $seatThree['player']['npl_id']);
+        $this->assertSame('online', $seatThree['player']['status']);
+        $this->assertTrue($seatThree['player']['pre_registered']);
+
+        $seatFour = collect($tableOne['seats'])->firstWhere('seat_number', 4);
+        $this->assertSame('BEN002', $seatFour['player']['npl_id']);
+        $this->assertFalse($seatFour['player']['pre_registered']);
+
+        // Ana buys in at the desk: her local entry is the only truth left —
+        // exactly one seat carries her, active and untagged.
+        $this->mirrorPlayer('ANA001', 'Ana Online');
+        app(TournamentDeskService::class)->apply($id, 'ANA001', 'buy_in', []);
+
+        $seating = app(TournamentDeskService::class)->seating($id);
+        $anaSeats = collect($seating['tables'])
+            ->flatMap(fn (array $table): array => $table['seats'])
+            ->filter(fn (array $seat): bool => ($seat['player']['npl_id'] ?? null) === 'ANA001')
+            ->values();
+
+        $this->assertCount(1, $anaSeats);
+        $this->assertSame('active', $anaSeats[0]['player']['status']);
+        $this->assertFalse($anaSeats[0]['player']['pre_registered']);
+    }
 }

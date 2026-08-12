@@ -11,6 +11,7 @@ import {
   type AdminQr,
   type DeskOption,
   type DeskVoucher, type OnlineCoverage,
+  type DeskTable,
   type Gates,
   type ScanResult,
   type SeatedPlayer,
@@ -140,6 +141,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   // for its rounded corners, which would silently chop the card off for
   // any seat near the top or the packed grid's edges.
   const [memberCard, setMemberCard] = useState<{ x: number, y: number, player: SeatedPlayer } | null>(null)
+  // Hovering a private table's header shows everything its creator set.
+  const [tableCard, setTableCard] = useState<{ x: number, y: number, table: DeskTable } | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [removeCandidate, setRemoveCandidate] = useState<SeatedPlayer | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1298,9 +1301,37 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   setTableMenu({ x: e.clientX, y: e.clientY, tableNumber: table.table_number })
                 }}
               >
-                <header>
+                <header
+                  onMouseEnter={(e) => {
+                    if (table.table_kind === "private") setTableCard({ x: e.clientX, y: e.clientY, table })
+                  }}
+                  onMouseLeave={() => setTableCard(null)}
+                >
                   <strong>Table {table.table_number}</strong>
                   {table.table_kind === "private" ? <i className="host-table__pill">PRIVATE</i> : null}
+                  {table.table_kind === "private"
+                    && table.activation_deadline_at
+                    && !table.activated_at
+                    && seating.game_session_id != null ? (
+                    <button
+                      type="button"
+                      className="host-table__stop"
+                      disabled={busy}
+                      title="Stop the gather countdown — the table stays, however few gather."
+                      onClick={() => {
+                        const gameSessionId = seating.game_session_id!
+                        void seatAction(
+                          async () => {
+                            await deskApi.stopCountdown(gameSessionId, table.table_number)
+                            return deskApi.seating(sessionId)
+                          },
+                          `Countdown stopped — table ${table.table_number} stays.`,
+                        )
+                      }}
+                    >
+                      STOP
+                    </button>
+                  ) : null}
                   <span>{table.occupied} / {seating.seats_per_table}</span>
                 </header>
                 {table.table_kind === "private" ? (
@@ -1311,28 +1342,36 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   </p>
                 ) : null}
                 <ul>
-                  {table.seats.map((seat) => (
+                  {table.seats.map((seat) => {
+                    // Online bookings occupy the seat visually (PRE tag) but
+                    // stay desk-inert: not draggable, no desk actions, and a
+                    // dragged player may still land here — the desk outranks
+                    // the booking, which the cloud re-notices elsewhere.
+                    const isBooking = seat.player?.status === "online"
+
+                    return (
                     <li key={seat.seat_number}
                       className={[
                         "host-seat",
                         seat.player ? "host-seat--taken" : "",
-                        !seat.player && dragging ? "host-seat--target" : "",
+                        isBooking ? "host-seat--booking" : "",
+                        (!seat.player || isBooking) && dragging ? "host-seat--target" : "",
                       ].filter(Boolean).join(" ")}
-                      draggable={seat.player !== null}
+                      draggable={seat.player !== null && !isBooking}
                       onDragStart={(e) => {
-                        if (!seat.player) return
+                        if (!seat.player || isBooking) return
                         e.dataTransfer.setData("text/npl-id", seat.player.npl_id)
                         e.dataTransfer.effectAllowed = "move"
                         setDragging(seat.player.npl_id)
                       }}
                       onDragEnd={() => setDragging(null)}
                       onDragOver={(e) => {
-                        if (seat.player) return
+                        if (seat.player && !isBooking) return
                         e.preventDefault()
                         e.dataTransfer.dropEffect = "move"
                       }}
                       onDrop={(e) => {
-                        if (seat.player) return
+                        if (seat.player && !isBooking) return
                         e.preventDefault()
                         const nplId = e.dataTransfer.getData("text/npl-id")
                         setDragging(null)
@@ -1346,6 +1385,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                         if (!seat.player) return
                         e.preventDefault()
                         e.stopPropagation()
+                        if (isBooking) return
                         setMenu({ x: e.clientX, y: e.clientY, player: seat.player })
                       }}
                     >
@@ -1358,6 +1398,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                           }}
                           onMouseLeave={() => setMemberCard(null)}
                         >
+                          {seat.player.pre_registered ? (
+                            <i className="host-seat__pre" title="Booked online — not bought in at the desk yet">PRE</i>
+                          ) : null}
                           <ClubMembershipMark player={seat.player} />
                           {seat.player.display_name}
                           {seat.player.in_jackpot ? <em title="In the jackpot">★</em> : null}
@@ -1374,7 +1417,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                         </span>
                       ) : null}
                     </li>
-                  ))}
+                    )
+                  })}
                 </ul>
               </article>
               )
@@ -1503,6 +1547,38 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             ? <img src={memberCard.player.avatar_url} alt="" />
             : <span className="club-member-card__avatar-fallback" aria-hidden="true">{memberCard.player.display_name.charAt(0).toUpperCase()}</span>}
           <code>{memberCard.player.club_member_code}</code>
+        </div>
+      ) : null}
+
+      {tableCard ? (
+        // Everything the creator entered, at a glance — the operator
+        // hovers the private table's header to read the whole record.
+        <div className="host-table-card" style={{ left: tableCard.x + 14, top: tableCard.y + 14 }}>
+          <h4>
+            {tableCard.table.creator_display_name
+              ? `${tableCard.table.creator_display_name}'s table`
+              : `Table ${tableCard.table.table_number}`}
+          </h4>
+          <dl>
+            {tableCard.table.creator_npl_id ? (
+              <><dt>Creator</dt><dd>{tableCard.table.creator_display_name ?? "—"} ({tableCard.table.creator_npl_id})</dd></>
+            ) : null}
+            <dt>Game type</dt><dd>{tableCard.table.game_mode ?? "—"}</dd>
+            <dt>Blinds</dt><dd>{tableCard.table.blinds_text ?? "—"}</dd>
+            <dt>Rules</dt><dd>{tableCard.table.rules_text?.trim() ? tableCard.table.rules_text : "—"}</dd>
+            <dt>Access</dt><dd>{tableCard.table.allow_strangers ? "Open to all" : "Friends of the creator only"}</dd>
+            <dt>Gathering</dt>
+            <dd>
+              {tableCard.table.activated_at
+                ? "Activated — the table is playing"
+                : tableCard.table.activation_deadline_at
+                  ? (() => {
+                      const minutes = privateGatherMinutes(tableCard.table)
+                      return minutes !== null ? `${minutes} min left to gather 6` : "Window closed — sweep pending"
+                    })()
+                  : "Countdown stopped — the table stays"}
+            </dd>
+          </dl>
         </div>
       ) : null}
 

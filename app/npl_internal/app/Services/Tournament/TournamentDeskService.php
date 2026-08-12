@@ -1213,18 +1213,38 @@ final class TournamentDeskService
         // for the whole table. Empty for unlinked (ad-hoc) sessions and for
         // table numbers with no mirror rows.
         $mirrorMeta = collect();
+        $cloudSeated = collect();
         if ($session->game_session_id !== null) {
-            $mirrorMeta = DB::table('mirror_session_tables')
+            $mirrorRows = DB::table('mirror_session_tables')
                 ->where('session_id', $session->game_session_id)
                 ->orderBy('table_number')
                 ->orderBy('seat_number')
                 ->get([
-                    'table_number', 'table_kind', 'creator_npl_id', 'creator_display_name',
-                    'game_mode', 'blinds_text', 'allow_strangers',
+                    'table_number', 'seat_number', 'table_kind', 'creator_npl_id', 'creator_display_name',
+                    'game_mode', 'blinds_text', 'rules_text', 'allow_strangers',
                     'activation_deadline_at', 'activated_at',
-                ])
+                    'player_npl_id', 'player_display_name', 'registration_status', 'pre_registered',
+                ]);
+
+            $mirrorMeta = $mirrorRows
                 ->groupBy('table_number')
                 ->map(fn ($rows) => $rows->first());
+
+            // Online bookings that have not bought in at the desk yet: they
+            // appear on the grid at their cloud seat wearing a PRE tag, so
+            // the operator sees the whole expected room — tournaments and
+            // cash alike. A local entry for the same player (any status)
+            // outranks the booking and hides it.
+            $locallySeen = $entries
+                ->map(fn (object $row): string => mb_strtoupper((string) $row->player_npl_id))
+                ->flip();
+
+            $cloudSeated = $mirrorRows
+                ->filter(fn (object $row): bool => $row->player_npl_id !== null
+                    && $row->seat_number !== null
+                    && $row->registration_status === 'registered'
+                    && ! isset($locallySeen[mb_strtoupper((string) $row->player_npl_id)]))
+                ->keyBy(fn (object $row): string => $row->table_number.':'.$row->seat_number);
         }
 
         $tables = [];
@@ -1236,9 +1256,17 @@ final class TournamentDeskService
                     fn (object $row): bool => (int) $row->table_number === $number && (int) $row->seat_number === $seat,
                 );
 
+                $player = $occupant ? $this->presentEntry($occupant, $sessionId, $session) : null;
+
+                // No local (bought-in) occupant: an online booking may hold
+                // the seat — shown, but never draggable and never charged.
+                if ($player === null && ($booking = $cloudSeated->get($number.':'.$seat)) !== null) {
+                    $player = $this->presentCloudBooking($booking, $session);
+                }
+
                 $seats[] = [
                     'seat_number' => $seat,
-                    'player' => $occupant ? $this->presentEntry($occupant, $sessionId, $session) : null,
+                    'player' => $player,
                 ];
             }
 
@@ -1253,6 +1281,7 @@ final class TournamentDeskService
                 'creator_display_name' => optional($meta)->creator_display_name,
                 'game_mode' => optional($meta)->game_mode,
                 'blinds_text' => optional($meta)->blinds_text,
+                'rules_text' => optional($meta)->rules_text,
                 'allow_strangers' => optional($meta)->allow_strangers === null
                     ? null
                     : (bool) $meta->allow_strangers,
@@ -1551,6 +1580,7 @@ final class TournamentDeskService
             'live_chips' => $chips !== null ? (int) $chips->chips : null,
             'live_chips_at' => $chips->counted_at ?? null,
             'status' => $entry->status,
+            'pre_registered' => false,
             'table_number' => $entry->table_number !== null ? (int) $entry->table_number : null,
             'seat_number' => $entry->seat_number !== null ? (int) $entry->seat_number : null,
             'finish_position' => $entry->finish_position !== null ? (int) $entry->finish_position : null,
@@ -1560,6 +1590,42 @@ final class TournamentDeskService
             'max_rebuys' => (int) $session->max_rebuys_per_player,
             'max_addons' => (int) $session->max_addons_per_player,
             'spend_cents' => $actions['spend_cents'],
+        ];
+    }
+
+    /**
+     * An online booking holding a seat the desk has not confirmed yet —
+     * the mirror row dressed in the grid's occupant shape. `status`
+     * 'online' plus the pre_registered flag tell the UI to show, tag,
+     * and otherwise leave it alone (no dragging, no desk actions).
+     *
+     * @return array<string, mixed>
+     */
+    private function presentCloudBooking(object $booking, object $session): array
+    {
+        $nplId = (string) $booking->player_npl_id;
+
+        return [
+            'npl_id' => $nplId,
+            'display_name' => trim((string) ($booking->player_display_name ?? '')) !== ''
+                ? (string) $booking->player_display_name
+                : $nplId,
+            'club_member' => null,
+            'club_member_code' => null,
+            'avatar_url' => null,
+            'live_chips' => null,
+            'live_chips_at' => null,
+            'status' => 'online',
+            'pre_registered' => (bool) ($booking->pre_registered ?? true),
+            'table_number' => (int) $booking->table_number,
+            'seat_number' => (int) $booking->seat_number,
+            'finish_position' => null,
+            'in_jackpot' => false,
+            'rebuys' => 0,
+            'addons' => 0,
+            'max_rebuys' => (int) $session->max_rebuys_per_player,
+            'max_addons' => (int) $session->max_addons_per_player,
+            'spend_cents' => 0,
         ];
     }
 

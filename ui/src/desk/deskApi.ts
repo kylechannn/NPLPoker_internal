@@ -54,7 +54,13 @@ export type SeatedPlayer = {
   live_chips?: number | null
   /** ISO time the stack was counted, straight from the cloud. */
   live_chips_at?: string | null
-  status: 'active' | 'eliminated'
+  /**
+   * 'online' = a cloud booking holding the seat before desk buy-in —
+   * shown with a PRE tag, never draggable, no desk actions.
+   */
+  status: 'active' | 'eliminated' | 'online'
+  /** True until desk check-in (or a voucher) secures the online seat. */
+  pre_registered?: boolean
   table_number: number | null
   seat_number: number | null
   finish_position: number | null
@@ -78,6 +84,7 @@ export type TableMirrorMeta = {
   creator_display_name?: string | null
   game_mode?: string | null
   blinds_text?: string | null
+  rules_text?: string | null
   allow_strangers?: boolean | null
   activation_deadline_at?: string | null
   activated_at?: string | null
@@ -515,6 +522,13 @@ export const deskApi = {
     request<{ result: { finished: boolean, pushed: boolean, queued: boolean, name: string, venue_name: string | null, recorded: number } }>(
       `/api/v1/desk/${sessionId}/finalise`,
       { method: 'POST', body: JSON.stringify({ placements }) },
+    ),
+
+  /** Stop a private table's gather countdown — the table then stays for good. */
+  stopCountdown: (gameSessionId: number, tableNumber: number) =>
+    request<{ result: Record<string, unknown> }>(
+      `/api/v1/desk/sessions/${gameSessionId}/tables/${tableNumber}/stop-countdown`,
+      { method: 'POST', body: JSON.stringify({}) },
     ),
 
   /** Open a new table in the cloud for a linked session. */

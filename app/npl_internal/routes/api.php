@@ -107,6 +107,7 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::get('sessions/{gameSessionId}/roster', 'sessionRoster')->whereNumber('gameSessionId');
     Route::get('sessions/{gameSessionId}/online-registrations', 'onlineRegistrations')->whereNumber('gameSessionId');
     Route::delete('sessions/{gameSessionId}/tables/{tableNumber}', 'cancelCloudTable')->whereNumber('gameSessionId')->whereNumber('tableNumber');
+    Route::post('sessions/{gameSessionId}/tables/{tableNumber}/stop-countdown', 'stopCloudTableCountdown')->whereNumber('gameSessionId')->whereNumber('tableNumber');
     Route::delete('sessions/{gameSessionId}/registrations/{nplId}', 'removeCloudRegistration')->whereNumber('gameSessionId');
     Route::post('sessions/{gameSessionId}/registrations/{nplId}/promote', 'promoteCloudRegistration')->whereNumber('gameSessionId');
     Route::post('structure-preview', 'previewStructure');
