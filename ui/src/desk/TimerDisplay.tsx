@@ -150,10 +150,31 @@ function arcPath(radius: number, startDeg: number, endDeg: number): string {
   return `M ${point(startDeg)} A ${radius} ${radius} 0 ${large} 1 ${point(endDeg)}`
 }
 
-/** A stylised NPL chip: coloured rim, six edge stripes, dark inlay. */
+/**
+ * A stylised NPL chip with real lighting: coloured rim lit from the
+ * upper-left, six edge stripes, a radial-dark inlay with a specular
+ * sweep, sitting on its own ground shadow. Gradient ids derive from the
+ * colour, so same-colour chips share identical (harmless) definitions.
+ */
 function ChipIcon({ color }: { color: string }) {
+  const gradId = `chip-${color.replace("#", "")}`
   return (
-    <svg className="mx-chipicon" viewBox="0 0 40 40" aria-hidden="true">
+    <svg className="mx-chipicon" viewBox="0 0 40 42" aria-hidden="true">
+      <defs>
+        <radialGradient id={`${gradId}-rim`} cx="0.34" cy="0.28" r="1">
+          <stop offset="0" stopColor="#ffffff" stopOpacity="0.40" />
+          <stop offset="0.34" stopColor="#ffffff" stopOpacity="0.10" />
+          <stop offset="0.72" stopColor="#000000" stopOpacity="0" />
+          <stop offset="1" stopColor="#000000" stopOpacity="0.42" />
+        </radialGradient>
+        <radialGradient id={`${gradId}-in`} cx="0.42" cy="0.34" r="0.85">
+          <stop offset="0" stopColor="#20242f" />
+          <stop offset="0.58" stopColor="#12151d" />
+          <stop offset="1" stopColor="#06070b" />
+        </radialGradient>
+      </defs>
+      {/* Ground shadow. */}
+      <ellipse cx="20" cy="38.4" rx="14.5" ry="2.6" fill="rgba(0, 0, 0, 0.5)" />
       <circle cx="20" cy="20" r="19" fill={color} />
       {Array.from({ length: 6 }, (_, index) => (
         <rect
@@ -163,11 +184,21 @@ function ChipIcon({ color }: { color: string }) {
           width="5.2"
           height="6.4"
           rx="1.8"
-          fill="#eef1f5"
+          fill="#f2f4f8"
           transform={`rotate(${index * 60} 20 20)`}
         />
       ))}
-      <circle cx="20" cy="20" r="11.6" fill="#111520" stroke="rgba(255,255,255,0.72)" strokeWidth="1.1" />
+      {/* The light falls across rim and stripes alike. */}
+      <circle cx="20" cy="20" r="19" fill={`url(#${gradId}-rim)`} />
+      <circle cx="20" cy="20" r="11.6" fill={`url(#${gradId}-in)`} stroke="rgba(255,255,255,0.78)" strokeWidth="1" />
+      {/* Specular sweep on the inlay. */}
+      <path
+        d="M 11.7 15.2 A 9.6 9.6 0 0 1 27.35 13.83"
+        fill="none"
+        stroke="rgba(255,255,255,0.32)"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
       <text x="20" y="23" textAnchor="middle" fontSize="8" fontWeight="800" fill="#ffffff">NPL</text>
     </svg>
   )

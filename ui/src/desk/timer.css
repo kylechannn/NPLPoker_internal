@@ -613,10 +613,10 @@
   inset: 0;
   z-index: 0;
   background: linear-gradient(115deg,
-    rgba(255, 92, 108, 0.9) 0%,
-    rgba(216, 31, 61, 0.5) 30%,
-    rgba(150, 24, 44, 0.45) 66%,
-    rgba(255, 92, 108, 0.65) 100%);
+    rgba(255, 122, 136, 0.95) 0%,
+    rgba(216, 31, 61, 0.55) 28%,
+    rgba(140, 22, 42, 0.5) 64%,
+    rgba(255, 100, 114, 0.7) 100%);
 }
 
 /* The face, 1px inside, re-cut so the outline shows on the chamfers too. */
@@ -626,8 +626,11 @@
   inset: 1px;
   z-index: 0;
   background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.015) 6%, transparent 15%),
+    linear-gradient(112deg, transparent 32%, rgba(255, 255, 255, 0.05) 45%, rgba(255, 255, 255, 0.012) 57%, transparent 66%),
     radial-gradient(130% 160% at 0% 50%, rgba(216, 31, 61, 0.30) 0%, rgba(216, 31, 61, 0.08) 30%, transparent 46%),
-    linear-gradient(115deg, #17090d 0%, #101116 34%, #08090c 100%);
+    linear-gradient(0deg, rgba(0, 0, 0, 0.35) 0%, transparent 24%),
+    linear-gradient(115deg, #190a0e 0%, #111219 34%, #08090c 100%);
   clip-path: polygon(
     0 0,
     calc(100% - var(--mx-cut) + 1px) 0,
@@ -647,8 +650,10 @@
   flex: none;
   width: clamp(24px, 2.7vw, 44px);
   height: clamp(24px, 2.7vw, 44px);
-  color: #e11d3c;
-  filter: drop-shadow(0 0 8px rgba(225, 29, 60, 0.45));
+  color: #ff2e42;
+  filter:
+    drop-shadow(0 0 3px rgba(255, 46, 66, 0.5))
+    drop-shadow(0 0 12px rgba(255, 46, 66, 0.4));
 }
 
 .mx-card__text {
@@ -663,7 +668,8 @@
   font-weight: 800;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #e11d3c;
+  color: #ff2e42;
+  text-shadow: 0 0 9px rgba(255, 46, 66, 0.35);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -673,8 +679,12 @@
   font-size: clamp(17px, 2vw, 32px);
   font-weight: 800;
   letter-spacing: 0.06em;
-  color: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f2f6 54%, #b6bcc8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-variant-numeric: tabular-nums;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
 }
 
 .mx-pair {
@@ -1023,9 +1033,9 @@
 
 .mx-chipicon {
   flex: none;
-  width: clamp(32px, 3.3vw, 54px);
-  height: clamp(32px, 3.3vw, 54px);
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+  width: clamp(34px, 3.4vw, 56px);
+  height: clamp(34px, 3.4vw, 56px);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.65));
 }
 
 .mx-prize__place {
