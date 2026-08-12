@@ -5,6 +5,10 @@ ui/node_modules/
 *.log
 *.tmp
 
+# Receipts printed through a print-to-file queue (no POS printer on the
+# machine) land here as PDFs — runtime output, never part of the repo.
+receipts/
+
 # Claude Code session worktrees — never part of the product.
 .claude/
 

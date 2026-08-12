@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -9,9 +10,16 @@ import (
 
 // The receipt bridge: the bundled Laravel composes the receipt's lines
 // (fully venue-customisable text, table/seat, amounts) and posts them
-// here; this side turns them into an ESC/POS byte stream and spools it
-// RAW to the venue's receipt printer. Silent by design — a buy-in at the
-// desk or on an admin phone prints without any dialog ever appearing.
+// here; this side prints them on the venue's receipt printer. Silent by
+// design — a buy-in at the desk or on an admin phone prints without any
+// dialog ever appearing.
+//
+// The queue decides the language. Thermal receipt printers (the venue's
+// POS-80 class) get a RAW ESC/POS byte stream. Any other queue — a PDF
+// printer on a dev machine, an office laser a venue picked by hand —
+// gets the same receipt rendered as a text page through the Windows
+// driver, because RAW ESC/POS bytes into a document printer come out as
+// a blank receipt.
 
 type receiptLine struct {
 	Text   string `json:"text"`
@@ -70,12 +78,26 @@ func escposReceipt(lines []receiptLine) []byte {
 	return buffer
 }
 
-// resolveReceiptPrinter turns "no printer picked" into the right venue
-// default. Fresh Windows installs commonly default to "Microsoft Print
-// to PDF", which would swallow receipts silently — so an empty choice
-// first hunts the installed queues for the venue's POS-80 (the standard
-// NPL receipt machine), then any POS-named queue, and only then trusts
-// the Windows default.
+// printerSpeaksEscpos reports whether a queue name looks like a thermal
+// receipt printer — the class of machine that expects RAW ESC/POS bytes.
+// Everything else gets the driver-rendered document path instead.
+func printerSpeaksEscpos(name string) bool {
+	folded := strings.ToLower(name)
+	for _, marker := range []string{"pos", "thermal", "receipt", "80mm", "58mm", "tm-t", "tm-m", "rp-", "btp-", "xp-8", "xp-5"} {
+		if strings.Contains(folded, marker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolveReceiptPrinter turns "no printer picked" into a concrete queue
+// name. An empty choice first hunts the installed queues for the venue's
+// POS-80 (the standard NPL receipt machine), then any thermal-looking
+// queue, and only then trusts the Windows default — which on fresh
+// installs is commonly "Microsoft Print to PDF". Empty means the machine
+// has no printers at all.
 func resolveReceiptPrinter(requested string) string {
 	if requested != "" {
 		return requested
@@ -90,14 +112,35 @@ func resolveReceiptPrinter(requested string) string {
 			}
 		}
 		for _, name := range names {
-			if strings.Contains(strings.ToLower(name), "pos") {
+			if printerSpeaksEscpos(name) {
 				return name
 			}
 		}
 	}
 
-	// Empty keeps printRaw on the Windows default printer.
-	return ""
+	name, err := defaultPrinterName()
+	if err != nil {
+		return ""
+	}
+
+	return name
+}
+
+// printReceipt sends the composed lines to the queue in the language it
+// actually speaks. Returns the mode used and, when the queue is a
+// print-to-file device, the file the receipt landed in.
+func printReceipt(printer string, lines []receiptLine) (mode string, output string, err error) {
+	if printer == "" {
+		return "", "", fmt.Errorf("no printer is installed on this machine")
+	}
+
+	if printerSpeaksEscpos(printer) {
+		return "escpos", "", printRaw(printer, escposReceipt(lines))
+	}
+
+	output, err = printDocument(printer, lines)
+
+	return "document", output, err
 }
 
 // receiptFold keeps the stream inside plain printable ASCII — codepage
@@ -133,12 +176,22 @@ func registerReceiptPrinting(mux *http.ServeMux) {
 			log.Printf("[npl-internal] printer enumeration failed: %v", err)
 		}
 		defaultName, _ := defaultPrinterName()
+		auto := resolveReceiptPrinter("")
+		autoMode := ""
+		if auto != "" {
+			autoMode = "document"
+			if printerSpeaksEscpos(auto) {
+				autoMode = "escpos"
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"printers":        names,
 			"default_printer": defaultName,
 			// What "no printer picked" actually resolves to — the UI shows
-			// this so the venue can see the POS-80 was found.
-			"auto_printer": resolveReceiptPrinter(""),
+			// this so the venue can see whether the POS-80 was found or
+			// receipts will render as document pages instead.
+			"auto_printer": auto,
+			"auto_mode":    autoMode,
 		})
 	})))
 
@@ -159,13 +212,18 @@ func registerReceiptPrinting(mux *http.ServeMux) {
 		}
 
 		printer := resolveReceiptPrinter(strings.TrimSpace(request.Printer))
-		if err := printRaw(printer, escposReceipt(lines)); err != nil {
+		mode, output, err := printReceipt(printer, lines)
+		if err != nil {
 			log.Printf("[npl-internal] receipt print failed (printer %q): %v", printer, err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
 
-		log.Printf("[npl-internal] receipt printed (%d lines, printer %q)", len(lines), printer)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		if output != "" {
+			log.Printf("[npl-internal] receipt printed (%d lines, printer %q, mode %s, saved to %s)", len(lines), printer, mode, output)
+		} else {
+			log.Printf("[npl-internal] receipt printed (%d lines, printer %q, mode %s)", len(lines), printer, mode)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "printer": printer, "mode": mode, "output": output})
 	})))
 }

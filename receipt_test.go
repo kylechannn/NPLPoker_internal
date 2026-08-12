@@ -47,6 +47,30 @@ func TestAnExplicitPrinterChoiceIsNeverSecondGuessed(t *testing.T) {
 	}
 }
 
+func TestPrinterModeFollowsTheQueueName(t *testing.T) {
+	// Thermal-class queues speak ESC/POS — the venue path, unchanged.
+	for _, name := range []string{
+		"POS-80", "POS80 Printer", "Front Desk POS-80",
+		"EPSON TM-T82III Receipt", "Generic 80mm Thermal", "XP-80C",
+	} {
+		if !printerSpeaksEscpos(name) {
+			t.Fatalf("expected %q to be treated as an ESC/POS thermal printer", name)
+		}
+	}
+
+	// Document queues get driver-rendered pages — RAW ESC/POS into these
+	// is exactly how blank receipts were produced.
+	for _, name := range []string{
+		"Microsoft Print to PDF", "Brother MFC-L2750DW series Printer",
+		"OneNote (Desktop)", "Microsoft XPS Document Writer",
+		"Adobe PDF", "HP LaserJet Pro M404", "Fax",
+	} {
+		if printerSpeaksEscpos(name) {
+			t.Fatalf("expected %q to be treated as a document printer", name)
+		}
+	}
+}
+
 func TestReceiptBridgeIsHiddenFromTheStaffGateway(t *testing.T) {
 	mux := http.NewServeMux()
 	registerReceiptPrinting(mux)

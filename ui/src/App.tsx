@@ -1639,7 +1639,10 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
   const [defaultPrinter, setDefaultPrinter] = useState("")
   // What "no printer picked" resolves to: the bridge hunts the installed
   // queues for the venue's POS-80 before trusting the Windows default.
+  // auto_mode says how that queue will be driven — "escpos" for a real
+  // POS printer, "document" when receipts render as pages (PDF/laser).
   const [autoPrinter, setAutoPrinter] = useState("")
+  const [autoMode, setAutoMode] = useState("")
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
 
@@ -1653,10 +1656,11 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
 
     void fetch("/api/print/printers", { headers: { Accept: "application/json" } })
       .then((response) => response.json())
-      .then((body: { printers?: string[] | null, default_printer?: string, auto_printer?: string }) => {
+      .then((body: { printers?: string[] | null, default_printer?: string, auto_printer?: string, auto_mode?: string }) => {
         setPrinters(body.printers ?? [])
         setDefaultPrinter(body.default_printer ?? "")
         setAutoPrinter(body.auto_printer ?? "")
+        setAutoMode(body.auto_mode ?? "")
       })
       .catch(() => undefined)
   }, [])
@@ -1735,7 +1739,9 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
             >
               <option value="">
                 {autoPrinter
-                  ? `Auto — ${autoPrinter} (POS printer found)`
+                  ? autoMode === "document"
+                    ? `Auto — ${autoPrinter} (no POS printer — receipts print as pages)`
+                    : `Auto — ${autoPrinter} (POS printer found)`
                   : defaultPrinter
                     ? `Windows default — ${defaultPrinter}`
                     : "Windows default printer"}

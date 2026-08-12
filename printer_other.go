@@ -12,6 +12,10 @@ func printRaw(string, []byte) error {
 	return fmt.Errorf("receipt printing is only available on the Windows build")
 }
 
+func printDocument(string, []receiptLine) (string, error) {
+	return "", fmt.Errorf("receipt printing is only available on the Windows build")
+}
+
 func defaultPrinterName() (string, error) {
 	return "", fmt.Errorf("receipt printing is only available on the Windows build")
 }
