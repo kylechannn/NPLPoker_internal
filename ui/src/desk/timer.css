@@ -39,7 +39,12 @@
 
 /* On the broadcast design the chrome ghosts out — the mock has none.
    Hovering the top strip brings the drag handle and buttons back. */
-.rc--max { position: relative; }
+/* .rc is already position:fixed inset:0 — it must STAY fixed here so
+   the design fills the viewport; a `relative` override let the console's
+   navy body show through under a short page. Black ground as backstop. */
+.rc--max {
+  background: #020202;
+}
 
 .rc--max .rc-titlebar {
   position: absolute;
