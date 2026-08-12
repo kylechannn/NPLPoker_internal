@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Clock, Coffee, Coins, Copy, Minus, PlusCircle, RefreshCw, Square, Users, X } from "lucide-react"
-import { countdown, deskApi, type PrizeBreakdownRow, type Seating } from "./deskApi"
+import { countdown, deskApi, type AddonTier, type PrizeBreakdownRow, type Seating } from "./deskApi"
 import nplLogoUrl from "../assets/npl-logo.png"
 import "./timer.css"
 
@@ -49,7 +49,21 @@ type DisplayExtras = {
   prize_guarantee: string | null
   /** The venue's chip set, typed once in the session settings. */
   chip_denominations: string | null
+  /** Configured price/chip tiers — the idle info bar reads the first of each. */
+  rebuy_tiers: AddonTier[]
+  addon_tiers: AddonTier[]
 }
+
+/** Cents → dollar text, no decimals unless the amount needs them. */
+function money(cents: number): string {
+  return `$${(cents / 100).toLocaleString(undefined, {
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+/** How long the control bar lingers after the last touch. Hard-coded. */
+const CONTROL_BAR_IDLE_MS = 3000
 
 const SYNC_MS = 5000
 // The bar's CSS transition is matched to this — a 4x/sec re-render bought
@@ -162,7 +176,7 @@ function ChipIcon({ color }: { color: string }) {
 export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const [clock, setClock] = useState<ClockState | null>(null)
   const [summary, setSummary] = useState<Summary>({})
-  const [extras, setExtras] = useState<DisplayExtras>({ prize_breakdown: null, prize_guarantee: null, chip_denominations: null })
+  const [extras, setExtras] = useState<DisplayExtras>({ prize_breakdown: null, prize_guarantee: null, chip_denominations: null, rebuy_tiers: [], addon_tiers: [] })
   const [syncedAt, setSyncedAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const [error, setError] = useState<string | null>(null)
@@ -179,6 +193,45 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
   const prevLevelRef = useRef<number | null>(null)
   // The right rail's two faces: the chip set and the payout ladder.
   const [rail, setRail] = useState<"chips" | "prizes">("chips")
+  // The bottom strip: session info at rest; pressing anywhere brings the
+  // controls up, and 3 idle seconds put the info back. Hovering holds it.
+  const [barMode, setBarMode] = useState<"info" | "controls">("info")
+  const barIdleTimer = useRef<number | null>(null)
+
+  const armBarRevert = useCallback(() => {
+    if (barIdleTimer.current !== null) window.clearTimeout(barIdleTimer.current)
+    barIdleTimer.current = window.setTimeout(() => setBarMode("info"), CONTROL_BAR_IDLE_MS)
+  }, [])
+
+  const holdBar = useCallback(() => {
+    if (barIdleTimer.current !== null) window.clearTimeout(barIdleTimer.current)
+  }, [])
+
+  const showControls = useCallback(() => {
+    setBarMode("controls")
+    armBarRevert()
+  }, [armBarRevert])
+
+  useEffect(() => () => {
+    if (barIdleTimer.current !== null) window.clearTimeout(barIdleTimer.current)
+  }, [])
+
+  // Esc walks the projector view back to the mini clock.
+  useEffect(() => {
+    if (mode !== "max") return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      setMode("mini")
+      if (window.nplClockLayout) {
+        void window.nplClockLayout("mini")
+        return
+      }
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+      window.resizeTo(420, 560)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [mode])
 
   useEffect(() => {
     document.title = WINDOW_TITLE
@@ -243,6 +296,8 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
           prize_breakdown: seating.display?.prize_breakdown ?? null,
           prize_guarantee: seating.display?.prize_guarantee ?? null,
           chip_denominations: seating.display?.chip_denominations ?? null,
+          rebuy_tiers: seating.rebuy_tiers ?? [],
+          addon_tiers: seating.addon_tiers ?? [],
         })
         setSyncedAt(Date.now())
       } catch (e) {
@@ -555,7 +610,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     <div className={`rc rc--sichuan rc--max${levelFlash ? " rc--flash" : ""}`}>
       {titlebar}
 
-      <div className="mx-page">
+      <div className="mx-page" onPointerDown={showControls}>
         <div className="mx-glow mx-glow--left" aria-hidden="true" />
         <div className="mx-glow mx-glow--right" aria-hidden="true" />
 
@@ -605,7 +660,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               <div className="mx-card mx-card--half">
                 <RefreshCw className="mx-card__icon" strokeWidth={1.9} />
                 <div className="mx-card__text">
-                  <span className="mx-card__label">Re-entries</span>
+                  <span className="mx-card__label">Rebuys</span>
                   <strong className="mx-card__value">{rebuysLabel}</strong>
                 </div>
               </div>
@@ -636,6 +691,12 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                     <stop offset="1" stopColor="#0c0d10" />
                   </linearGradient>
                   {/* The face: a screen-dark radial, faintly lit centre. */}
+                  {/* The tube's lit core. */}
+                  <linearGradient id="mxRingCore" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="#ffc2c9" />
+                    <stop offset="0.6" stopColor="#ff5163" />
+                    <stop offset="1" stopColor="#c01130" />
+                  </linearGradient>
                   <radialGradient id="mxRingFace" cx="0.5" cy="0.42" r="0.75">
                     <stop offset="0" stopColor="#15171c" />
                     <stop offset="0.72" stopColor="#0b0c0f" />
@@ -644,12 +705,25 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 </defs>
                 <circle className="mx-ring__face" cx="500" cy="500" r={RING_RADIUS} fill="url(#mxRingFace)" />
                 <circle className="mx-ring__track" cx="500" cy="500" r={RING_RADIUS} stroke="url(#mxRingBezel)" />
+                {/* Machined bezel: segment notches + a soft top-left specular. */}
+                <circle className="mx-ring__notches" cx="500" cy="500" r={RING_RADIUS} />
+                <circle className="mx-ring__spec" cx="500" cy="500" r={RING_RADIUS} strokeDasharray={`${RING_CIRCUMFERENCE * 0.18} ${RING_CIRCUMFERENCE}`} />
                 <circle className="mx-ring__rim mx-ring__rim--outer" cx="500" cy="500" r={RING_RADIUS + 13} />
                 <circle className="mx-ring__rim mx-ring__rim--inner" cx="500" cy="500" r={RING_RADIUS - 13} />
                 {/* Decorative instrument ticks, barely-there, like the art. */}
                 <circle className="mx-ring__ticks" cx="500" cy="500" r={RING_RADIUS - 34} />
+                {/* Elapsed time, accumulating ANTI-clockwise — the reverse
+                    of the countdown — as a lit red tube: halo, body, core. */}
                 <circle
-                  className="mx-ring__fill"
+                  className="mx-ring__arc mx-ring__halo"
+                  cx="500"
+                  cy="500"
+                  r={RING_RADIUS}
+                  strokeDasharray={RING_CIRCUMFERENCE}
+                  strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress / 100)}
+                />
+                <circle
+                  className="mx-ring__arc mx-ring__fill"
                   cx="500"
                   cy="500"
                   r={RING_RADIUS}
@@ -657,9 +731,19 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   strokeDasharray={RING_CIRCUMFERENCE}
                   strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress / 100)}
                 />
+                <circle
+                  className="mx-ring__arc mx-ring__core"
+                  cx="500"
+                  cy="500"
+                  r={RING_RADIUS}
+                  stroke="url(#mxRingCore)"
+                  strokeDasharray={RING_CIRCUMFERENCE}
+                  strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress / 100)}
+                />
                 {progress > 0.4 && progress < 99.8 ? (() => {
-                  // The arc's leading tip, burning brighter — the lap hand.
-                  const headAngle = (progress / 100) * 2 * Math.PI - Math.PI / 2
+                  // The arc's leading tip, burning brighter — the lap hand,
+                  // travelling anti-clockwise with the arc.
+                  const headAngle = -Math.PI / 2 - (progress / 100) * 2 * Math.PI
                   const headX = 500 + RING_RADIUS * Math.cos(headAngle)
                   const headY = 500 + RING_RADIUS * Math.sin(headAngle)
                   return (
@@ -717,6 +801,61 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
               </>
             )}
           </aside>
+        </div>
+
+        <div
+          className="mx-bottombar"
+          onPointerEnter={holdBar}
+          onPointerMove={holdBar}
+          onPointerLeave={() => { if (barMode === "controls") armBarRevert() }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {barMode === "controls" ? (
+            <div className="mx-bar mx-bar--controls" key="controls">
+              {run ? (
+                <button
+                  type="button"
+                  className={`mx-bbtn${run.go ? " mx-bbtn--go" : ""}`}
+                  disabled={busy || !clock}
+                  onClick={() => void control(run.action)}
+                >
+                  {run.label}
+                </button>
+              ) : (
+                <span className="mx-bar__finished">Finished</span>
+              )}
+              <button
+                type="button"
+                className="mx-bbtn"
+                disabled={busy || !canStep}
+                onClick={() => void control("next")}
+              >
+                Next level
+              </button>
+              <button type="button" className="mx-bbtn mx-bbtn--ghost" onClick={() => void toggleMode()}>
+                Minimise
+              </button>
+            </div>
+          ) : (
+            <div className="mx-bar mx-bar--info" key="info">
+              {extras.addon_tiers.length > 0 ? (
+                <span className="mx-bar__seg">
+                  <em>Add-on</em>
+                  {money(extras.addon_tiers[0].price_cents)} + {extras.addon_tiers[0].chips.toLocaleString()} chips
+                </span>
+              ) : null}
+              {extras.rebuy_tiers.length > 0 ? (
+                <span className="mx-bar__seg">
+                  <em>Rebuy</em>
+                  {money(extras.rebuy_tiers[0].price_cents)} + {extras.rebuy_tiers[0].chips.toLocaleString()} chips
+                </span>
+              ) : null}
+              <span className="mx-bar__seg">
+                <em>Total chips</em>
+                {(summary.total_chips ?? 0).toLocaleString()}
+              </span>
+            </div>
+          )}
         </div>
 
         <footer className="mx-tagline">

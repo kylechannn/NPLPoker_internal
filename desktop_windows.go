@@ -52,6 +52,9 @@ const (
 	setPositionNoMove         = uintptr(0x0002)
 	setPositionNoZOrder       = uintptr(0x0004)
 	setPositionFrameChanged   = uintptr(0x0020)
+	// HWND_TOPMOST / HWND_NOTOPMOST for SetWindowPos' insert-after.
+	windowInsertTopmost       = ^uintptr(0)
+	windowInsertNoTopmost     = ^uintptr(1)
 	showMinimized             = uintptr(6)
 	showMaximized             = uintptr(3)
 	showRestored              = uintptr(9)
@@ -214,14 +217,16 @@ func layoutRoomClockWindow(hwnd uintptr, mode string) {
 			_, _, _ = showWindow.Call(hwnd, showMaximized)
 			return
 		}
+		// True fullscreen: the exact monitor rect, riding TOPMOST so the
+		// taskbar (itself topmost) cannot draw over the projector face.
 		_, _, _ = setWindowPos.Call(
 			hwnd,
-			0,
+			windowInsertTopmost,
 			uintptr(int(info.rcMonitor.left)),
 			uintptr(int(info.rcMonitor.top)),
 			uintptr(int(info.rcMonitor.right-info.rcMonitor.left)),
 			uintptr(int(info.rcMonitor.bottom-info.rcMonitor.top)),
-			setPositionNoZOrder|setPositionFrameChanged,
+			setPositionFrameChanged,
 		)
 		return
 	}
@@ -234,13 +239,14 @@ func layoutRoomClockWindow(hwnd uintptr, mode string) {
 	height := int(560 * dpi / 96)
 
 	if !haveMonitor {
-		_, _, _ = setWindowPos.Call(hwnd, 0, 0, 0, uintptr(width), uintptr(height), setPositionNoMove|setPositionNoZOrder|setPositionFrameChanged)
+		_, _, _ = setWindowPos.Call(hwnd, windowInsertNoTopmost, 0, 0, uintptr(width), uintptr(height), setPositionNoMove|setPositionFrameChanged)
 		return
 	}
 
 	left := int(info.rcWork.left) + (int(info.rcWork.right-info.rcWork.left)-width)/2
 	top := int(info.rcWork.top) + (int(info.rcWork.bottom-info.rcWork.top)-height)/2
-	_, _, _ = setWindowPos.Call(hwnd, 0, uintptr(left), uintptr(top), uintptr(width), uintptr(height), setPositionNoZOrder|setPositionFrameChanged)
+	// Mini steps back into the normal window order.
+	_, _, _ = setWindowPos.Call(hwnd, windowInsertNoTopmost, uintptr(left), uintptr(top), uintptr(width), uintptr(height), setPositionFrameChanged)
 }
 
 func bindDesktopWindowControls(window wv.WebView, hwnd uintptr) error {
