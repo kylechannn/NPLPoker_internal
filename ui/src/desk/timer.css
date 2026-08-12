@@ -791,6 +791,10 @@
   max-width: none;
   aspect-ratio: 1;
   filter: drop-shadow(0 22px 44px rgba(0, 0, 0, 0.6));
+  /* The face type measures itself against the DIAL (cqw), not the
+     viewport — so no monitor shape can push the words out of the
+     circle. The vw clamps below remain only as fallbacks. */
+  container-type: size;
 }
 
 /* The room's red reflection, pooling off the dial's lower edge. */
@@ -957,6 +961,7 @@
   position: absolute;
   left: 50%;
   font-size: clamp(13px, 1.65vw, 32px);
+  font-size: 3.1cqw;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.52em;
@@ -972,6 +977,7 @@
 .mx-tag--next {
   top: 85.4%;
   font-size: clamp(11px, 1.35vw, 26px);
+  font-size: 2.6cqw;
 }
 
 .mx-levelno {
@@ -980,6 +986,7 @@
   left: 50%;
   margin: 0;
   font-size: clamp(42px, 5.7vw, 110px);
+  font-size: 11cqw;
   font-weight: 800;
   line-height: 1;
   color: #ececf0;
@@ -990,9 +997,10 @@
 
 .mx-clock {
   position: absolute;
-  top: 31%;
+  top: 30.5%;
   left: 50%;
   font-size: clamp(96px, 19vw, 360px);
+  font-size: 33.5cqw;
   font-weight: 800;
   font-stretch: 78%;
   line-height: 1;
@@ -1047,8 +1055,8 @@
   position: absolute;
   left: 33%;
   top: 50%;
-  width: 46px;
-  height: 46px;
+  width: 4.8cqw;
+  height: 4.8cqw;
   transform: translate(-50%, -50%);
   background:
     radial-gradient(circle, rgba(255, 226, 230, 0.95) 0%, rgba(255, 226, 230, 0.4) 7%, transparent 34%),
@@ -1061,6 +1069,7 @@
   top: 71.1%;
   left: 50%;
   font-size: clamp(42px, 5vw, 96px);
+  font-size: 9.4cqw;
   font-weight: 700;
   line-height: 1;
   background: linear-gradient(180deg, #ffffff 0%, #eef0f4 55%, #c3c9d4 100%);
@@ -1075,14 +1084,16 @@
 
 .mx-blinds--break {
   font-size: clamp(36px, 4.4vw, 84px);
+  font-size: 8.2cqw;
   transform: translateX(-50%);
 }
 
 .mx-nextblinds {
   position: absolute;
-  top: 88.4%;
+  top: 88.2%;
   left: 50%;
   font-size: clamp(24px, 3.4vw, 65px);
+  font-size: 5.8cqw;
   font-weight: 800;
   line-height: 1;
   color: #c7ccd6;
