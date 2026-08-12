@@ -140,6 +140,16 @@ function parseDenominations(text: string | null): string[] {
   return tokens.length > 0 ? tokens : DEFAULT_DENOMS
 }
 
+/** An SVG arc path on the dial's coordinate system (centre 500,500). */
+function arcPath(radius: number, startDeg: number, endDeg: number): string {
+  const point = (deg: number) => {
+    const rad = (deg * Math.PI) / 180
+    return `${(500 + radius * Math.cos(rad)).toFixed(2)} ${(500 + radius * Math.sin(rad)).toFixed(2)}`
+  }
+  const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0
+  return `M ${point(startDeg)} A ${radius} ${radius} 0 ${large} 1 ${point(endDeg)}`
+}
+
 /** A stylised NPL chip: coloured rim, six edge stripes, dark inlay. */
 function ChipIcon({ color }: { color: string }) {
   return (
@@ -613,6 +623,7 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
       <div className="mx-page" onPointerDown={showControls}>
         <div className="mx-glow mx-glow--left" aria-hidden="true" />
         <div className="mx-glow mx-glow--right" aria-hidden="true" />
+        <div className="mx-glow mx-glow--rightlow" aria-hidden="true" />
 
         <header className="mx-top">
           <div className="mx-brand">
@@ -697,6 +708,12 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                     <stop offset="0.6" stopColor="#ff5163" />
                     <stop offset="1" stopColor="#c01130" />
                   </linearGradient>
+                  {/* The whisper of glass over the face. */}
+                  <radialGradient id="mxRingGlass" cx="0.5" cy="0.16" r="0.85">
+                    <stop offset="0" stopColor="rgba(255,255,255,0.05)" />
+                    <stop offset="0.45" stopColor="rgba(255,255,255,0.015)" />
+                    <stop offset="1" stopColor="rgba(255,255,255,0)" />
+                  </radialGradient>
                   <radialGradient id="mxRingFace" cx="0.5" cy="0.42" r="0.75">
                     <stop offset="0" stopColor="#15171c" />
                     <stop offset="0.72" stopColor="#0b0c0f" />
@@ -712,6 +729,18 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 <circle className="mx-ring__rim mx-ring__rim--inner" cx="500" cy="500" r={RING_RADIUS - 13} />
                 {/* Decorative instrument ticks, barely-there, like the art. */}
                 <circle className="mx-ring__ticks" cx="500" cy="500" r={RING_RADIUS - 34} />
+                {/* A fine red accent ring tracing the inside of the bezel. */}
+                <circle className="mx-ring__hairline" cx="500" cy="500" r={RING_RADIUS - 24} />
+                {/* The art's micro-instrument details, 5 to 8 o'clock. */}
+                <path className="mx-ring__dots" d={arcPath(RING_RADIUS - 54, 62, 148)} />
+                <path className="mx-ring__dots mx-ring__dots--fine" d={arcPath(RING_RADIUS - 68, 76, 132)} />
+                <path className="mx-ring__microarc" d={arcPath(RING_RADIUS - 46, 96, 112)} />
+                {/* Tiny red highlights on the outermost outline — partial,
+                    never a full lit circle. */}
+                <path className="mx-ring__rimspark" d={arcPath(RING_RADIUS + 13, 198, 214)} />
+                <path className="mx-ring__rimspark" d={arcPath(RING_RADIUS + 13, 22, 34)} />
+                {/* The faint glass sheen across the upper face. */}
+                <circle className="mx-ring__glass" cx="500" cy="500" r={RING_RADIUS - 14} fill="url(#mxRingGlass)" />
                 {/* Elapsed time, accumulating ANTI-clockwise — the reverse
                     of the countdown — as a lit red tube: halo, body, core. */}
                 <circle
@@ -739,6 +768,22 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                   stroke="url(#mxRingCore)"
                   strokeDasharray={RING_CIRCUMFERENCE}
                   strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress / 100)}
+                />
+                <circle
+                  className="mx-ring__arc mx-ring__edge"
+                  cx="500"
+                  cy="500"
+                  r={RING_RADIUS + 9}
+                  strokeDasharray={2 * Math.PI * (RING_RADIUS + 9)}
+                  strokeDashoffset={2 * Math.PI * (RING_RADIUS + 9) * (1 - progress / 100)}
+                />
+                <circle
+                  className="mx-ring__arc mx-ring__inshadow"
+                  cx="500"
+                  cy="500"
+                  r={RING_RADIUS - 9}
+                  strokeDasharray={2 * Math.PI * (RING_RADIUS - 9)}
+                  strokeDashoffset={2 * Math.PI * (RING_RADIUS - 9) * (1 - progress / 100)}
                 />
                 {progress > 0.4 && progress < 99.8 ? (() => {
                   // The arc's leading tip, burning brighter — the lap hand,

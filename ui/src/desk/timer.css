@@ -483,8 +483,49 @@
   pointer-events: none;
 }
 
-.mx-glow--left { left: -16vw; bottom: -18vw; }
-.mx-glow--right { right: -14vw; top: -16vw; }
+.mx-glow--left {
+  left: -18vw;
+  bottom: -20vw;
+  background: radial-gradient(circle, rgba(216, 31, 61, 0.06) 0%, transparent 60%);
+}
+
+.mx-glow--right {
+  right: -12vw;
+  top: -14vw;
+  width: 48vw;
+  height: 48vw;
+  background: radial-gradient(circle, rgba(216, 31, 61, 0.22) 0%, transparent 64%);
+}
+
+.mx-glow--rightlow {
+  right: -10vw;
+  bottom: -16vw;
+  width: 44vw;
+  height: 44vw;
+  background: radial-gradient(circle, rgba(216, 31, 61, 0.14) 0%, transparent 62%);
+}
+
+/* The right half's whisper of diagonal red texture (upper-right light). */
+.mx-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: repeating-linear-gradient(115deg, rgba(216, 31, 61, 0.05) 0 1px, transparent 1px 30px);
+  -webkit-mask-image: linear-gradient(90deg, transparent 48%, #000 82%);
+  mask-image: linear-gradient(90deg, transparent 48%, #000 82%);
+  pointer-events: none;
+}
+
+/* The filmic vignette — corners fall away, the eye lands centre. */
+.mx-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: radial-gradient(125% 95% at 52% 44%, transparent 56%, rgba(0, 0, 0, 0.46) 100%);
+  pointer-events: none;
+}
 
 /* -- header: brand left, url right -- */
 
@@ -657,9 +698,22 @@
 
 .mx-dial {
   position: relative;
-  width: min(92%, 76vh);
+  width: min(96%, 76vh);
   aspect-ratio: 1;
   filter: drop-shadow(0 22px 44px rgba(0, 0, 0, 0.6));
+}
+
+/* The room's red reflection, pooling off the dial's lower edge. */
+.mx-dial::before {
+  content: "";
+  position: absolute;
+  inset: -9%;
+  z-index: -1;
+  border-radius: 50%;
+  background:
+    radial-gradient(42% 42% at 24% 82%, rgba(216, 31, 61, 0.20) 0%, transparent 72%),
+    radial-gradient(46% 46% at 78% 74%, rgba(216, 31, 61, 0.16) 0%, transparent 72%);
+  filter: blur(26px);
 }
 
 .mx-ring {
@@ -694,6 +748,59 @@
   stroke-dasharray: 3 26;
 }
 
+.mx-ring__hairline {
+  fill: none;
+  stroke: rgba(225, 29, 60, 0.30);
+  stroke-width: 1.6;
+}
+
+.mx-ring__dots {
+  fill: none;
+  stroke: rgba(255, 74, 92, 0.55);
+  stroke-width: 3.2;
+  stroke-dasharray: 3 17;
+  stroke-linecap: round;
+}
+
+.mx-ring__glass {
+  stroke: none;
+  pointer-events: none;
+}
+
+.mx-ring__dots--fine {
+  stroke: rgba(255, 74, 92, 0.35);
+  stroke-width: 1.8;
+  stroke-dasharray: 9 11;
+}
+
+.mx-ring__microarc {
+  fill: none;
+  stroke: rgba(255, 74, 92, 0.7);
+  stroke-width: 2.2;
+}
+
+.mx-ring__rimspark {
+  fill: none;
+  stroke: rgba(255, 74, 92, 0.55);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(255, 74, 92, 0.6));
+}
+
+/* The bevel's dark side, hugging the arc's inner radius. */
+.mx-ring__inshadow {
+  stroke: rgba(58, 2, 12, 0.85);
+  stroke-width: 4;
+}
+
+/* The crisp neon lip on the arc's outer rim. */
+.mx-ring__edge {
+  stroke: #ff97a2;
+  stroke-width: 2.6;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 6px rgba(255, 116, 128, 0.8));
+}
+
 .mx-ring__head {
   fill: #ffd4da;
 }
@@ -708,7 +815,7 @@
    reverse of the countdown. All three tube layers share it. */
 .mx-ring__arc {
   fill: none;
-  stroke-linecap: round;
+  stroke-linecap: butt;
   transform: rotate(-90deg) scale(1, -1);
   transform-origin: 500px 500px;
   transition: stroke-dashoffset 1s linear;
@@ -734,7 +841,7 @@
 /* Machined segment notches over the bezel. */
 .mx-ring__notches {
   fill: none;
-  stroke: rgba(0, 0, 0, 0.5);
+  stroke: rgba(0, 0, 0, 0.35);
   stroke-width: 26;
   stroke-dasharray: 2.5 95;
 }
@@ -767,7 +874,7 @@
   letter-spacing: 0.52em;
   text-indent: 0.52em;
   text-transform: uppercase;
-  color: #e11d3c;
+  color: #ff2e42;
 }
 
 .mx-tag--next { margin-top: clamp(2px, 0.9vh, 10px); }
@@ -776,8 +883,10 @@
   font-size: clamp(34px, 5.2vw, 94px);
   font-weight: 800;
   line-height: 1.05;
-  color: #ffffff;
+  color: #ececf0;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.10);
+  margin-bottom: clamp(6px, 1.8vh, 22px);
 }
 
 .mx-clock {
@@ -786,21 +895,26 @@
   font-stretch: 78%;
   line-height: 0.98;
   letter-spacing: 0.015em;
-  color: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #f2f4f7 52%, #b7bdc9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 34px rgba(255, 255, 255, 0.14);
+  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.12)) drop-shadow(0 3px 3px rgba(0, 0, 0, 0.55));
 }
 
 .mx-clock--urgent {
-  color: #ff4a5c;
-  text-shadow: 0 0 34px rgba(225, 29, 60, 0.5);
+  background: linear-gradient(180deg, #ff8a97 0%, #ff4a5c 55%, #c01130 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 22px rgba(225, 29, 60, 0.45));
 }
 
 .mx-cut {
   position: relative;
-  width: 62%;
+  width: 84%;
   height: 2px;
-  margin: clamp(3px, 0.8vh, 9px) 0;
+  margin: clamp(1px, 0.4vh, 5px) 0 clamp(3px, 0.9vh, 10px);
   background: linear-gradient(90deg, transparent 0%, #b3122a 14%, #ff8391 50%, #b3122a 86%, transparent 100%);
   box-shadow: 0 0 14px rgba(225, 29, 60, 0.8);
 }
@@ -814,8 +928,9 @@
   width: 42%;
   height: 9px;
   transform: translate(-50%, -50%);
-  background: radial-gradient(50% 100% at 50% 50%, rgba(255, 199, 206, 0.85) 0%, rgba(255, 74, 92, 0.28) 55%, transparent 78%);
+  background: radial-gradient(50% 100% at 50% 50%, rgba(255, 210, 216, 0.9) 0%, rgba(255, 74, 92, 0.3) 55%, transparent 78%);
   filter: blur(2px);
+  box-shadow: 0 0 26px rgba(225, 29, 60, 0.5);
 }
 
 /* The glint riding left of centre, like the art's lens flare. */
@@ -835,9 +950,12 @@
 
 .mx-blinds {
   font-size: clamp(32px, 4.8vw, 86px);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.05;
-  color: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #eef0f4 55%, #c3c9d4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-variant-numeric: tabular-nums;
 }
 
