@@ -207,6 +207,8 @@ export type OnlineRegistration = {
   status: 'registered' | 'waitlisted'
   /** True until desk check-in (or a voucher) secures the seat. */
   pre_registered?: boolean
+  /** A hand-picked invitation seat on a special event — confirmed, no voucher. */
+  invited_entry?: boolean
   registered_at: string | null
   waitlist_position: number | null
   table_number: number | null

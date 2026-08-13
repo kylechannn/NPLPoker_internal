@@ -247,6 +247,9 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
                       {row.covered_by_voucher ? (
                         <span className="regs__voucher" title={`Entry paid online with voucher ${row.covered_by_voucher.code} — do not charge again`}>VOUCHER</span>
                       ) : null}
+                      {row.invited_entry ? (
+                        <span className="regs__invite" title="Club invitation — seat confirmed by the event's invite list">INVITE</span>
+                      ) : null}
                       {row.display_name}
                     </td>
                     <td><code>{row.npl_id}</code></td>

@@ -278,3 +278,17 @@
   background: rgba(30, 48, 80, 0.55);
   border: 1px solid rgba(120, 150, 190, 0.3);
 }
+
+/* Club-invitation seat: hand-picked on the event's invite list. */
+.regs__invite {
+  display: inline-block;
+  margin-right: 6px;
+  border: 1px solid rgba(214, 130, 255, 0.55);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #e9c2ff;
+  background: rgba(96, 40, 128, 0.35);
+}
