@@ -2342,3 +2342,13 @@
   font-style: normal;
   font-variant-numeric: tabular-nums;
 }
+
+/* Voucher held but the status tier can't use it yet — amber caution. */
+.host-booking-banner--locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffb37a !important;
+  border-color: rgba(255, 150, 61, 0.4) !important;
+  background: rgba(255, 150, 61, 0.1) !important;
+}

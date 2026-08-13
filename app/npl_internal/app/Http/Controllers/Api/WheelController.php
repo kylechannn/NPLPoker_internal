@@ -210,6 +210,13 @@ final class WheelController extends Controller
             // and the entry price their values sum against.
             'special_tickets' => $data['special_tickets'] ?? null,
             'entry_fee_cents' => $data['entry_fee_cents'] ?? null,
+            // The status-tier window: the player HOLDS a voucher but their
+            // tier can't use it this early (Blue 12h / Silver 24h / Gold
+            // 48h before start) — the desk shows when it opens.
+            'voucher_locked' => (bool) ($data['voucher_locked'] ?? false),
+            'voucher_available_from' => $data['voucher_available_from'] ?? null,
+            'voucher_tier' => $data['voucher_tier'] ?? null,
+            'voucher_tier_hours' => $data['voucher_tier_hours'] ?? null,
             'offline' => false,
         ]);
     }

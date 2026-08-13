@@ -152,6 +152,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   // The entry was ALREADY paid online with a voucher: price the buy-in at
   // the difference only, and never redeem anything at the desk.
   const [coveredOnline, setCoveredOnline] = useState<OnlineCoverage | null>(null)
+  // Player holds a voucher their status tier can't use this early —
+  // the popup says when it opens instead of asking the free-entry question.
+  const [voucherLock, setVoucherLock] = useState<{ tier: string; available_from: string | null } | null>(null)
   // The pre-popup question: a free-entry voucher was detected on scan and
   // the operator has not answered yet. The registration popup waits.
   const [voucherAsk, setVoucherAsk] = useState<{ result: ScanResult, voucher: DeskVoucher } | null>(null)
@@ -337,6 +340,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     setError(null)
     setVoucher(null)
     setCoveredOnline(null)
+    setVoucherLock(null)
     setUseTickets(null)
     voucherRefRef.current = null
 
@@ -367,6 +371,11 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           if (check.special_tickets && check.special_tickets.length > 0) {
             setTicketPick(new Set())
             setTicketAsk({ result, tickets: check.special_tickets, entryFeeCents: check.entry_fee_cents ?? null })
+            return
+          }
+          if (check.voucher_locked) {
+            setVoucherLock({ tier: check.voucher_tier ?? "blue", available_from: check.voucher_available_from ?? null })
+            openActions(result, false)
             return
           }
           if (check.entitled && check.voucher) {
@@ -612,6 +621,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       setPicked(new Set())
       setVoucher(null)
       setCoveredOnline(null)
+      setVoucherLock(null)
       setUseVoucher(false)
       setUseTickets(null)
     } catch (e) {
@@ -1060,7 +1070,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       })() : null}
 
       {scan ? (
-        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setCoveredOnline(null); setUseVoucher(false); setUseTickets(null); focusScan() } }}>
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) { setScan(null); setVoucher(null); setCoveredOnline(null); setVoucherLock(null); setUseVoucher(false); setUseTickets(null); focusScan() } }}>
           <section
             className="host-scan-modal__panel"
             role="dialog"
@@ -1143,6 +1153,13 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
               )
             })() : null}
 
+            {voucherLock && !scan.entry ? (
+              <p className="host-booking-banner host-booking-banner--locked">
+                <Ticket size={14} />
+                {` Holds a free entry voucher, but their ${voucherLock.tier.toUpperCase()} tier can use it from ${voucherLock.available_from ? new Date(voucherLock.available_from).toLocaleString("en-AU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "later"} — charge the normal fee for now.`}
+              </p>
+            ) : null}
+
             {useVoucher && voucher && !scan.entry ? (() => {
               const buyInOption = scan.options.find((option) => option.action === "buy_in")
               const deficit = buyInOption ? voucherDeficitCents(voucher, buyInOption.price_cents) : 0
@@ -1220,7 +1237,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 type="button"
                 className="host-scan-modal__cancel"
                 disabled={busy}
-                onClick={() => { setScan(null); setVoucher(null); setCoveredOnline(null); setUseVoucher(false); setUseTickets(null); focusScan() }}
+                onClick={() => { setScan(null); setVoucher(null); setCoveredOnline(null); setVoucherLock(null); setUseVoucher(false); setUseTickets(null); focusScan() }}
               >
                 Cancel
               </button>

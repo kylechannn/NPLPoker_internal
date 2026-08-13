@@ -383,6 +383,12 @@ export const deskApi = {
       already_covered?: OnlineCoverage | null
       special_tickets?: DeskVoucher[] | null
       entry_fee_cents?: number | null
+      // The status-tier window: player holds a voucher their tier can't
+      // use this early — show the operator when it opens.
+      voucher_locked?: boolean
+      voucher_available_from?: string | null
+      voucher_tier?: string | null
+      voucher_tier_hours?: number | null
       offline: boolean
     }>('/api/v1/vouchers/entitlement', {
       method: 'POST',
