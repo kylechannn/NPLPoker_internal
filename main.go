@@ -124,8 +124,8 @@ func run(cfg config) error {
 		// gateway (and every request queued behind it dies with it). This
 		// server only listens on loopback behind Caddy, so slow-client
 		// protection is not its job.
-		WriteTimeout:      0,
-		IdleTimeout:       60 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	serverDone := make(chan error, 1)

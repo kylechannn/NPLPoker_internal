@@ -323,7 +323,7 @@ func printDocument(printerName string, lines []receiptLine) (string, error) {
 		font, _, _ := procCreateFontW.Call(
 			uintptr(-(points*dpiY)/72), 0, 0, 0, uintptr(weight),
 			0, 0, 0,
-			1,    // DEFAULT_CHARSET
+			1, // DEFAULT_CHARSET
 			0, 0, 0,
 			0x31, // FIXED_PITCH | FF_MODERN
 			uintptr(unsafe.Pointer(face)),

@@ -48,21 +48,25 @@ const (
 	dwmRoundWindow            = 2
 	windowStyleIndex          = ^uintptr(15)
 	windowStyleCaption        = uintptr(0x00C00000)
-	setPositionNoSize         = uintptr(0x0001)
-	setPositionNoMove         = uintptr(0x0002)
-	setPositionNoZOrder       = uintptr(0x0004)
-	setPositionFrameChanged   = uintptr(0x0020)
+	// WS_THICKFRAME — the invisible resize frame. It insets the client
+	// area from the window rect, which on a fullscreen clock shows as a
+	// gap around the display; fullscreen strips it, mini restores it.
+	windowStyleThickFrame   = uintptr(0x00040000)
+	setPositionNoSize       = uintptr(0x0001)
+	setPositionNoMove       = uintptr(0x0002)
+	setPositionNoZOrder     = uintptr(0x0004)
+	setPositionFrameChanged = uintptr(0x0020)
 	// HWND_TOPMOST / HWND_NOTOPMOST for SetWindowPos' insert-after.
-	windowInsertTopmost       = ^uintptr(0)
-	windowInsertNoTopmost     = ^uintptr(1)
-	showMinimized             = uintptr(6)
-	showMaximized             = uintptr(3)
-	showRestored              = uintptr(9)
-	windowMessageClose        = uintptr(0x0010)
-	windowMessageNCLButton    = uintptr(0x00A1)
-	hitTestCaption            = uintptr(2)
-	messageBoxOK              = 0x00000000
-	messageBoxIconError       = 0x00000010
+	windowInsertTopmost    = ^uintptr(0)
+	windowInsertNoTopmost  = ^uintptr(1)
+	showMinimized          = uintptr(6)
+	showMaximized          = uintptr(3)
+	showRestored           = uintptr(9)
+	windowMessageClose     = uintptr(0x0010)
+	windowMessageNCLButton = uintptr(0x00A1)
+	hitTestCaption         = uintptr(2)
+	messageBoxOK           = 0x00000000
+	messageBoxIconError    = 0x00000010
 )
 
 func runDesktopWindow(target string) error {
@@ -212,7 +216,15 @@ func layoutRoomClockWindow(hwnd uintptr, mode string) {
 		haveMonitor = ok != 0
 	}
 
+	style, _, _ := getWindowLongPtrW.Call(hwnd, windowStyleIndex)
+
 	if mode == "max" {
+		// Borderless: the resize frame's client-area inset is exactly the
+		// "gap" a fullscreen clock must not have — on any laptop, at any
+		// DPI scale (the manifest is per-monitor-v2, so the monitor rect
+		// below is true physical pixels).
+		_, _, _ = setWindowLongPtrW.Call(hwnd, windowStyleIndex, style&^(windowStyleCaption|windowStyleThickFrame))
+
 		if !haveMonitor {
 			_, _, _ = showWindow.Call(hwnd, showMaximized)
 			return
@@ -230,6 +242,9 @@ func layoutRoomClockWindow(hwnd uintptr, mode string) {
 		)
 		return
 	}
+
+	// The mini widget gets its resize frame back (still caption-less).
+	_, _, _ = setWindowLongPtrW.Call(hwnd, windowStyleIndex, (style&^windowStyleCaption)|windowStyleThickFrame)
 
 	dpi, _, _ := getDpiForWindow.Call(hwnd)
 	if dpi == 0 {
