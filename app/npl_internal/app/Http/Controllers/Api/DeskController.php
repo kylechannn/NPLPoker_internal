@@ -164,7 +164,7 @@ final class DeskController
                 $local = DB::table('tournament_sessions')
                     ->where('game_session_id', $row->session_id)
                     ->orderByDesc('id')
-                    ->first(['id', 'status']);
+                    ->first(['id', 'status', 'game_type']);
 
                 return [
                     'session_id' => (int) $row->session_id,
@@ -180,6 +180,9 @@ final class DeskController
                     'tables_count' => $tablesCount,
                     'local_tournament_id' => $local !== null ? (int) $local->id : null,
                     'local_tournament_status' => $local?->status,
+                    // Which desk the local session runs on — the Events tab
+                    // resumes into the same mode the event was opened with.
+                    'local_tournament_game_type' => $local?->game_type,
                 ];
             })
             ->all();

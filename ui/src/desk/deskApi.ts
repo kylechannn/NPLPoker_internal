@@ -296,6 +296,8 @@ export type UpcomingSession = {
   tables_count: number
   local_tournament_id: number | null
   local_tournament_status: string | null
+  /** 'tournament' | 'cash' — how the already-opened local desk runs. */
+  local_tournament_game_type?: string | null
 }
 
 export type RosterPlayer = {

@@ -5,6 +5,7 @@ import NplTransitLoader from "./NplTransitLoader"
 // Each tab's code, CSS and (for the wheel) fonts only load once you open
 // that tab — previously all six shipped in the one bundle every boot.
 const HostWorkspace = lazy(() => import("./desk/HostWorkspace"))
+const EventsWorkspace = lazy(() => import("./desk/EventsWorkspace"))
 const ExportWorkspace = lazy(() => import("./export/ExportWorkspace"))
 const JackpotWheelWorkspace = lazy(() => import("./jackpot/JackpotWheelWorkspace"))
 const MembershipWorkspace = lazy(() => import("./membership/MembershipWorkspace"))
@@ -130,6 +131,7 @@ type NavId =
   | "overview"
   | "tournament"
   | "cashgame"
+  | "events"
   | "registrations"
   | "players"
   | "membership"
@@ -148,6 +150,7 @@ const navigation: Array<{
       { id: "overview", label: "Overview", icon: LayoutDashboard },
       { id: "tournament", label: "Tournament", icon: Trophy },
       { id: "cashgame", label: "Cash Game", icon: CircleDollarSign },
+      { id: "events", label: "Events", icon: Medal },
       { id: "registrations", label: "Registrations", icon: ListChecks },
       { id: "players", label: "Players", icon: Users },
       { id: "jackpot", label: "Jackpot Wheel", icon: LoaderPinwheel },
@@ -186,6 +189,11 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     eyebrow: "Cash game floor",
     title: "Cash game",
     description: "Run cash tables — stacks, buy-ins, rebuys, and the live waitlist.",
+  },
+  events: {
+    eyebrow: "Venue command",
+    title: "Events",
+    description: "Host Special Events and Main Event flights — run each in tournament or cash game mode.",
   },
   registrations: {
     eyebrow: "Player operations",
@@ -1149,6 +1157,8 @@ export default function App() {
                   <PlayersWorkspace venue={activeVenue} />
                 ) : activeSection === "cashgame" ? (
                   <HostWorkspace venue={activeVenue} mode="cash" />
+                ) : activeSection === "events" ? (
+                  <EventsWorkspace venue={activeVenue} />
                 ) : activeSection === "export" ? (
                   <ExportWorkspace venue={activeVenue} />
                 ) : (

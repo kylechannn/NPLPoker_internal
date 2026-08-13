@@ -6,11 +6,21 @@ import "./host.css"
 
 type Props = {
   venue: Venue | null
-  onOpenLocal: (localTournamentId: number) => void
+  onOpenLocal: (localTournamentId: number, gameType?: string | null) => void
   onPrepare: (gameSessionId: number | null) => void
-  /** Which sessions this hub fronts: cash games or everything else. */
-  mode?: "tournament" | "cash"
+  /**
+   * Which sessions this hub fronts: cash games, events (Special Events +
+   * Main Event flights), or every other tournament night.
+   */
+  mode?: "tournament" | "cash" | "events"
 }
+
+/** Special Events and Main Event flights — the Events tab's slice. */
+const isEventSession = (session: UpcomingSession): boolean =>
+  session.category === "special_event"
+  || session.category === "championship"
+  || session.source_type === "venue_final"
+  || session.source_type === "championship"
 
 /**
  * The Tournament tab's front door: every current cloud session for the
@@ -41,7 +51,11 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
     try {
       const result = await deskApi.upcomingSessions(venue.id)
       setSessions(result.sessions.filter((session) => (
-        mode === "cash" ? session.category === "cash_game" : session.category !== "cash_game"
+        mode === "cash"
+          ? session.category === "cash_game"
+          : mode === "events"
+            ? isEventSession(session)
+            : session.category !== "cash_game" && !isEventSession(session)
       )))
       setError(null)
     } catch (e) {
@@ -119,8 +133,12 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
     <div className="host-hub">
       <header className="host-hub__head">
         <div>
-          <h3><CalendarDays size={18} /> Sessions — {venue.name}</h3>
-          <p>Live from the NPL cloud. Open the desk on tonight's game.</p>
+          <h3><CalendarDays size={18} /> {mode === "events" ? "Events" : "Sessions"} — {venue.name}</h3>
+          <p>
+            {mode === "events"
+              ? "Special Events and Main Event flights, live from the NPL cloud. Pick how each one runs when you open the desk."
+              : "Live from the NPL cloud. Open the desk on tonight's game."}
+          </p>
         </div>
       </header>
 
@@ -129,7 +147,11 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
       {loading ? (
         <p className="host-hub__empty"><Loader2 size={16} className="host-spin" /> Loading sessions…</p>
       ) : sessions.length === 0 ? (
-        <p className="host-hub__empty">No scheduled sessions in the sync window for this venue.</p>
+        <p className="host-hub__empty">
+          {mode === "events"
+            ? "No upcoming Special Events or Main Event sessions for this venue."
+            : "No scheduled sessions in the sync window for this venue."}
+        </p>
       ) : (
         <div className="host-hub__list">
           {sessions.map((session) => {
@@ -146,8 +168,16 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                   <div className="host-hub__title">
                     <strong>{session.title ?? `Session #${session.session_id}`}</strong>
                     <small>
-                      {session.source_type === "championship" ? "Championship" : "Tournament"}
-                      {finished ? " · finished" : session.local_tournament_id ? " · desk open" : ""}
+                      {session.source_type === "championship"
+                        ? "Main Event"
+                        : session.source_type === "venue_final" || session.category === "special_event"
+                          ? "Special Event"
+                          : "Tournament"}
+                      {finished
+                        ? " · finished"
+                        : session.local_tournament_id
+                          ? ` · desk open${mode === "events" ? (session.local_tournament_game_type === "cash" ? " (cash)" : " (tournament)") : ""}`
+                          : ""}
                     </small>
                   </div>
 
@@ -178,7 +208,7 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                     <button
                       type="button"
                       className="host-hub__open"
-                      onClick={() => onOpenLocal(session.local_tournament_id!)}
+                      onClick={() => onOpenLocal(session.local_tournament_id!, session.local_tournament_game_type)}
                     >
                       <Play size={14} /> Resume desk
                     </button>

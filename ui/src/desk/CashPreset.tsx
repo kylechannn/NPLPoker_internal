@@ -100,7 +100,11 @@ export default function CashPreset({ venue, onOpened, onBack, initialLinkedSessi
     if (!venue) return
     deskApi.upcomingSessions(venue.id)
       .then((result) => {
-        const cash = result.sessions.filter((session) => session.category === "cash_game")
+        // Cash sessions, plus the event the Events tab arrived with — a
+        // Special Event or Main Event flight may run cash-style, and its
+        // link must survive the dropdown's cash-only filter.
+        const cash = result.sessions.filter((session) => session.category === "cash_game"
+          || (initialLinkedSessionId !== null && session.session_id === initialLinkedSessionId))
         setSessions(cash)
         // Auto-link tonight's cash session when nothing was chosen yet.
         setLinkedSessionId((current) => (current === "" && initialLinkedSessionId === null && cash[0] && editSessionId === null
