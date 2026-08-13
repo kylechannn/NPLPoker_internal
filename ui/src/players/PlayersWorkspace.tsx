@@ -156,7 +156,16 @@ function EditModal({ player, onClose, onSaved }: { player: RosterPlayer, onClose
     preferred_name: "",
     email: "",
     phone: "",
+    date_of_birth: "",
     state_code: "",
+  })
+  const [dobBounds] = useState(() => {
+    const fmt = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+    const latest = new Date()
+    latest.setFullYear(latest.getFullYear() - 18)
+    const earliest = new Date()
+    earliest.setFullYear(earliest.getFullYear() - 120)
+    return { max: fmt(latest), min: fmt(earliest) }
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -218,6 +227,16 @@ function EditModal({ player, onClose, onSaved }: { player: RosterPlayer, onClose
               onChange={(event) => set("phone", event.target.value.replace(/\D/g, "").slice(0, 9))}
               placeholder="Unchanged"
               inputMode="numeric"
+            />
+          </label>
+          <label>
+            <span>Date of birth (from their ID)</span>
+            <input
+              type="date"
+              value={form.date_of_birth}
+              onChange={(event) => set("date_of_birth", event.target.value)}
+              min={dobBounds.min}
+              max={dobBounds.max}
             />
           </label>
           <label>
@@ -599,11 +618,22 @@ function RegisterWizard({ onClose, onRegistered }: {
     preferred_name: "",
     npl_id: "",
     phone: "",
+    date_of_birth: "",
     state_code: "NSW",
     username: "",
     password: "",
     password_confirmation: "",
     verification_code: "",
+  })
+  // The picker's legal window mirrors the cloud rule: 18+ and no
+  // century-old typos. ISO strings compare correctly as strings.
+  const [dobBounds] = useState(() => {
+    const fmt = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+    const latest = new Date()
+    latest.setFullYear(latest.getFullYear() - 18)
+    const earliest = new Date()
+    earliest.setFullYear(earliest.getFullYear() - 120)
+    return { max: fmt(latest), min: fmt(earliest) }
   })
   const [done, setDone] = useState<{ npl_id: string, public_player_code: string, display_name: string } | null>(null)
 
@@ -720,6 +750,17 @@ function RegisterWizard({ onClose, onRegistered }: {
                   onChange={(event) => set("phone", event.target.value.replace(/\D/g, "").slice(0, 9))}
                   placeholder="4XX XXX XXX"
                   inputMode="numeric"
+                  required
+                />
+              </label>
+              <label>
+                <span>Date of birth (18+, from their ID)</span>
+                <input
+                  type="date"
+                  value={form.date_of_birth}
+                  onChange={(event) => set("date_of_birth", event.target.value)}
+                  min={dobBounds.min}
+                  max={dobBounds.max}
                   required
                 />
               </label>
