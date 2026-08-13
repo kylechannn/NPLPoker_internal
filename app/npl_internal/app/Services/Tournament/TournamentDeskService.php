@@ -679,12 +679,25 @@ final class TournamentDeskService
             $mine = $actions->get($entry->player_npl_id) ?? collect();
             $paid = 0;
             $byAction = ['buy_in' => 0, 'rebuy' => 0, 'addon' => 0, 'jackpot' => 0];
+            $voucherBuyIns = 0;
 
             foreach ($mine as $action) {
                 $paid += max(0, (int) $action->price_cents);
                 $byAction[$action->action] = ($byAction[$action->action] ?? 0) + 1;
                 $totals[$action->action] = ($totals[$action->action] ?? 0) + max(0, (int) $action->price_cents);
                 $counts[$action->action] = ($counts[$action->action] ?? 0) + 1;
+
+                // Voucher-covered entries: the buy-in action carries the
+                // voucher code(s) in its meta. The cloud's status-point
+                // engine subtracts these exactly — a voucher-paid entry
+                // earns no point, a paid one does.
+                if ($action->action === 'buy_in') {
+                    $meta = json_decode((string) ($action->meta ?? ''), true);
+
+                    if (is_array($meta) && (! empty($meta['voucher_code']) || ! empty($meta['voucher_codes']))) {
+                        $voucherBuyIns++;
+                    }
+                }
             }
 
             $attendance[] = [
@@ -693,6 +706,7 @@ final class TournamentDeskService
                 'buy_ins' => max(1, (int) ($byAction['buy_in'] ?? 0)),
                 'rebuys' => (int) ($byAction['rebuy'] ?? 0),
                 'addons' => (int) ($byAction['addon'] ?? 0),
+                'voucher_buy_ins' => $voucherBuyIns,
                 'in_jackpot' => (bool) $entry->in_jackpot,
                 'paid_cents' => $paid,
             ];
