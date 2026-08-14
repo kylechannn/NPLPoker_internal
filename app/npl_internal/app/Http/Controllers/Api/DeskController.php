@@ -26,6 +26,7 @@ final class DeskController
         private readonly BlindStructureGenerator $structures,
         private readonly \App\Services\Cloud\CloudClient $cloud,
         private readonly \App\Services\Sync\SyncService $sync,
+        private readonly \App\Services\Cloud\CloudCallQueue $queue,
     ) {}
 
     /** Venues this install can host for — drives the header picker. */
@@ -103,7 +104,43 @@ final class DeskController
             ], 502);
         }
 
-        return $this->ok(['result' => $result['data'] ?? $result]);
+        $record = $result['data'] ?? $result;
+
+        // Overlay the operator's own queued-but-unsent changes so the
+        // record NEVER shows a player they just removed (or a promotion
+        // they just made) as pending network work.
+        $pendingJobs = \Illuminate\Support\Facades\DB::table('cloud_call_queue')
+            ->where('group_key', 'session:'.$gameSessionId)
+            ->whereIn('status', ['pending', 'sending'])
+            ->get(['method', 'path']);
+
+        if ($pendingJobs->isNotEmpty() && isset($record['registrations']) && is_array($record['registrations'])) {
+            $removed = [];
+            $promoted = [];
+
+            foreach ($pendingJobs as $job) {
+                if ($job->method === 'delete' && preg_match('#/registrations/([^/]+)$#', (string) $job->path, $m)) {
+                    $removed[strtoupper(rawurldecode($m[1]))] = true;
+                } elseif ($job->method === 'post' && preg_match('#/registrations/([^/]+)/promote$#', (string) $job->path, $m)) {
+                    $promoted[strtoupper(rawurldecode($m[1]))] = true;
+                }
+            }
+
+            $record['registrations'] = collect($record['registrations'])
+                ->reject(fn (array $row): bool => isset($removed[strtoupper((string) ($row['npl_id'] ?? ''))]))
+                ->map(function (array $row) use ($promoted): array {
+                    if (isset($promoted[strtoupper((string) ($row['npl_id'] ?? ''))]) && ($row['status'] ?? null) === 'waitlisted') {
+                        $row['status'] = 'registered';
+                        $row['waitlist_position'] = null;
+                    }
+
+                    return $row;
+                })
+                ->values()
+                ->all();
+        }
+
+        return $this->ok(['result' => $record]);
     }
 
     /** Recent cash-game chat — table-room lines and TD requests, straight from the cloud. */
@@ -238,37 +275,74 @@ final class DeskController
         return $this->ok(['session_id' => $gameSessionId, 'tables' => $tables]);
     }
 
-    /** Cancel a cloud table — synchronous, then refresh the mirror. */
+    /**
+     * Cancel a cloud table: the mirror updates NOW (the roster reflects it
+     * instantly), the cloud call rides the queue. Submit → queue → backend.
+     */
     public function cancelCloudTable(int $gameSessionId, int $tableNumber): JsonResponse
     {
-        return $this->cloudDeskCall(sprintf(
+        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+            ->where('session_id', $gameSessionId)
+            ->where('table_number', $tableNumber)
+            ->delete();
+
+        $this->queue->enqueue('delete', sprintf(
             '/api/v1/internal/sessions/%d/tables/%d',
             $gameSessionId,
             $tableNumber,
-        ), $gameSessionId);
+        ), null, [
+            'group' => 'session:'.$gameSessionId,
+            'label' => sprintf('Cancel table %d — session #%d', $tableNumber, $gameSessionId),
+            'tolerate_missing' => true,
+        ]);
+
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     /**
-     * Stop a private table's gather countdown, cloud-side: the 30-minute
-     * sweep can then never dismiss it. Synchronous, then refresh.
+     * Stop a private table's gather countdown: the mirror's deadline clears
+     * NOW, the cloud call rides the queue.
      */
     public function stopCloudTableCountdown(int $gameSessionId, int $tableNumber): JsonResponse
     {
-        return $this->cloudDeskCall(sprintf(
+        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+            ->where('session_id', $gameSessionId)
+            ->where('table_number', $tableNumber)
+            ->update(['activation_deadline_at' => null, 'updated_at' => now()]);
+
+        $this->queue->enqueue('post', sprintf(
             '/api/v1/internal/sessions/%d/tables/%d/stop-countdown',
             $gameSessionId,
             $tableNumber,
-        ), $gameSessionId, method: 'post');
+        ), [], [
+            'group' => 'session:'.$gameSessionId,
+            'label' => sprintf('Stop countdown, table %d — session #%d', $tableNumber, $gameSessionId),
+        ]);
+
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     /** Remove a player's online registration — synchronous, then refresh. */
     public function removeCloudRegistration(int $gameSessionId, string $nplId): JsonResponse
     {
-        return $this->cloudDeskCall(sprintf(
+        // The seat empties on every desk screen NOW; the cloud removal
+        // (inbox notice, wait-list resolution) rides the queue.
+        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+            ->where('session_id', $gameSessionId)
+            ->whereRaw('UPPER(player_npl_id) = ?', [mb_strtoupper(trim($nplId))])
+            ->delete();
+
+        $this->queue->enqueue('delete', sprintf(
             '/api/v1/internal/sessions/%d/registrations/%s',
             $gameSessionId,
             rawurlencode($nplId),
-        ), $gameSessionId);
+        ), null, [
+            'group' => 'session:'.$gameSessionId,
+            'label' => sprintf('Remove %s — session #%d', $nplId, $gameSessionId),
+            'tolerate_missing' => true,
+        ]);
+
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     /** Staff move a wait-listed player into the first free seat, cloud-side. */

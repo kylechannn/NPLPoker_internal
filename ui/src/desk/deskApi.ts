@@ -375,8 +375,32 @@ export type ActiveSession = {
   qr: AdminQr
 }
 
+/** The desk→cloud call queue, as the shell's sync badge sees it. */
+export type CloudQueueStatus = {
+  pending: number
+  dead: number
+  dead_items: Array<{
+    id: number
+    label: string
+    last_error: string | null
+    attempts: number
+    updated_at: string
+  }>
+}
+
 export const deskApi = {
   venues: () => request<{ venues: Venue[] }>('/api/v1/desk/venues'),
+
+  /** Queue health for the statusbar — pending on the way, dead need eyes. */
+  cloudQueueStatus: () => request<CloudQueueStatus>('/api/v1/cloud-queue/status'),
+
+  /** Put a dead job back in line. */
+  cloudQueueRetry: (id: number) =>
+    request<{ retried: boolean }>(`/api/v1/cloud-queue/${id}/retry`, { method: 'POST', body: JSON.stringify({}) }),
+
+  /** Drop a dead job for good. */
+  cloudQueueDiscard: (id: number) =>
+    request<{ discarded: boolean }>(`/api/v1/cloud-queue/${id}`, { method: 'DELETE' }),
 
   /** Live cloud check on scan: does this player enter free? On a
    *  championship it also lists the stackable special tickets + the price. */

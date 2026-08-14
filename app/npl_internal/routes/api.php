@@ -128,6 +128,14 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::post('{id}/remove-player', 'removePlayer')->whereNumber('id');
 });
 
+// The desk→cloud call queue: status for the shell's sync badge, plus
+// retry/discard on dead jobs.
+Route::prefix('v1/cloud-queue')->controller(\App\Http\Controllers\Api\CloudQueueController::class)->group(function (): void {
+    Route::get('status', 'status');
+    Route::post('{id}/retry', 'retry')->whereNumber('id');
+    Route::delete('{id}', 'discard')->whereNumber('id');
+});
+
 // Player operations: roster search, staff comments, desk registration.
 Route::prefix('v1/players')->controller(\App\Http\Controllers\Api\PlayersController::class)->group(function (): void {
     Route::get('/', 'index');

@@ -12,7 +12,7 @@ const MembershipWorkspace = lazy(() => import("./membership/MembershipWorkspace"
 const PlayersWorkspace = lazy(() => import("./players/PlayersWorkspace"))
 const RegistrationsWorkspace = lazy(() => import("./registrations/RegistrationsWorkspace"))
 const ChatPane = lazy(() => import("./notifications/ChatPane"))
-import { deskApi, type ActiveSession, type UpcomingSession, type Venue } from "./desk/deskApi"
+import { deskApi, type ActiveSession, type CloudQueueStatus, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
 import { noticeTime, useNotices, type NoticeCategory } from "./notifications/store"
 import { describeRun, syncApi } from "./sync/syncApi"
@@ -764,12 +764,21 @@ export default function App() {
   // plus the desk's own local create/finish/discard event.
   const [activeDeskSession, setActiveDeskSession] = useState<ActiveSession | null>(null)
 
+  // The desk→cloud call queue: quiet when empty; the statusbar chip shows
+  // work on the way and turns red when something needs the operator.
+  const [cloudQueue, setCloudQueue] = useState<CloudQueueStatus | null>(null)
+  const [queuePanelOpen, setQueuePanelOpen] = useState(false)
+  const [queueBusy, setQueueBusy] = useState(false)
+
   useEffect(() => {
     let cancelled = false
     const refresh = () => {
       deskApi.activeSession()
         .then((session) => { if (!cancelled) setActiveDeskSession(session) })
         .catch(() => { /* backend starting up — keep the last known state */ })
+      deskApi.cloudQueueStatus()
+        .then((status) => { if (!cancelled) setCloudQueue(status) })
+        .catch(() => { /* status is cosmetic — never block the shell */ })
     }
     refresh()
     const timer = window.setInterval(() => {
@@ -1184,12 +1193,89 @@ export default function App() {
             <span>Local services {health.status === "ready" ? "operational" : health.status}</span>
           </div>
           <div>
+            {cloudQueue !== null && (cloudQueue.pending > 0 || cloudQueue.dead > 0) ? (
+              <>
+                <button
+                  type="button"
+                  className={cloudQueue.dead > 0 ? "cloudq-chip cloudq-chip--dead" : "cloudq-chip"}
+                  onClick={() => setQueuePanelOpen(true)}
+                  title="Cloud sync queue — desk changes on their way to the NPL cloud"
+                >
+                  {cloudQueue.dead > 0
+                    ? `Cloud sync: ${cloudQueue.dead} failed${cloudQueue.pending > 0 ? ` · ${cloudQueue.pending} on the way` : ""}`
+                    : `Cloud sync: ${cloudQueue.pending} on the way`}
+                </button>
+                <span className="statusbar-divider" />
+              </>
+            ) : null}
             <span>Last sync <strong>just now</strong></span>
             <span className="statusbar-divider" />
             <span>{health.status === "ready" ? `Build ${health.health.version}` : "Build —"}</span>
           </div>
         </footer>
       </div>
+
+      {queuePanelOpen ? (
+        <div className="cloudq-modal" role="presentation" onMouseDown={() => setQueuePanelOpen(false)}>
+          <section className="cloudq-modal__panel" role="dialog" aria-modal="true" aria-label="Cloud sync queue" onMouseDown={(e) => e.stopPropagation()}>
+            <header className="cloudq-modal__head">
+              <h3>Cloud sync queue</h3>
+              <button type="button" aria-label="Close" onClick={() => setQueuePanelOpen(false)}><X size={16} /></button>
+            </header>
+
+            <p className="cloudq-modal__meta">
+              {cloudQueue?.pending ?? 0} on the way · {cloudQueue?.dead ?? 0} failed for good.
+              Changes apply on this desk instantly and ride this queue to the NPL cloud with automatic retries.
+            </p>
+
+            {(cloudQueue?.dead_items.length ?? 0) === 0 ? (
+              <p className="cloudq-modal__empty">Nothing needs attention.</p>
+            ) : (
+              <ul className="cloudq-modal__list">
+                {cloudQueue?.dead_items.map((item) => (
+                  <li key={item.id}>
+                    <div className="cloudq-modal__label">
+                      <strong>{item.label}</strong>
+                      <small>{item.last_error ?? "No error recorded"} · {item.attempts} attempts</small>
+                    </div>
+                    <div className="cloudq-modal__actions">
+                      <button
+                        type="button"
+                        disabled={queueBusy}
+                        onClick={() => {
+                          setQueueBusy(true)
+                          void deskApi.cloudQueueRetry(item.id)
+                            .then(() => deskApi.cloudQueueStatus())
+                            .then(setCloudQueue)
+                            .catch(() => undefined)
+                            .finally(() => setQueueBusy(false))
+                        }}
+                      >
+                        Retry
+                      </button>
+                      <button
+                        type="button"
+                        className="cloudq-modal__discard"
+                        disabled={queueBusy}
+                        onClick={() => {
+                          setQueueBusy(true)
+                          void deskApi.cloudQueueDiscard(item.id)
+                            .then(() => deskApi.cloudQueueStatus())
+                            .then(setCloudQueue)
+                            .catch(() => undefined)
+                            .finally(() => setQueueBusy(false))
+                        }}
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      ) : null}
 
       {notice ? (
         <div className="toast" role="status">

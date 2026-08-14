@@ -20,7 +20,10 @@ use Illuminate\Support\Facades\DB;
  */
 final class PlayersController extends Controller
 {
-    public function __construct(private readonly CloudClient $cloud) {}
+    public function __construct(
+        private readonly CloudClient $cloud,
+        private readonly \App\Services\Cloud\CloudCallQueue $queue,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -89,9 +92,54 @@ final class PlayersController extends Controller
             return $this->ok(['available' => false, 'comments' => [], 'truncated' => false]);
         }
 
+        $comments = (array) ($result['data']['comments'] ?? []);
+
+        // Overlay this desk's queued-but-unsent comment work: queued adds
+        // appear (negative ids, pending flag), queued deletes disappear.
+        $jobs = \Illuminate\Support\Facades\DB::table('cloud_call_queue')
+            ->whereIn('status', ['pending', 'sending'])
+            ->where(fn ($query) => $query
+                ->where('group_key', 'comments:'.mb_strtoupper(trim((string) $validated['npl_id'])))
+                ->orWhere(fn ($del) => $del->where('method', 'delete')->where('path', 'like', '/api/v1/internal/player-comments/%')))
+            ->orderByDesc('id')
+            ->get(['id', 'method', 'path', 'payload', 'created_at']);
+
+        if ($jobs->isNotEmpty()) {
+            $deletedIds = [];
+            $pendingAdds = [];
+
+            foreach ($jobs as $job) {
+                if ($job->method === 'delete' && preg_match('#/player-comments/(\d+)$#', (string) $job->path, $m)) {
+                    $deletedIds[(int) $m[1]] = true;
+
+                    continue;
+                }
+
+                if ($job->method === 'post') {
+                    $payload = (array) json_decode((string) $job->payload, true);
+                    $pendingAdds[] = [
+                        // Negative = still on its way; delete resolves
+                        // against the queue, not the cloud.
+                        'id' => -(int) $job->id,
+                        'venue_id' => isset($payload['venue_id']) ? (int) $payload['venue_id'] : null,
+                        'venue_name' => null,
+                        'author_name' => (string) (($payload['author_name'] ?? null) ?: 'Venue desk'),
+                        'note' => (string) ($payload['note'] ?? ''),
+                        'created_at' => (string) $job->created_at,
+                        'pending' => true,
+                    ];
+                }
+            }
+
+            $comments = array_values(array_filter(
+                array_merge($pendingAdds, $comments),
+                fn (array $comment): bool => ! isset($deletedIds[(int) ($comment['id'] ?? 0)]),
+            ));
+        }
+
         return $this->ok([
             'available' => true,
-            'comments' => (array) ($result['data']['comments'] ?? []),
+            'comments' => $comments,
             'truncated' => (bool) ($result['data']['truncated'] ?? false),
         ]);
     }
@@ -131,12 +179,34 @@ final class PlayersController extends Controller
             'venue_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
-        return $this->cloudCall(fn (): array => $this->cloud->postJson('/api/v1/internal/player-comments', $validated));
+        // Submit → queue → backend: the note shows immediately via the
+        // comments() overlay; the cloud write rides the queue.
+        $this->queue->enqueue('post', '/api/v1/internal/player-comments', $validated, [
+            'group' => 'comments:'.mb_strtoupper(trim((string) $validated['npl_id'])),
+            'label' => 'Staff comment on '.$validated['npl_id'],
+        ]);
+
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     public function destroyComment(int $cloudId): JsonResponse
     {
-        return $this->cloudCall(fn (): array => $this->cloud->deleteJson('/api/v1/internal/player-comments/'.$cloudId));
+        // A negative id is one of OUR queued adds — cancel it in place.
+        if ($cloudId < 0) {
+            \Illuminate\Support\Facades\DB::table('cloud_call_queue')
+                ->where('id', -$cloudId)
+                ->whereIn('status', ['pending', 'sending'])
+                ->delete();
+
+            return $this->ok(['result' => ['queued' => false, 'cancelled' => true]]);
+        }
+
+        $this->queue->enqueue('delete', '/api/v1/internal/player-comments/'.$cloudId, null, [
+            'label' => 'Remove staff comment #'.$cloudId,
+            'tolerate_missing' => true,
+        ]);
+
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     /** Edit details — email included, no verification code by design. */
@@ -176,9 +246,41 @@ final class PlayersController extends Controller
             'npl_id' => ['required', 'string', 'max:60'],
         ]);
 
-        return $this->cloudCall(fn (): array => $this->cloud->getJson('/api/v1/internal/players/vouchers', [
+        $response = $this->cloudCall(fn (): array => $this->cloud->getJson('/api/v1/internal/players/vouchers', [
             'npl_id' => (string) $validated['npl_id'],
         ]));
+
+        // Queued mark-used jobs flip their voucher to used in the list the
+        // operator is looking at, before the cloud has applied them.
+        $queuedIds = \Illuminate\Support\Facades\DB::table('cloud_call_queue')
+            ->whereIn('status', ['pending', 'sending'])
+            ->where('method', 'post')
+            ->where('path', 'like', '/api/v1/internal/players/vouchers/%/mark-used')
+            ->get(['path'])
+            ->map(fn (object $row): ?int => preg_match('#/vouchers/(\d+)/mark-used$#', (string) $row->path, $m) ? (int) $m[1] : null)
+            ->filter()
+            ->flip();
+
+        if ($queuedIds->isNotEmpty()) {
+            $body = $response->getData(true);
+
+            if (isset($body['data']['vouchers']) && is_array($body['data']['vouchers'])) {
+                $body['data']['vouchers'] = array_map(
+                    function (array $voucher) use ($queuedIds): array {
+                        if ($queuedIds->has((int) ($voucher['id'] ?? 0))) {
+                            $voucher['status'] = 'used';
+                        }
+
+                        return $voucher;
+                    },
+                    $body['data']['vouchers'],
+                );
+
+                return response()->json($body, 200);
+            }
+        }
+
+        return $response;
     }
 
     /**
@@ -198,10 +300,13 @@ final class PlayersController extends Controller
 
     public function markVoucherUsed(Request $request, int $cloudVoucherId): JsonResponse
     {
-        return $this->cloudCall(fn (): array => $this->cloud->postJson(
-            '/api/v1/internal/players/vouchers/'.$cloudVoucherId.'/mark-used',
-            $request->all(),
-        ));
+        // Reference-idempotent on the cloud — safe to queue; the vouchers
+        // list overlay shows it used immediately.
+        $this->queue->enqueue('post', '/api/v1/internal/players/vouchers/'.$cloudVoucherId.'/mark-used', $request->all(), [
+            'label' => 'Mark voucher #'.$cloudVoucherId.' used',
+        ]);
+
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     public function registerCode(Request $request): JsonResponse
