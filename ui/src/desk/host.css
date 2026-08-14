@@ -2428,3 +2428,11 @@
   opacity: 0.75;
   line-height: 1.45;
 }
+
+
+/* Private table open to strangers — green, distinct from the violet PRIVATE. */
+.host-table__pill--open {
+  border-color: rgba(61, 255, 160, 0.45);
+  color: #7dffbe;
+  background: rgba(61, 255, 160, 0.1);
+}

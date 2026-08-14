@@ -353,12 +353,24 @@ final class TournamentService
                 $update['rebuy_tiers'] = $rebuyTiers->toJson();
                 $update['rebuy_price_cents'] = (int) $rebuyTiers->first()['price_cents'];
                 $update['rebuy_chips'] = (int) $rebuyTiers->first()['chips'];
+            } elseif (array_key_exists('rebuy_tiers', $data) && is_array($data['rebuy_tiers'])) {
+                // An explicit empty list DISABLES rebuys — unticking
+                // "Top-ups" on a cash draft must actually turn them off,
+                // legacy pair included (a 0/0 pair renders no option).
+                $update['rebuy_tiers'] = null;
+                $update['rebuy_price_cents'] = 0;
+                $update['rebuy_chips'] = 0;
             }
 
             if ($tiers->isNotEmpty()) {
                 $update['addon_tiers'] = $tiers->toJson();
                 $update['addon_price_cents'] = (int) $tiers->first()['price_cents'];
                 $update['addon_chips'] = (int) $tiers->first()['chips'];
+            } elseif (array_key_exists('addon_tiers', $data) && is_array($data['addon_tiers'])) {
+                // Same rule as rebuys: explicit empty list = add-ons off.
+                $update['addon_tiers'] = null;
+                $update['addon_price_cents'] = 0;
+                $update['addon_chips'] = 0;
             }
 
             DB::table('tournament_sessions')->where('id', $sessionId)->update($update);
@@ -810,7 +822,8 @@ final class TournamentService
         ];
     }
 
-    private function recordAction(int $sessionId, string $nplId, string $action, array $attributes): void
+    /** @return bool true when a NEW ledger row landed; false on a keyed replay. */
+    private function recordAction(int $sessionId, string $nplId, string $action, array $attributes): bool
     {
         $row = [
             'tournament_session_id' => $sessionId,
@@ -827,11 +840,21 @@ final class TournamentService
 
         try {
             DB::table('tournament_actions')->insert($row);
+
+            return true;
         } catch (\Illuminate\Database\QueryException $e) {
-            // A repeat of a keyed action is the same action, not a new one.
-            if ($row['idempotency_key'] === null) {
+            // ONLY the duplicate-key error on a keyed action is a replay.
+            // Anything else (database locked, disk full) must surface —
+            // swallowing it would report a sale that never hit the ledger.
+            $isDuplicate = str_contains($e->getMessage(), 'UNIQUE constraint failed')
+                || ($e->errorInfo[0] ?? null) === '23000'
+                || ($e->errorInfo[1] ?? null) === 19;
+
+            if ($row['idempotency_key'] === null || ! $isDuplicate) {
                 throw $e;
             }
+
+            return false;
         }
     }
 

@@ -67,7 +67,10 @@ final class PlayersController extends Controller
         return $this->ok([
             'players' => $players->map(fn (object $row): array => [
                 'npl_id' => $row->npl_id,
-                'display_name' => $row->display_name,
+                // Imported rows can carry a NULL name — the UI types this
+                // as string and slices it; one null used to white-screen
+                // the whole console.
+                'display_name' => $row->display_name ?? $row->npl_id ?? '',
                 'public_player_code' => $row->public_player_code,
                 'state_code' => $row->state_code,
                 'avatar_media_key' => $row->avatar_media_key,

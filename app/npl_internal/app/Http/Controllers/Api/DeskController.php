@@ -252,6 +252,7 @@ final class DeskController
                 'creator_display_name' => optional($seats->first())->creator_display_name,
                 'game_mode' => optional($seats->first())->game_mode,
                 'blinds_text' => optional($seats->first())->blinds_text,
+                'rules_text' => optional($seats->first())->rules_text,
                 'allow_strangers' => optional($seats->first())->allow_strangers === null
                     ? null
                     : (bool) $seats->first()->allow_strangers,
@@ -471,7 +472,7 @@ final class DeskController
         // session just completes. Tournaments still scan their top 10.
         $validated = $request->validate([
             'placements' => ['present', 'array', 'max:10'],
-            'placements.*.npl_id' => ['required', 'string', 'max:32'],
+            'placements.*.npl_id' => ['required', 'string', 'max:32', 'distinct'],
             'placements.*.position' => ['required', 'integer', 'min:1', 'max:10', 'distinct'],
         ]);
 

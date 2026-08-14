@@ -4,6 +4,8 @@ import type { Venue } from "../desk/deskApi"
 import { membershipApi, type ClubMembership, type ResolvedMember } from "./membershipApi"
 import { notify } from "../notifications/store"
 import "./membership.css"
+// .host-spin (the spinner rotation) lives in the desk chunk.
+import "../desk/host.css"
 
 type EditorState =
   | { mode: "create" }

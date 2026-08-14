@@ -132,6 +132,8 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
 // retry/discard on dead jobs.
 Route::prefix('v1/cloud-queue')->controller(\App\Http\Controllers\Api\CloudQueueController::class)->group(function (): void {
     Route::get('status', 'status');
+    Route::post('outbox/{id}/retry', 'retryOutbox')->whereNumber('id');
+    Route::delete('outbox/{id}', 'discardOutbox')->whereNumber('id');
     Route::post('{id}/retry', 'retry')->whereNumber('id');
     Route::delete('{id}', 'discard')->whereNumber('id');
 });
@@ -142,7 +144,8 @@ Route::prefix('v1/players')->controller(\App\Http\Controllers\Api\PlayersControl
     Route::get('comments', 'comments');
     Route::post('comments/bulk', 'commentsBulk');
     Route::post('comments', 'storeComment');
-    Route::delete('comments/{cloudId}', 'destroyComment')->whereNumber('cloudId');
+    // Negative ids are this desk's own queued-but-unsent comments.
+    Route::delete('comments/{cloudId}', 'destroyComment')->where('cloudId', '-?[0-9]+');
     Route::post('update', 'updatePlayer');
     Route::post('password', 'setPassword');
     Route::get('vouchers', 'vouchers');

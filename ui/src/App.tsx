@@ -1193,16 +1193,16 @@ export default function App() {
             <span>Local services {health.status === "ready" ? "operational" : health.status}</span>
           </div>
           <div>
-            {cloudQueue !== null && (cloudQueue.pending > 0 || cloudQueue.dead > 0) ? (
+            {cloudQueue !== null && (cloudQueue.pending > 0 || cloudQueue.dead > 0 || (cloudQueue.outbox_dead_count ?? 0) > 0) ? (
               <>
                 <button
                   type="button"
-                  className={cloudQueue.dead > 0 ? "cloudq-chip cloudq-chip--dead" : "cloudq-chip"}
+                  className={(cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0 ? "cloudq-chip cloudq-chip--dead" : "cloudq-chip"}
                   onClick={() => setQueuePanelOpen(true)}
                   title="Cloud sync queue — desk changes on their way to the NPL cloud"
                 >
-                  {cloudQueue.dead > 0
-                    ? `Cloud sync: ${cloudQueue.dead} failed${cloudQueue.pending > 0 ? ` · ${cloudQueue.pending} on the way` : ""}`
+                  {(cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0
+                    ? `Cloud sync: ${cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)} failed${cloudQueue.pending > 0 ? ` · ${cloudQueue.pending} on the way` : ""}`
                     : `Cloud sync: ${cloudQueue.pending} on the way`}
                 </button>
                 <span className="statusbar-divider" />
@@ -1224,11 +1224,58 @@ export default function App() {
             </header>
 
             <p className="cloudq-modal__meta">
-              {cloudQueue?.pending ?? 0} on the way · {cloudQueue?.dead ?? 0} failed for good.
+              {cloudQueue?.pending ?? 0} on the way · {(cloudQueue?.dead ?? 0) + (cloudQueue?.outbox_dead_count ?? 0)} failed for good.
               Changes apply on this desk instantly and ride this queue to the NPL cloud with automatic retries.
             </p>
 
-            {(cloudQueue?.dead_items.length ?? 0) === 0 ? (
+            {(cloudQueue?.outbox_dead?.length ?? 0) > 0 ? (
+              <>
+                <p className="cloudq-modal__meta"><strong>Money outbox</strong> — these carry paid entries or finish reports:</p>
+                <ul className="cloudq-modal__list">
+                  {cloudQueue?.outbox_dead.map((item) => (
+                    <li key={`ob-${item.id}`}>
+                      <div className="cloudq-modal__label">
+                        <strong>{item.label}</strong>
+                        <small>{item.last_error ?? "No error recorded"} · {item.attempts} attempts</small>
+                      </div>
+                      <div className="cloudq-modal__actions">
+                        <button
+                          type="button"
+                          disabled={queueBusy}
+                          onClick={() => {
+                            setQueueBusy(true)
+                            void deskApi.cloudQueueRetryOutbox(item.id)
+                              .then(() => deskApi.cloudQueueStatus())
+                              .then(setCloudQueue)
+                              .catch(() => undefined)
+                              .finally(() => setQueueBusy(false))
+                          }}
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          className="cloudq-modal__discard"
+                          disabled={queueBusy}
+                          onClick={() => {
+                            setQueueBusy(true)
+                            void deskApi.cloudQueueDiscardOutbox(item.id)
+                              .then(() => deskApi.cloudQueueStatus())
+                              .then(setCloudQueue)
+                              .catch(() => undefined)
+                              .finally(() => setQueueBusy(false))
+                          }}
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            {(cloudQueue?.dead_items.length ?? 0) === 0 && (cloudQueue?.outbox_dead?.length ?? 0) === 0 ? (
               <p className="cloudq-modal__empty">Nothing needs attention.</p>
             ) : (
               <ul className="cloudq-modal__list">

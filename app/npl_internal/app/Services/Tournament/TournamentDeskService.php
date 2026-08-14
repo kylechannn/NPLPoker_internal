@@ -94,7 +94,7 @@ final class TournamentDeskService
             'player' => [
                 'npl_id' => $nplId,
                 'display_name' => $player->display_name ?? $player->npl_id,
-                'avatar_url' => $player->avatar_url ?? null,
+                'avatar_url' => ($player->avatar_media_key ?? null) ? '/media/'.$player->avatar_media_key : ($player->avatar_url ?? null),
                 'state_code' => $player->state_code ?? null,
             ],
             'entry' => $registered ? $this->presentEntry($entry, $sessionId, $session) : null,
@@ -179,7 +179,11 @@ final class TournamentDeskService
         }
         $rebuyTiers = TournamentService::rebuyTiers($session);
         if ($rebuyTiers === []) {
-            $options[] = $this->option('rebuy', 'Rebuy', (int) $session->rebuy_price_cents, (int) $session->rebuy_chips, $rebuyCheck);
+            // A 0-price/0-chip legacy pair is the DISABLED state, not a
+            // free rebuy — offer nothing.
+            if ((int) $session->rebuy_price_cents > 0 || (int) $session->rebuy_chips > 0) {
+                $options[] = $this->option('rebuy', 'Rebuy', (int) $session->rebuy_price_cents, (int) $session->rebuy_chips, $rebuyCheck);
+            }
         } else {
             foreach ($rebuyTiers as $index => $tier) {
                 $label = count($rebuyTiers) > 1
@@ -204,7 +208,10 @@ final class TournamentDeskService
         // holding out, no mental price list required.
         $tiers = TournamentService::addonTiers($session);
         if ($tiers === []) {
-            $options[] = $this->option('addon', 'Add-on', (int) $session->addon_price_cents, (int) $session->addon_chips, $addonCheck);
+            // Same rule: a 0/0 legacy pair means add-ons are off.
+            if ((int) $session->addon_price_cents > 0 || (int) $session->addon_chips > 0) {
+                $options[] = $this->option('addon', 'Add-on', (int) $session->addon_price_cents, (int) $session->addon_chips, $addonCheck);
+            }
         } else {
             foreach ($tiers as $index => $tier) {
                 $label = count($tiers) > 1
@@ -287,6 +294,29 @@ final class TournamentDeskService
     public function apply(int $sessionId, string $rawId, string $action, array $options = []): array
     {
         $nplId = $this->normaliseId($rawId);
+
+        // Keyed replay short-circuit: if this exact sale already sits in
+        // the ledger, answer success WITHOUT re-running gates (the level
+        // may have rolled since it applied — a replay must never grade as
+        // "failed" and invite a second charge) and WITHOUT printing a
+        // second receipt.
+        $idempotencyKey = $options['idempotency_key'] ?? null;
+
+        if ($idempotencyKey !== null) {
+            $alreadyApplied = DB::table('tournament_actions')
+                ->where('tournament_session_id', $sessionId)
+                ->where('idempotency_key', $idempotencyKey)
+                ->exists();
+
+            if ($alreadyApplied) {
+                return [
+                    'ok' => true,
+                    'replayed' => true,
+                    'receipt' => 'skipped',
+                ];
+            }
+        }
+
         $session = $this->clock->session($sessionId);
         $state = $this->clock->state($sessionId);
 
@@ -1531,11 +1561,15 @@ final class TournamentDeskService
      */
     private function avatarFor(int $sessionId, string $nplId): ?string
     {
+        // Installed local copies first (/media/{key} keeps faces showing
+        // offline); the cloud URL is only the not-yet-installed fallback.
         $this->playerAvatarCache[$sessionId] ??= DB::table('mirror_players')
             ->whereIn('npl_id', DB::table('tournament_entries')->where('tournament_session_id', $sessionId)->pluck('player_npl_id'))
-            ->whereNotNull('avatar_url')
-            ->pluck('avatar_url', 'npl_id')
-            ->mapWithKeys(fn ($url, $id): array => [strtoupper((string) $id) => (string) $url])
+            ->where(fn ($query) => $query->whereNotNull('avatar_url')->orWhereNotNull('avatar_media_key'))
+            ->get(['npl_id', 'avatar_url', 'avatar_media_key'])
+            ->mapWithKeys(fn (object $row): array => [strtoupper((string) $row->npl_id) => $row->avatar_media_key
+                ? '/media/'.$row->avatar_media_key
+                : (string) $row->avatar_url])
             ->all();
 
         return $this->playerAvatarCache[$sessionId][strtoupper($nplId)] ?? null;

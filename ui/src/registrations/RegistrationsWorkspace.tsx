@@ -3,6 +3,13 @@ import { CalendarDays, ListChecks, Loader2, MessageSquareWarning, Users, X } fro
 import { deskApi, type OnlineRegistration, type SessionSummary, type Venue } from "../desk/deskApi"
 import { playersApi, type PlayerComment } from "../players/playersApi"
 import "./registrations.css"
+// Cross-chunk styles this tab renders (modal shell, list states, spinner):
+// imported explicitly so Vite ships them with THIS chunk too — without
+// these, opening Registrations before Players/Membership rendered the
+// record modal unstyled and in-flow.
+import "../membership/membership.css"
+import "../players/players.css"
+import "../desk/host.css"
 
 /**
  * Staff-comment review keys the operator has already acknowledged this
@@ -74,7 +81,8 @@ export default function RegistrationsWorkspace({ venue }: { venue: Venue | null 
     // Default to today when today has sessions; otherwise show everything.
     if (sessions === null || defaultedDateRef.current) return
     defaultedDateRef.current = true
-    const today = new Date().toISOString().slice(0, 10)
+    // Sydney wall-clock, not UTC — until ~11am the UTC date is yesterday.
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })
     if (dates.includes(today)) setDate(today)
   }, [sessions, dates])
 
@@ -118,7 +126,7 @@ export default function RegistrationsWorkspace({ venue }: { venue: Venue | null 
                 onClick={() => setDate(value)}
               >
                 <CalendarDays size={13} />
-                {new Date(`${value}T00:00:00`).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
+                {value ? new Date(`${value}T00:00:00`).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" }) : "—"}
               </button>
             ))}
           </div>
@@ -132,7 +140,7 @@ export default function RegistrationsWorkspace({ venue }: { venue: Venue | null 
                   <div className="regs__cardmain">
                     <strong>{session.title ?? `Session #${session.session_id}`}</strong>
                     <small>
-                      {new Date(`${session.session_date}T00:00:00`).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}
+                      {session.session_date ? new Date(`${session.session_date}T00:00:00`).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" }) : "—"}
                       {session.start_time ? ` · ${session.start_time.slice(0, 5)}` : ""}
                       {session.venue_name ? ` · ${session.venue_name}` : ""}
                     </small>

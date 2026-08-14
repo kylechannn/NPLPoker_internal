@@ -63,15 +63,10 @@ final class WheelController extends Controller
     {
         $cached = \Illuminate\Support\Facades\Cache::remember('jackpot.pool', 60, function (): ?array {
             try {
-                $response = \Illuminate\Support\Facades\Http::timeout(6)
-                    ->acceptJson()
-                    ->get(rtrim((string) config('nplcloud.base'), '/').'/api/v1/content/jackpot');
-
-                if (! $response->ok()) {
-                    return null;
-                }
-
-                $data = (array) $response->json('data');
+                // Through CloudClient — the raw Http call skipped the CA
+                // bundle and failed TLS on venue machines (no pool shown).
+                $result = $this->cloud->getJson('/api/v1/content/jackpot');
+                $data = (array) ($result['data'] ?? []);
 
                 return [
                     'amount_cents' => isset($data['amount_cents']) && $data['amount_cents'] !== null
@@ -145,7 +140,7 @@ final class WheelController extends Controller
             // Golden follow-up draw, funded by the normal spin that landed
             // on the golden segment.
             'wheel' => ['sometimes', 'in:normal,golden'],
-            'parent_reference' => ['sometimes', 'nullable', 'string', 'min:8', 'max:64'],
+            'parent_reference' => ['required_if:wheel,golden', 'nullable', 'string', 'min:8', 'max:61'],
         ]);
 
         try {
@@ -225,8 +220,8 @@ final class WheelController extends Controller
     public function voucherRedeem(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'reference' => ['required', 'string', 'min:8', 'max:64'],
-            'npl_id' => ['required', 'string', 'max:32'],
+            'reference' => ['required', 'string', 'min:8', 'max:61'],
+            'npl_id' => ['required', 'string', 'min:3', 'max:32'],
             'voucher_id' => ['sometimes', 'nullable', 'integer'],
             // A championship ticket stack — several ids, one reference.
             'voucher_ids' => ['sometimes', 'array', 'max:10'],

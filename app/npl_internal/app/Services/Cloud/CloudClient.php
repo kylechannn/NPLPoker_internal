@@ -90,9 +90,7 @@ final class CloudClient
 
         $this->assertOk($response, $path);
 
-        $body = $response->json();
-
-        return is_array($body) ? (array) ($body['data'] ?? []) : [];
+        return $this->unwrap($response, $path);
     }
 
     public function deleteJson(string $path): array
@@ -105,9 +103,27 @@ final class CloudClient
 
         $this->assertOk($response, $path);
 
+        return $this->unwrap($response, $path);
+    }
+
+    /**
+     * A 200 whose body is not the {ok:true, data} envelope is NOT success —
+     * signing an operator in (or reporting a sale applied) off a garbage
+     * body must never happen.
+     */
+    private function unwrap(\Illuminate\Http\Client\Response $response, string $path): array
+    {
         $body = $response->json();
 
-        return is_array($body) ? (array) ($body['data'] ?? []) : [];
+        if (! is_array($body) || ($body['ok'] ?? null) !== true) {
+            throw new CloudException(
+                CloudException::BAD_RESPONSE,
+                sprintf('Unexpected payload from %s (status %d).', $path, $response->status()),
+                $response->status(),
+            );
+        }
+
+        return (array) ($body['data'] ?? []);
     }
 
     /**
@@ -232,11 +248,16 @@ final class CloudClient
         };
 
         // The first field error is the sentence the operator needs ("That
-        // code doesn't match…"), not the generic envelope message.
+        // code doesn't match…"), not the generic envelope message. Cloud
+        // error shape: {ok:false, error:{code, message, details}} — on
+        // VALIDATION_FAILED the message is the fixed 'Validation error.'
+        // and details carries the Laravel error bag {field: [sentence…]}.
         $json = (array) $response->json();
-        $fieldErrors = is_array($json['errors'] ?? null) ? array_values($json['errors']) : [];
-        $message = (string) (($json['error']['message'] ?? null)
-            ?: ($fieldErrors[0][0] ?? null)
+        $details = is_array($json['error']['details'] ?? null) ? array_values($json['error']['details']) : [];
+        // Guard: the 426 body's details is a scalar map, not an error bag.
+        $fieldSentence = is_array($details[0] ?? null) ? ($details[0][0] ?? null) : null;
+        $message = (string) ((is_string($fieldSentence) && $fieldSentence !== '' ? $fieldSentence : null)
+            ?: ($json['error']['message'] ?? null)
             ?: ($json['message'] ?? null)
             ?: $response->body());
 

@@ -27,7 +27,7 @@ use Throwable;
  */
 final class CloudCallQueue
 {
-    private const MAX_ATTEMPTS = 12;
+    private const MAX_ATTEMPTS = 24;
 
     public function __construct(
         private readonly CloudClient $cloud,
@@ -132,7 +132,13 @@ final class CloudCallQueue
             } catch (CloudException $e) {
                 // "Already done" answers count as done for removal-type jobs
                 // — a retry after a half-applied attempt must not go dead.
-                if ($entry->tolerate_missing && in_array($e->status, [404, 410], true)) {
+                $alreadyGone = in_array($e->status, [404, 410], true)
+                    || ($e->status === 422 && (
+                        str_contains($e->getMessage(), 'no live registration')
+                        || str_contains($e->getMessage(), 'already')
+                    ));
+
+                if ($entry->tolerate_missing && $alreadyGone) {
                     $this->markSent($entry->id, $attempts, 'Already applied on the cloud.');
                     $sent++;
                     $this->rememberSession($touchedSessions, $entry->group_key);
@@ -142,7 +148,7 @@ final class CloudCallQueue
 
                 $retryable = $e->isRetryable();
                 $exhausted = $attempts >= self::MAX_ATTEMPTS;
-                $delay = min(3600, 5 * (2 ** min($attempts, 7)));
+                $delay = min(3600, 5 * (2 ** min($attempts, 10)));
 
                 DB::table('cloud_call_queue')->where('id', $entry->id)->update([
                     'status' => ($retryable && ! $exhausted) ? 'pending' : 'dead',

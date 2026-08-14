@@ -38,9 +38,12 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
-            'synchronous' => null,
+            // Three writers exist by construction (serve worker, scheduler
+            // commands, the detached sync process): WAL + a generous busy
+            // timeout turn SQLITE_BUSY from an exception into a wait.
+            'busy_timeout' => (int) env('DB_BUSY_TIMEOUT', 5000),
+            'journal_mode' => env('DB_JOURNAL_MODE', 'wal'),
+            'synchronous' => env('DB_SYNCHRONOUS', 'normal'),
             'transaction_mode' => 'DEFERRED',
         ],
 

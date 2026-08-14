@@ -3,6 +3,10 @@ import { AlertTriangle, Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay,
 import { QRCodeSVG } from "qrcode.react"
 import { notify } from "../notifications/store"
 import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
+// The scan-time staff-comments overlay styles live in players.css — the
+// desk chunk must carry them itself (the first scan of a flagged player
+// happens before the Players tab was ever opened).
+import "../players/players.css"
 import {
   countdown,
   deskApi,
@@ -39,6 +43,8 @@ type SeatMenu = {
   x: number
   y: number
   player: SeatedPlayer
+  /** Stable for this menu's lifetime — retries replay, never re-charge. */
+  actKey: string
 }
 
 const GATE_LABELS: Array<{ key: keyof Gates, label: string }> = [
@@ -397,8 +403,14 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     }
   }
 
+  // 20 hex chars — combined with :action:tier suffixes it stays inside
+  // the ledger column's 64-char cap.
+  const newActKey = () => crypto.randomUUID().replace(/-/g, "").slice(0, 20)
+  const submitKeyRef = useRef<string>("")
+
   /** Opens the registration popup — with the buy-in covered, or not. */
   function openActions(result: ScanResult, withVoucher: boolean) {
+    submitKeyRef.current = newActKey()
     setUseVoucher(withVoucher)
     setScan(result)
 
@@ -532,10 +544,12 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           const stack = coveredOnline.vouchers && coveredOnline.vouchers.length > 1 ? coveredOnline.vouchers : null
           const result = coveredOnline.covered_cents !== null && coveredOnline.covered_cents !== undefined
             ? await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+                idempotency_key: `${submitKeyRef.current}:buy_in`,
                 voucher_codes: (stack ?? [coveredOnline]).map((entry) => entry.code),
                 voucher_covered_cents: Math.min(coveredOnline.covered_cents, option.price_cents),
               })
             : await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+                idempotency_key: `${submitKeyRef.current}:buy_in`,
                 voucher_code: coveredOnline.code,
                 voucher_limit_cents: coveredOnline.entry_fee_limit_cents ?? null,
               })
@@ -564,6 +578,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             useTickets.map((ticket) => ticket.id),
           )
           const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+            idempotency_key: `${submitKeyRef.current}:buy_in`,
             voucher_codes: useTickets.map((ticket) => ticket.code),
             voucher_covered_cents: Math.min(covered, option.price_cents),
           })
@@ -584,6 +599,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           voucherRefRef.current ??= `DV-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
           await deskApi.voucherRedeem(voucherRefRef.current, scan.player.npl_id, voucher.id, activeVenueId(), seating?.game_session_id ?? null)
           const result = await deskApi.act(sessionId, scan.player.npl_id, "buy_in", {
+            idempotency_key: `${submitKeyRef.current}:buy_in`,
             voucher_code: voucher.code,
             voucher_limit_cents: voucher.entry_fee_limit_cents ?? null,
           })
@@ -601,6 +617,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           scan.player.npl_id,
           option.action,
           {
+            idempotency_key: `${submitKeyRef.current}:${option.action}:${option.tier ?? 0}`,
             ...(option.tier !== undefined ? { tier: option.tier } : {}),
             ...(option.action === "jackpot" && jackpotWithBuyIn ? { first_buy_in: true } : {}),
           },
@@ -1274,7 +1291,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                     onDragEnd={() => setDragging(null)}
                     onContextMenu={(e) => {
                       e.preventDefault()
-                      setMenu({ x: e.clientX, y: e.clientY, player })
+                      setMenu({ x: e.clientX, y: e.clientY, player, actKey: newActKey() })
                     }}
                     onMouseEnter={(e) => {
                       if (player.club_member === true) setMemberCard({ x: e.clientX, y: e.clientY, player })
@@ -1403,7 +1420,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                         e.preventDefault()
                         e.stopPropagation()
                         if (isBooking) return
-                        setMenu({ x: e.clientX, y: e.clientY, player: seat.player })
+                        setMenu({ x: e.clientX, y: e.clientY, player: seat.player, actKey: newActKey() })
                       }}
                     >
                       <span className="host-seat__no">{seat.seat_number}</span>
@@ -1511,7 +1528,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             (seating?.rebuy_tiers ?? []).map((tier, index) => (
               <button key={index} type="button" onClick={() => void seatAction(
                 async () => {
-                  await deskApi.act(sessionId, menu.player.npl_id, "rebuy", { tier: index })
+                  await deskApi.act(sessionId, menu.player.npl_id, "rebuy", { tier: index, idempotency_key: `${menu.actKey}:rebuy:${index}` })
                   return deskApi.seating(sessionId)
                 },
                 `Rebuy ${tier.chips.toLocaleString()} (${money(tier.price_cents)}) — ${menu.player.display_name}.`,
@@ -1522,7 +1539,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           ) : (
             <button type="button" onClick={() => void seatAction(
               async () => {
-                await deskApi.act(sessionId, menu.player.npl_id, "rebuy")
+                await deskApi.act(sessionId, menu.player.npl_id, "rebuy", { idempotency_key: `${menu.actKey}:rebuy` })
                 return deskApi.seating(sessionId)
               },
               `Rebuy taken for ${menu.player.display_name}.`,

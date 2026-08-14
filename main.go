@@ -236,11 +236,24 @@ func newHandlerWithBackend(
 			_, _ = licenses.check()
 		}
 	}()
-	staffLogin := newStaffLoginManager(staffGatewayURL)
-	// Staff identities come from the cloud's register, mirrored locally by
-	// Manual update — the pairing phone types a staff ID, never a name.
-	staffLogin.resolveStaff = rosterResolver(backend)
-	staffLogin.register(mux)
+	// The staff QR-pairing flow was retired from the console (2026-08-05);
+	// its backend only registers when explicitly configured, so the LAN
+	// listener stops carrying live-but-dead endpoints. Without it the
+	// paths answer an explicit 410 instead of falling through to the SPA.
+	if staffGatewayURL != "" {
+		staffLogin := newStaffLoginManager(staffGatewayURL)
+		// Staff identities come from the cloud's register, mirrored locally by
+		// Manual update — the pairing phone types a staff ID, never a name.
+		staffLogin.resolveStaff = rosterResolver(backend)
+		staffLogin.register(mux)
+	} else {
+		gone := func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "Staff login is disabled on this install.", http.StatusGone)
+		}
+		mux.HandleFunc("/staff-login", gone)
+		mux.HandleFunc("/staff-login/", gone)
+		mux.HandleFunc("/api/staff-login/session", gone)
+	}
 
 	// The silent receipt bridge: the bundled Laravel composes receipt
 	// lines for buy-ins/rebuys/add-ons/jackpots and this host spools them
@@ -321,6 +334,19 @@ func newHandlerWithBackend(
 	// be shadowed by the bundled app.
 	if backend != nil {
 		backend.register(mux)
+	} else {
+		// The bundled Laravel failed to start: /api/v1 must answer as
+		// JSON the UI can show plainly, not fall through to index.html
+		// (which parses as garbage and reads as a random error).
+		mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "LOCAL_BACKEND_DOWN",
+					"message": "The local desk service failed to start — close and reopen the NPL Poker OS app.",
+				},
+			})
+		})
 	}
 
 	mux.Handle("/", spaHandler(assets))

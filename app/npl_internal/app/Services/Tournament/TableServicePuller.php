@@ -126,9 +126,15 @@ final class TableServicePuller
      */
     public function handle(int $sessionId, int $requestId): array
     {
-        $response = $this->cloud->getJson('/api/v1/internal/table-service/requests', [
-            'uid' => $this->broadcaster->uid($sessionId),
-        ]);
+        try {
+            $response = $this->cloud->getJson('/api/v1/internal/table-service/requests', [
+                'uid' => $this->broadcaster->uid($sessionId),
+            ]);
+        } catch (\App\Services\Cloud\CloudException $e) {
+            throw ValidationException::withMessages([
+                'request' => ['The NPL cloud could not be reached — try again in a moment. ('.$e->errorCode.')'],
+            ]);
+        }
 
         $row = collect($response['data']['pending'] ?? [])->first(
             fn ($candidate): bool => (int) ($candidate['id'] ?? 0) === $requestId,
@@ -163,11 +169,20 @@ final class TableServicePuller
             $amountCents = $this->configuredPrice($sessionId, $kind);
         }
 
-        $this->cloud->postJson(
-            '/api/v1/internal/table-service/requests/'.$requestId.'/resolve',
-            ['applied' => $money, 'amount_cents' => $amountCents],
-            'tsr-desk:'.$requestId,
-        );
+        try {
+            $this->cloud->postJson(
+                '/api/v1/internal/table-service/requests/'.$requestId.'/resolve',
+                ['applied' => $money, 'amount_cents' => $amountCents],
+                'tsr-desk:'.$requestId,
+            );
+        } catch (\App\Services\Cloud\CloudException $e) {
+            // The MONEY already landed locally (idempotent by tsr:{id}) —
+            // a resolve hiccup must not read as a failed sale. The cloud
+            // side reconciles on the next poll; tell the operator plainly.
+            throw ValidationException::withMessages([
+                'request' => ['Applied at the desk, but the cloud could not be told yet — it will reconcile on its own. ('.$e->errorCode.')'],
+            ]);
+        }
 
         return ['id' => $requestId, 'kind' => $kind, 'npl_id' => $nplId];
     }

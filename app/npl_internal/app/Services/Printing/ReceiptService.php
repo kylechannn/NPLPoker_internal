@@ -96,7 +96,7 @@ final class ReceiptService
 
             return $this->send($settings['printer_name'], $lines) ? 'printed' : 'failed';
         } catch (Throwable $e) {
-            Log::info('receipt print failed', ['session' => $sessionId, 'npl_id' => $nplId, 'action' => $action, 'error' => $e->getMessage()]);
+            Log::warning('receipt print failed', ['session' => $sessionId, 'npl_id' => $nplId, 'action' => $action, 'error' => $e->getMessage()]);
 
             return 'failed';
         }
@@ -231,7 +231,7 @@ final class ReceiptService
         ]);
 
         if (! $response->successful()) {
-            Log::info('receipt bridge refused the print', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::warning('receipt bridge refused the print', ['status' => $response->status(), 'body' => $response->body()]);
 
             return false;
         }

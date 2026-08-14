@@ -107,7 +107,9 @@ return [
     ],
 
     'outbox' => [
-        'max_attempts' => (int) env('NPL_OUTBOX_MAX_ATTEMPTS', 12),
+        // 24 hourly-capped retries ≈ a full day before a money entry
+        // goes dead — a venue weekend outage must not kill the queue.
+        'max_attempts' => (int) env('NPL_OUTBOX_MAX_ATTEMPTS', 24),
         'chunk' => (int) env('NPL_OUTBOX_CHUNK', 20),
     ],
 ];

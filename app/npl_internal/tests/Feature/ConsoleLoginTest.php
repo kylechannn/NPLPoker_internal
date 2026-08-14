@@ -55,11 +55,18 @@ class ConsoleLoginTest extends TestCase
 
     public function test_wrong_website_credentials_read_back_the_clouds_sentence(): void
     {
+        // The REAL cloud error envelope: the field sentences live under
+        // error.details, and error.message is the fixed 'Validation error.'
+        // (the old fake's top-level `errors` key never existed on the wire —
+        // which is why the desk showed the generic sentence for months).
         Http::fake([
             '*/api/v1/admin/auth/login' => Http::response([
                 'ok' => false,
-                'message' => 'The given data was invalid.',
-                'errors' => ['login' => ['The provided admin credentials are invalid.']],
+                'error' => [
+                    'code' => 'VALIDATION_FAILED',
+                    'message' => 'Validation error.',
+                    'details' => ['login' => ['The provided admin credentials are invalid.']],
+                ],
             ], 422),
         ]);
 

@@ -37,6 +37,8 @@ final class CloudException extends RuntimeException
 
     public function isRetryable(): bool
     {
-        return in_array($this->errorCode, [self::UNREACHABLE, self::RATE_LIMITED, self::SERVER_ERROR], true);
+        // UPDATE_REQUIRED is temporary — the desk gets updated and the
+        // queued money must still be there when it comes back.
+        return in_array($this->errorCode, [self::UNREACHABLE, self::RATE_LIMITED, self::SERVER_ERROR, self::UPDATE_REQUIRED], true);
     }
 }

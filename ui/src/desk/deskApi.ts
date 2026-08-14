@@ -376,16 +376,21 @@ export type ActiveSession = {
 }
 
 /** The desk→cloud call queue, as the shell's sync badge sees it. */
+export type CloudQueueDeadItem = {
+  id: number
+  label: string
+  last_error: string | null
+  attempts: number
+  updated_at: string
+}
+
 export type CloudQueueStatus = {
   pending: number
   dead: number
-  dead_items: Array<{
-    id: number
-    label: string
-    last_error: string | null
-    attempts: number
-    updated_at: string
-  }>
+  dead_items: CloudQueueDeadItem[]
+  /** The money outbox's dead letters — the ones that MUST get eyes. */
+  outbox_dead: CloudQueueDeadItem[]
+  outbox_dead_count: number
 }
 
 export const deskApi = {
@@ -401,6 +406,13 @@ export const deskApi = {
   /** Drop a dead job for good. */
   cloudQueueDiscard: (id: number) =>
     request<{ discarded: boolean }>(`/api/v1/cloud-queue/${id}`, { method: 'DELETE' }),
+
+  /** Same controls for the money outbox's dead letters. */
+  cloudQueueRetryOutbox: (id: number) =>
+    request<{ retried: boolean }>(`/api/v1/cloud-queue/outbox/${id}/retry`, { method: 'POST', body: JSON.stringify({}) }),
+
+  cloudQueueDiscardOutbox: (id: number) =>
+    request<{ discarded: boolean }>(`/api/v1/cloud-queue/outbox/${id}`, { method: 'DELETE' }),
 
   /** Live cloud check on scan: does this player enter free? On a
    *  championship it also lists the stackable special tickets + the price. */

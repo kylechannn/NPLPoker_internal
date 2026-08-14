@@ -33,6 +33,14 @@ export default function ChatPane({ venue }: { venue: Venue | null }) {
   useEffect(() => {
     setRows(null)
     setError(null)
+
+    // The feed is venue-scoped — without a venue the cloud can only refuse.
+    if (venueId === null) {
+      setRows([])
+      setError("Pick a venue in the header to see its chat.")
+      return
+    }
+
     let cancelled = false
 
     const load = (initial: boolean) => {

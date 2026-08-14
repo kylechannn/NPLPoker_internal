@@ -37,6 +37,9 @@ final class OutboxService
                 'operation' => $operation,
                 'payload' => json_encode($payload),
                 'status' => 'pending',
+                // A resurrected entry starts fresh — its old attempt count
+                // must not send it straight back to dead.
+                'attempts' => 0,
                 'available_at' => now(),
                 'updated_at' => now(),
                 'created_at' => now(),
@@ -113,13 +116,13 @@ final class OutboxService
                     // not synced, ordering). 2xx is NOT success here — marking
                     // it sent would silently lose a paid buy-in.
                     $exhausted = $attempts >= $maxAttempts;
-                    $delay = min(3600, 5 * (2 ** min($attempts, 7)));
+                    $delay = min(3600, 5 * (2 ** min($attempts, 10)));
 
                     DB::table('sync_outbox')->where('id', $entry->id)->update([
                         'status' => $exhausted ? 'dead' : 'pending',
                         'attempts' => $attempts,
                         'available_at' => now()->addSeconds($delay),
-                        'last_error' => Str::limit('Cloud did not apply: '.json_encode($response['data']['result']['detail'] ?? []), 500),
+                        'last_error' => Str::limit('Cloud did not apply: '.json_encode($response['result']['detail'] ?? []), 500),
                         'updated_at' => now(),
                     ]);
 
@@ -133,7 +136,7 @@ final class OutboxService
                     DB::table('sync_outbox')->where('id', $entry->id)->update([
                         'status' => 'dead',
                         'attempts' => $attempts,
-                        'last_error' => Str::limit('Cloud rejected: '.json_encode($response['data']['result']['detail'] ?? []), 500),
+                        'last_error' => Str::limit('Cloud rejected: '.json_encode($response['result']['detail'] ?? []), 500),
                         'updated_at' => now(),
                     ]);
                     $dead++;
@@ -154,7 +157,7 @@ final class OutboxService
                 $exhausted = $attempts >= $maxAttempts;
 
                 // Exponential backoff, capped at an hour.
-                $delay = min(3600, 5 * (2 ** min($attempts, 7)));
+                $delay = min(3600, 5 * (2 ** min($attempts, 10)));
 
                 DB::table('sync_outbox')->where('id', $entry->id)->update([
                     'status' => ($retryable && ! $exhausted) ? 'pending' : 'dead',
@@ -187,13 +190,16 @@ final class OutboxService
      */
     private function verdictFor(array $response): string
     {
-        $result = $response['data']['result'] ?? null;
+        // postJson already unwrapped the envelope: result/duplicate sit at
+        // the TOP level here. (Reading data.result made every 2xx 'sent' —
+        // cloud rejections of paid buy-ins were silently lost.)
+        $result = $response['result'] ?? null;
 
         if (! is_array($result)) {
             return 'sent';
         }
 
-        if (($response['data']['duplicate'] ?? false) === true
+        if (($response['duplicate'] ?? false) === true
             || ($result['applied'] ?? true) === true
             || ($result['detail']['duplicate'] ?? false) === true) {
             return 'sent';

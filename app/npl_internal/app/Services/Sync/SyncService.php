@@ -29,6 +29,15 @@ use Throwable;
  */
 final class SyncService
 {
+
+    /**
+     * ETags fetched this run, held back until each entity's staging swap
+     * commits — never persisted on a failed apply.
+     *
+     * @var array<string, ?string>
+     */
+    private array $pendingEtags = [];
+
     public function __construct(
         private readonly CloudClient $cloud,
         private readonly MediaCacheService $media,
@@ -103,13 +112,20 @@ final class SyncService
 
             DB::table($staging)->delete();
 
-            $this->touchState($entity, [
+            $state = [
                 'status' => 'ok',
                 'row_count' => $stagedCount,
                 'content_hash' => hash('sha256', json_encode($rows) ?: ''),
                 'last_success_at' => now(),
                 'last_error' => null,
-            ]);
+            ];
+
+            // Only now that the swap held does the new ETag become truth.
+            if (($this->pendingEtags[$entity] ?? null) !== null) {
+                $state['etag'] = $this->pendingEtags[$entity];
+            }
+
+            $this->touchState($entity, $state);
 
             return ['entity' => $entity, 'status' => 'ok', 'rows' => $stagedCount, 'not_modified' => false, 'message' => null];
         } catch (Throwable $e) {
@@ -141,9 +157,10 @@ final class SyncService
             return null;
         }
 
-        if ($result['etag']) {
-            $this->touchState($entity, ['etag' => $result['etag']]);
-        }
+        // The new ETag is remembered by the CALLER only after the staging
+        // swap succeeds — persisting it here meant a failed apply 304'd
+        // forever afterwards, reporting "fresh" on stale data.
+        $this->pendingEtags[$entity] = $result['etag'] ?: null;
 
         $records = $this->extractRecords($result['data']);
         $now = now();

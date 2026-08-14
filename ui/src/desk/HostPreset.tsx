@@ -171,7 +171,7 @@ export default function HostPreset({ venue, onOpened, initialLinkedSessionId = n
         if (initialLinkedSessionId !== null && tournaments.some((s) => s.session_id === initialLinkedSessionId)) {
           setLinkedSessionId(initialLinkedSessionId)
         } else {
-          const today = new Date().toISOString().slice(0, 10)
+          const today = new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" })
           const tonight = tournaments.filter((session) => session.session_date === today)
           setLinkedSessionId(tonight.length === 1 ? tonight[0].session_id : "")
         }

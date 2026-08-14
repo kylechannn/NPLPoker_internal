@@ -53,14 +53,14 @@ final class ManualUpdateRunner
      * froze every other endpoint for the duration — the desk's requests
      * queued behind it and died as 502s at the gateway.
      */
-    public function startInBackground(?string $triggerSource = null): array
+    public function startInBackground(?string $triggerSource = null, bool $force = false): array
     {
         $uuid = $this->createRun($triggerSource);
 
         // Under phpunit a real child process would run against the live .env,
         // not the test database; inline is also simply what the tests assert.
-        if (app()->runningUnitTests() || ! $this->spawn($uuid)) {
-            return $this->run($uuid);
+        if (app()->runningUnitTests() || ! $this->spawn($uuid, $force)) {
+            return $this->run($uuid, $force);
         }
 
         return $this->status($uuid);
@@ -89,7 +89,7 @@ final class ManualUpdateRunner
     }
 
     /** Launch `artisan sync:run {uuid}` detached from this request. */
-    private function spawn(string $uuid): bool
+    private function spawn(string $uuid, bool $force = false): bool
     {
         $artisan = base_path('artisan');
 
@@ -98,10 +98,11 @@ final class ManualUpdateRunner
             // spawned it. proc_open is unusable here — its destructor waits
             // for the child, which would re-block the request.
             $command = sprintf(
-                'start /B "" %s %s sync:run %s',
+                'start /B "" %s %s sync:run %s%s',
                 escapeshellarg(PHP_BINARY),
                 escapeshellarg($artisan),
                 escapeshellarg($uuid),
+                $force ? ' --force' : '',
             );
             $handle = @popen($command, 'r');
             if ($handle === false) {
@@ -113,10 +114,11 @@ final class ManualUpdateRunner
         }
 
         $command = sprintf(
-            '%s %s sync:run %s > /dev/null 2>&1 &',
+            '%s %s sync:run %s%s > /dev/null 2>&1 &',
             escapeshellarg(PHP_BINARY),
             escapeshellarg($artisan),
             escapeshellarg($uuid),
+            $force ? ' --force' : '',
         );
         @exec($command, $output, $status);
 
@@ -214,10 +216,14 @@ final class ManualUpdateRunner
                 'finished_at' => now(),
             ]);
 
-            // Tell the cloud where this machine now stands.
-            $this->update($uuid, ['stage' => 'reporting']);
-            $this->heartbeat->report($warnings === [] ? 'succeeded' : 'partial');
-            $this->update($uuid, ['stage' => 'complete']);
+            // Tell the cloud where this machine now stands — best-effort:
+            // the run already SUCCEEDED, and a heartbeat hiccup must not
+            // rewrite it as failed via the catch below.
+            rescue(function () use ($uuid, $warnings): void {
+                $this->update($uuid, ['stage' => 'reporting']);
+                $this->heartbeat->report($warnings === [] ? 'succeeded' : 'partial');
+                $this->update($uuid, ['stage' => 'complete']);
+            }, report: false);
         } catch (Throwable $e) {
             $code = $e instanceof CloudException ? $e->errorCode : 'SYNC_FAILED';
             $this->fail($uuid, $code, $e->getMessage(), $summary);

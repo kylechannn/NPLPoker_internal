@@ -7,6 +7,11 @@ import type { Venue } from "../desk/deskApi"
 import { playersApi, type ActivityResult, type CommentsResult, type DeskVoucher, type RosterPlayer } from "./playersApi"
 import { notify } from "../notifications/store"
 import "./players.css"
+// Cross-chunk styles the six dialogs render (modal shell, regs table,
+// spinner) — see RegistrationsWorkspace for why these are explicit.
+import "../membership/membership.css"
+import "../registrations/registrations.css"
+import "../desk/host.css"
 
 const AUTHOR_KEY = "npl.commentAuthor"
 
@@ -76,7 +81,7 @@ export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
               <li key={player.npl_id} className="players__row players__row--static">
                 {player.avatar_media_key
                   ? <img src={`/media/${player.avatar_media_key}`} alt="" />
-                  : <span className="players__initials">{player.display_name.slice(0, 2).toUpperCase()}</span>}
+                  : <span className="players__initials">{(player.display_name ?? player.npl_id ?? '??').slice(0, 2).toUpperCase()}</span>}
                 <span className="players__who">
                   <strong>
                     {venueId !== null && player.club_member_code === null ? (
