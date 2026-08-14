@@ -53,7 +53,7 @@ const presentation = {
   completed: {
     kicker: 'INSTALLATION COMPLETE',
     title: 'NPL Poker OS is ready',
-    message: 'Version 1.3.0 is installed — the venue desk can open right away.',
+    message: 'Version 1.4.0 is installed — the venue desk can open right away.',
     button: 'Launch NPL Poker OS',
     hint: 'Installation completed successfully'
   },

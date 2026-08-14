@@ -981,6 +981,11 @@ export default function App() {
             <strong>NPL</strong>
             <span>OS</span>
           </div>
+          {health.status === "ready" ? (
+            <span className="brand-version" title={`Build ${health.health.version}`}>
+              v{health.health.version}
+            </span>
+          ) : null}
           <button
             className="sidebar-close icon-button"
             type="button"
