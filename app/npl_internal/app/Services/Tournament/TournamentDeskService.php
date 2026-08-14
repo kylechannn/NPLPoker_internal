@@ -688,9 +688,10 @@ final class TournamentDeskService
                 $counts[$action->action] = ($counts[$action->action] ?? 0) + 1;
 
                 // Voucher-covered entries: the buy-in action carries the
-                // voucher code(s) in its meta. The cloud's status-point
-                // engine subtracts these exactly — a voucher-paid entry
-                // earns no point, a paid one does.
+                // voucher code(s) in its meta. Informational since the
+                // 2026-08-14 rescope — Status Points now move ONLY on
+                // in_jackpot (the Royal Flush Jackpot buy), reported per
+                // player below; the cloud ignores voucher_buy_ins.
                 if ($action->action === 'buy_in') {
                     $meta = json_decode((string) ($action->meta ?? ''), true);
 
