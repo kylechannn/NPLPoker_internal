@@ -132,6 +132,7 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
 Route::prefix('v1/players')->controller(\App\Http\Controllers\Api\PlayersController::class)->group(function (): void {
     Route::get('/', 'index');
     Route::get('comments', 'comments');
+    Route::post('comments/bulk', 'commentsBulk');
     Route::post('comments', 'storeComment');
     Route::delete('comments/{cloudId}', 'destroyComment')->whereNumber('cloudId');
     Route::post('update', 'updatePlayer');

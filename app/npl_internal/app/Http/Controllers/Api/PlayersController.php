@@ -96,6 +96,32 @@ final class PlayersController extends Controller
         ]);
     }
 
+    /**
+     * One call for a whole session roster: which of these players carry
+     * staff comments? Fail-open — offline means no popup, never a blocked
+     * registration record.
+     */
+    public function commentsBulk(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'npl_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'npl_ids.*' => ['string', 'max:60'],
+        ]);
+
+        try {
+            $result = $this->cloud->getJson('/api/v1/internal/player-comments', [
+                'npl_ids' => implode(',', $validated['npl_ids']),
+            ]);
+        } catch (CloudException) {
+            return $this->ok(['available' => false, 'players' => []]);
+        }
+
+        return $this->ok([
+            'available' => true,
+            'players' => (array) ($result['data']['players'] ?? []),
+        ]);
+    }
+
     public function storeComment(Request $request): JsonResponse
     {
         $validated = $request->validate([

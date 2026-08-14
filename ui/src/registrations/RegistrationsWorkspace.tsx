@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { CalendarDays, ListChecks, Loader2, Users, X } from "lucide-react"
+import { CalendarDays, ListChecks, Loader2, MessageSquareWarning, Users, X } from "lucide-react"
 import { deskApi, type OnlineRegistration, type SessionSummary, type Venue } from "../desk/deskApi"
+import { playersApi, type PlayerComment } from "../players/playersApi"
 import "./registrations.css"
+
+/**
+ * Staff-comment review keys the operator has already acknowledged this
+ * run — module-level so reopening the same record doesn't re-nag, same
+ * once-per-session behaviour as the desk's scan popup.
+ */
+const ackedCommentKeys = new Set<string>()
+
+const commentKey = (sessionId: number, nplId: string, topCommentId: number) =>
+  `${sessionId}:${nplId}:${topCommentId}`
 
 /**
  * Registrations: the whole online record, gathered by session. Pick a date
@@ -150,6 +161,10 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
   // One in-flight action at a time; a confirm step guards both actions.
   const [busyNpl, setBusyNpl] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ action: "promote" | "remove", row: OnlineRegistration } | null>(null)
+  // Registered players carrying staff comments — the review gate over the
+  // record, mirroring the desk's first-registration scan popup.
+  const [commentAlerts, setCommentAlerts] = useState<{ npl_id: string, display_name: string, comments: PlayerComment[] }[] | null>(null)
+  const checkedRosterRef = useRef<string>("")
   // Monotonic fetch guard: live refreshes overlap the initial and
   // post-action loads, and a slow older response must never overwrite a
   // newer table.
@@ -191,6 +206,44 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.session_id])
 
+  // Whenever the roster changes (first load or a live refresh landing a
+  // new registration), ask the cloud which of these players carry staff
+  // comments; unacknowledged ones pop the review gate. Fail-open — the
+  // check being offline never blocks the record.
+  useEffect(() => {
+    if (rows === null || rows.length === 0) return
+    const ids = Array.from(new Set(rows.map((row) => row.npl_id))).sort()
+    const rosterKey = ids.join(",")
+    if (checkedRosterRef.current === rosterKey) return
+    checkedRosterRef.current = rosterKey
+
+    let cancelled = false
+    void playersApi.commentsBulk(ids.slice(0, 100))
+      .then((result) => {
+        if (cancelled || !result.available) return
+        const nameOf = new Map(rows.map((row) => [row.npl_id, row.display_name]))
+        const fresh = result.players
+          .filter((entry) => entry.comments.length > 0)
+          .filter((entry) => !ackedCommentKeys.has(commentKey(session.session_id, entry.npl_id, entry.comments[0]?.id ?? 0)))
+          .map((entry) => ({
+            npl_id: entry.npl_id,
+            display_name: nameOf.get(entry.npl_id) ?? entry.npl_id,
+            comments: entry.comments,
+          }))
+        if (fresh.length > 0) setCommentAlerts(fresh)
+      })
+      .catch(() => undefined)
+
+    return () => { cancelled = true }
+  }, [rows, session.session_id])
+
+  function acknowledgeComments() {
+    for (const entry of commentAlerts ?? []) {
+      ackedCommentKeys.add(commentKey(session.session_id, entry.npl_id, entry.comments[0]?.id ?? 0))
+    }
+    setCommentAlerts(null)
+  }
+
   async function runAction(action: "promote" | "remove", row: OnlineRegistration) {
     setBusyNpl(row.npl_id)
     setError(null)
@@ -211,7 +264,7 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
 
   return (
     <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Online registrations — ${session.title ?? session.session_id}`}>
-      <div className="membership-modal__card membership-modal__card--wide players__commentsmodal">
+      <div className="membership-modal__card membership-modal__card--wide players__commentsmodal regs__card">
         <div className="regs__modalhead">
           <div>
             <h4>{session.title ?? `Session #${session.session_id}`}</h4>
@@ -313,6 +366,40 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
         <div className="membership-modal__actions">
           <button type="button" onClick={onClose}>Close</button>
         </div>
+
+        {commentAlerts ? (
+          <div className="regs-comments" role="alertdialog" aria-modal="true" aria-label="Staff comments — review before continuing">
+            <h5><MessageSquareWarning size={16} /> Staff comments on registered players</h5>
+            <small>Review before continuing — these players are on this session's record.</small>
+            <div className="regs-comments__scroll">
+              {commentAlerts.map((entry) => (
+                <section key={entry.npl_id} className="regs-comments__player">
+                  <header>
+                    <strong>{entry.display_name}</strong>
+                    <code>{entry.npl_id}</code>
+                  </header>
+                  <ul className="regs-comments__list">
+                    {entry.comments.map((comment) => (
+                      <li key={comment.id}>
+                        <div className="regs-comments__meta">
+                          <strong>{comment.author_name}</strong>
+                          <span>
+                            {comment.venue_name ? `${comment.venue_name} · ` : ""}
+                            {new Date(comment.created_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}
+                          </span>
+                        </div>
+                        <p>{comment.note}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+            <button type="button" className="regs-comments__ack" autoFocus onClick={acknowledgeComments}>
+              Acknowledge and continue
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   )

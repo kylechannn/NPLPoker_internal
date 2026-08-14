@@ -22,6 +22,13 @@ export type PlayerComment = {
   created_at: string
 }
 
+/** The flagged slice of a roster — only players who HAVE comments. */
+export type BulkCommentsResult = {
+  /** False when the cloud could not be reached — unknown, not "none". */
+  available: boolean
+  players: { npl_id: string, comments: PlayerComment[] }[]
+}
+
 export type CommentsResult = {
   /** False when the cloud could not be reached — unknown, not "none". */
   available: boolean
@@ -103,6 +110,13 @@ export const playersApi = {
 
   comments: (nplId: string) =>
     request<CommentsResult>(`/api/v1/players/comments?npl_id=${encodeURIComponent(nplId)}`),
+
+  /** One call for a whole session roster — who here carries comments? */
+  commentsBulk: (nplIds: string[]) =>
+    request<BulkCommentsResult>('/api/v1/players/comments/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ npl_ids: nplIds }),
+    }),
 
   addComment: (nplId: string, note: string, authorName: string | null, venueId: number | null) =>
     request<{ result: unknown }>('/api/v1/players/comments', {
