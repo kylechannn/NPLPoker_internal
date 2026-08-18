@@ -142,6 +142,11 @@ func run(cfg config) error {
 	publicAddress := cfg.backendListen
 
 	if !cfg.direct {
+		if err := ensureGatewayPortsFree(cfg, logger); err != nil {
+			_ = server.Close()
+			return err
+		}
+
 		var caddyCtx context.Context
 		caddyCtx, caddyCancel = context.WithCancel(ctx)
 		defer caddyCancel()
@@ -159,6 +164,14 @@ func run(cfg config) error {
 			caddyCancel()
 		}
 		_ = server.Close()
+		// A tight double-launch can pass ensureGatewayPortsFree and still
+		// lose the actual bind race inside Caddy a moment later. By the
+		// time our own Caddy has exited, the winner's gateway is up — one
+		// more probe turns that loss into the same plain-words message
+		// instead of Caddy's raw exit-status error.
+		if !cfg.direct && alreadyRunningRetry(cfg.publicListen, ownInstanceProbeWindow) {
+			return alreadyRunningError()
+		}
 		return err
 	}
 
@@ -549,16 +562,25 @@ func waitUntilReady(ctx context.Context, url string, caddyDone <-chan error, tim
 // winsock error, while an unrelated program squatting on the port just moves
 // this host to a free loopback port — Caddy and the bundled PHP learn the
 // address through their environment, so nothing depends on the number.
+// ownInstanceProbeWindow bounds how long a launch will wait for another NPL
+// Poker OS instance's HTTP server to answer /api/health before concluding a
+// contested port belongs to something else. Two launches started within
+// milliseconds of each other (a double-click, or a shortcut fired twice)
+// can contest a port before the winner's server has started serving it —
+// without the retry, the loser misdiagnoses the winner as "unrelated
+// program", goes on to start its own Caddy, loses a second race for
+// Caddy's own ports, and dies with a raw "exit status 1" dialog instead of
+// the plain-words message below.
+const ownInstanceProbeWindow = 2 * time.Second
+
 func bindBackendListener(cfg *config, logger *log.Logger) (net.Listener, error) {
 	listener, err := net.Listen("tcp", cfg.backendListen)
 	if err == nil {
 		return listener, nil
 	}
 
-	if alreadyRunningAt(cfg.backendListen) {
-		return nil, errors.New(
-			"NPL Poker OS is already running on this machine — use the window that is open (check the taskbar). " +
-				"If you just updated, close the old version first, then start NPL Poker OS again.")
+	if alreadyRunningRetry(cfg.backendListen, ownInstanceProbeWindow) {
+		return nil, alreadyRunningError()
 	}
 
 	fallback, fallbackErr := net.Listen("tcp", "127.0.0.1:0")
@@ -569,6 +591,69 @@ func bindBackendListener(cfg *config, logger *log.Logger) (net.Listener, error) 
 	logger.Printf("%s is taken by another program; the Go backend moved to %s", cfg.backendListen, fallback.Addr().String())
 	cfg.backendListen = fallback.Addr().String()
 	return fallback, nil
+}
+
+// alreadyRunningError is the plain-words message shown whenever this launch
+// discovers another live NPL Poker OS already holding a port it needs —
+// whether that is the Go backend's own loopback port (bindBackendListener)
+// or, via ensureGatewayPortsFree, the desktop/staff gateway ports Caddy
+// binds.
+func alreadyRunningError() error {
+	return errors.New(
+		"NPL Poker OS is already running on this machine — use the window that is open (check the taskbar). " +
+			"If you just updated, close the old version first, then start NPL Poker OS again.")
+}
+
+// ensureGatewayPortsFree claims and releases the desktop gateway and staff
+// LAN ports before Caddy starts, so a second launch can be told "already
+// running" in plain words instead of surfacing Caddy's own raw bind
+// failure — which used to show as "Caddy failed before the gateway became
+// ready: exit status 1" with no indication of the actual cause.
+func ensureGatewayPortsFree(cfg config, logger *log.Logger) error {
+	if probe, err := net.Listen("tcp", cfg.publicListen); err == nil {
+		_ = probe.Close()
+	} else if alreadyRunningRetry(cfg.publicListen, ownInstanceProbeWindow) {
+		return alreadyRunningError()
+	} else {
+		// Some other program — not NPL Poker OS — owns the desktop gateway
+		// port. Let Caddy report that failure itself rather than guessing.
+		logger.Printf("desktop gateway port %s is held by an unrecognised program", cfg.publicListen)
+		return nil
+	}
+
+	if cfg.staffListen == "" {
+		return nil
+	}
+	probe, err := net.Listen("tcp", cfg.staffListen)
+	if err == nil {
+		_ = probe.Close()
+		return nil
+	}
+	// The staff listener only proxies /staff-login paths (see Caddyfile), so
+	// it cannot self-identify via /api/health the way the desktop gateway
+	// can. But this process is the only thing that ever binds the desktop
+	// and staff ports together — if the desktop port was free a moment ago
+	// and the staff port is not, the most likely cause is another NPL Poker
+	// OS instance (or an orphaned Caddy from a previous crash), not an
+	// unrelated program landing on this exact venue-only port.
+	logger.Printf("staff gateway port %s is already bound: %v", cfg.staffListen, err)
+	return alreadyRunningError()
+}
+
+// alreadyRunningRetry polls alreadyRunningAt for up to window, closing the
+// startup race where a second launch checks a port microseconds before the
+// first instance's HTTP server has started answering /api/health.
+func alreadyRunningRetry(address string, window time.Duration) bool {
+	deadline := time.Now().Add(window)
+	for {
+		if alreadyRunningAt(address) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
 }
 
 // alreadyRunningAt reports whether the address is held by another NPL Poker

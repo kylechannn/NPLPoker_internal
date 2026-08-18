@@ -235,7 +235,10 @@ final class SyncService
 
         foreach ($sessionIds as $sessionId) {
             try {
-                $result = $this->cloud->getJson("/api/v1/game-sessions/{$sessionId}/seating");
+                // The LICENSED seating pull — identical shape to the public map but
+                // never anonymised: staff always see the real room, whatever
+                // privacy the players chose for the public surfaces.
+                $result = $this->cloud->getJson("/api/v1/internal/sessions/{$sessionId}/seating");
             } catch (CloudException $e) {
                 // A session that vanished between the sessions pull and this
                 // fan-out (completed, cancelled) must not abort the whole
@@ -389,7 +392,10 @@ final class SyncService
 
         foreach ($ids as $sessionId) {
             try {
-                $result = $this->cloud->getJson("/api/v1/game-sessions/{$sessionId}/seating");
+                // The LICENSED seating pull — identical shape to the public map but
+                // never anonymised: staff always see the real room, whatever
+                // privacy the players chose for the public surfaces.
+                $result = $this->cloud->getJson("/api/v1/internal/sessions/{$sessionId}/seating");
             } catch (CloudException $e) {
                 if ($e->isRetryable()) {
                     throw $e;
