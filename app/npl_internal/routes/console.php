@@ -11,8 +11,15 @@ use Illuminate\Support\Facades\Schedule;
  * Requires `php artisan schedule:work` alongside the app; the Go host runs
  * it as part of the bundle.
  */
+/*
+ * Five seconds, not fifteen: manual clock buttons broadcast inline, but an
+ * AUTOMATICALLY expiring blind level only reaches the cloud on this sweep —
+ * at fifteen, every watching phone showed the old blinds for up to 15s
+ * after each rollover. The command exits fast when nothing is running, and
+ * the cloud's isMeaningfulChange gate drops no-op reports.
+ */
 Schedule::command('tournament:broadcast')
-    ->everyFifteenSeconds()
+    ->everyFiveSeconds()
     ->withoutOverlapping()
     ->runInBackground();
 
