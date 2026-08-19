@@ -196,7 +196,7 @@ function EditModal({ player, onClose, onSaved }: { player: RosterPlayer, onClose
     setError(null)
     playersApi.updatePlayer({ npl_id: player.npl_id, ...changes })
       .then(() => {
-        notify("system", "Player updated", `${player.display_name} — details saved to the cloud.`, "success")
+        notify("system", "Player updated", `${player.display_name} — details saved — syncing to the cloud.`, "success")
         onSaved()
       })
       .catch((e) => setError(e instanceof Error ? e.message : "The player could not be updated."))
@@ -281,7 +281,7 @@ function PasswordModal({ player, onClose }: { player: RosterPlayer, onClose: () 
     setError(null)
     playersApi.setPassword(player.npl_id, password, confirm)
       .then(() => {
-        notify("system", "Password changed", `${player.display_name} can log in with the new password.`, "success")
+        notify("system", "Password changed", `${player.display_name} can log in with the new password once it syncs.`, "success")
         onClose()
       })
       .catch((e) => setError(e instanceof Error ? e.message : "The password could not be changed."))

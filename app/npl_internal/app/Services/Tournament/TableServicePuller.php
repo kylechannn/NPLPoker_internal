@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Tournament;
 
+use App\Services\Cloud\CloudCallQueue;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Players\PlayerResolver;
@@ -27,6 +28,7 @@ final class TableServicePuller
 {
     public function __construct(
         private readonly CloudClient $cloud,
+        private readonly CloudCallQueue $queue,
         private readonly TournamentDeskService $desk,
         private readonly TournamentBroadcaster $broadcaster,
         private readonly LicenseKeyProvider $license,
@@ -169,20 +171,19 @@ final class TableServicePuller
             $amountCents = $this->configuredPrice($sessionId, $kind);
         }
 
-        try {
-            $this->cloud->postJson(
-                '/api/v1/internal/table-service/requests/'.$requestId.'/resolve',
-                ['applied' => $money, 'amount_cents' => $amountCents],
-                'tsr-desk:'.$requestId,
-            );
-        } catch (\App\Services\Cloud\CloudException $e) {
-            // The MONEY already landed locally (idempotent by tsr:{id}) —
-            // a resolve hiccup must not read as a failed sale. The cloud
-            // side reconciles on the next poll; tell the operator plainly.
-            throw ValidationException::withMessages([
-                'request' => ['Applied at the desk, but the cloud could not be told yet — it will reconcile on its own. ('.$e->errorCode.')'],
-            ]);
-        }
+        // The MONEY already landed locally (idempotent by tsr:{id}); the
+        // cloud notice rides the queue, so a dead link never reads as a
+        // failed sale — the resolve sends itself when the link returns.
+        $this->queue->enqueue('post', '/api/v1/internal/table-service/requests/'.$requestId.'/resolve', [
+            'applied' => $money,
+            'amount_cents' => $amountCents,
+        ], [
+            'group' => 'tsr:'.$requestId,
+            'label' => 'Resolve table-service request #'.$requestId,
+            'idempotency_key' => 'tsr-desk:'.$requestId,
+            // The request may already be resolved or withdrawn cloud-side.
+            'tolerate_missing' => true,
+        ]);
 
         return ['id' => $requestId, 'kind' => $kind, 'npl_id' => $nplId];
     }
@@ -206,16 +207,17 @@ final class TableServicePuller
 
     private function ack(int $requestId, bool $ok, ?string $error): void
     {
-        try {
-            $this->cloud->postJson(
-                '/api/v1/internal/table-service/requests/'.$requestId.'/applied',
-                ['ok' => $ok, 'error' => $error],
-                'tsr-ack:'.$requestId,
-            );
-        } catch (Throwable $e) {
-            // The ledger write is idempotent — a re-apply after a lost ack
-            // is a no-op, so losing this is safe.
-            Log::info('table service ack deferred', ['request' => $requestId, 'error' => $e->getMessage()]);
-        }
+        // Queued, not fired-and-forgotten: the ledger write is idempotent
+        // so a re-apply after a slow ack is a no-op, and the queue makes
+        // sure the ack itself always lands eventually.
+        $this->queue->enqueue('post', '/api/v1/internal/table-service/requests/'.$requestId.'/applied', [
+            'ok' => $ok,
+            'error' => $error,
+        ], [
+            'group' => 'tsr:'.$requestId,
+            'label' => 'Ack table-service request #'.$requestId,
+            'idempotency_key' => 'tsr-ack:'.$requestId,
+            'tolerate_missing' => true,
+        ]);
     }
 }

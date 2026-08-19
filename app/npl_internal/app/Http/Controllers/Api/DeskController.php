@@ -346,28 +346,27 @@ final class DeskController
         return $this->ok(['result' => ['queued' => true]]);
     }
 
-    /** Staff move a wait-listed player into the first free seat, cloud-side. */
+    /**
+     * Staff move a wait-listed player into the first free seat. Submit →
+     * queue → backend: the registration record's overlay shows them seated
+     * immediately, and the cloud move rides the queue — offline included.
+     */
     public function promoteCloudRegistration(int $gameSessionId, string $nplId): JsonResponse
     {
-        try {
-            $result = $this->cloud->postJson(sprintf(
-                '/api/v1/internal/sessions/%d/registrations/%s/promote',
-                $gameSessionId,
-                rawurlencode($nplId),
-            ), []);
-        } catch (\App\Services\Cloud\CloudException $e) {
-            return response()->json([
-                'ok' => false,
-                'error' => [
-                    'code' => $e->errorCode,
-                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
-                        ? 'The NPL cloud could not be reached — promoting needs a connection. Try again when the link is green.'
-                        : $e->getMessage(),
-                ],
-            ], 502);
-        }
+        $this->queue->enqueue('post', sprintf(
+            '/api/v1/internal/sessions/%d/registrations/%s/promote',
+            $gameSessionId,
+            rawurlencode($nplId),
+        ), [], [
+            'group' => 'session:'.$gameSessionId,
+            'label' => sprintf('Seat %s from wait list — session #%d', $nplId, $gameSessionId),
+            'idempotency_key' => substr('promote:'.$gameSessionId.':'.mb_strtoupper(trim($nplId)), 0, 64),
+            // A retry after a half-applied attempt answers "already
+            // registered" — that is done, not dead.
+            'tolerate_missing' => true,
+        ]);
 
-        return $this->ok(['result' => $result['data'] ?? $result]);
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     private function cloudDeskCall(string $path, ?int $gameSessionId = null, string $method = 'delete'): JsonResponse
@@ -399,9 +398,11 @@ final class DeskController
     }
 
     /**
-     * Open a new table for a cloud-linked tournament. Synchronous to the
-     * cloud on purpose — the operator is watching the seating map and the
-     * cloud's table list is the layout authority for linked sessions.
+     * Open a new table for a cloud-linked tournament. Submit → queue →
+     * backend: the table appears on the seating map NOW via optimistic
+     * mirror rows, and the cloud create rides the queue; the post-drain
+     * seating re-pull replaces the optimistic rows with the cloud's
+     * settled layout (numbering included, should it differ).
      */
     public function createTable(Request $request, int $id): JsonResponse
     {
@@ -420,33 +421,40 @@ final class DeskController
             ]);
         }
 
-        try {
-            $result = $this->cloud->postJson(
-                sprintf('/api/v1/internal/sessions/%d/tables', (int) $session->game_session_id),
-                ['max_seats' => (int) ($validated['max_seats'] ?? ($session->seats_per_table ?: 8))],
-            );
-        } catch (\App\Services\Cloud\CloudException $e) {
-            return response()->json([
-                'ok' => false,
-                'error' => [
-                    'code' => $e->errorCode,
-                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
-                        ? 'The NPL cloud could not be reached — a new table needs a connection. Try again when the link is green.'
-                        : $e->getMessage(),
-                ],
-            ], 502);
-        }
+        $gameSessionId = (int) $session->game_session_id;
+        $maxSeats = (int) ($validated['max_seats'] ?? ($session->seats_per_table ?: 8));
+        $tableNumber = (int) DB::table('mirror_session_tables')
+            ->where('session_id', $gameSessionId)
+            ->max('table_number') + 1;
 
-        // Refresh just this session's mirror rows so the new table is on
-        // the seating map before the operator's eyes leave the button.
-        try {
-            $this->sync->refreshSeatingFor(null, [(int) $session->game_session_id]);
-        } catch (\Throwable) {
-            // The realtime signal from the cloud will bring it in anyway.
-        }
+        // Optimistic empty table: the same one-row-per-seat shape the
+        // seating sync writes, so every desk screen renders it natively.
+        $now = now();
+        DB::table('mirror_session_tables')->insert(collect(range(1, $maxSeats))->map(fn (int $seat): array => [
+            'session_table_key' => sprintf('%d:%d:%d', $gameSessionId, $tableNumber, $seat),
+            'session_id' => $gameSessionId,
+            'table_number' => $tableNumber,
+            'seat_number' => $seat,
+            'table_status' => 'open',
+            'max_seats' => $maxSeats,
+            'player_npl_id' => null,
+            'player_display_name' => null,
+            'registration_status' => null,
+            'waitlist_position' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ])->all());
+
+        $this->queue->enqueue('post', sprintf('/api/v1/internal/sessions/%d/tables', $gameSessionId), [
+            'max_seats' => $maxSeats,
+        ], [
+            'group' => 'session:'.$gameSessionId,
+            'label' => sprintf('Open table %d — session #%d', $tableNumber, $gameSessionId),
+            'idempotency_key' => substr('table:'.$gameSessionId.':'.\Illuminate\Support\Str::uuid(), 0, 64),
+        ]);
 
         return $this->ok([
-            'table' => $result['data'] ?? $result,
+            'table' => ['table_number' => $tableNumber, 'max_seats' => $maxSeats, 'queued' => true],
             'seating' => $this->desk->seating($id),
         ]);
     }

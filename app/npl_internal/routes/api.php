@@ -160,5 +160,6 @@ Route::prefix('v1/membership')->controller(\App\Http\Controllers\Api\MembershipC
     Route::get('/', 'index');
     Route::post('resolve', 'resolve');
     Route::post('/', 'upsert');
-    Route::delete('{cloudId}', 'destroy')->whereNumber('cloudId');
+    // Negative ids are this desk's own queued-but-unsent creates.
+    Route::delete('{cloudId}', 'destroy')->where('cloudId', '-?[0-9]+');
 });

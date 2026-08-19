@@ -36,10 +36,52 @@ final class CloudCallQueue
     ) {}
 
     /**
-     * @param array{group?: ?string, label?: string, idempotency_key?: ?string, tolerate_missing?: bool} $options
+     * @param array{group?: ?string, label?: string, idempotency_key?: ?string, tolerate_missing?: bool, coalesce?: bool} $options
      */
     public function enqueue(string $method, string $path, ?array $payload = null, array $options = []): int
     {
+        // Latest-wins jobs (the clock state push): ONE live row per
+        // (group, path). A still-waiting payload is replaced in place and
+        // a sent row is re-armed rather than duplicated, so a 5-second
+        // cadence can ride the queue forever without growing the table —
+        // and after an outage exactly the NEWEST state sends, not a
+        // night's worth of stale ones.
+        if (($options['coalesce'] ?? false) === true) {
+            $existing = DB::table('cloud_call_queue')
+                ->where('group_key', $options['group'] ?? null)
+                ->where('path', $path)
+                ->whereIn('status', ['pending', 'sent'])
+                ->orderByDesc('id')
+                ->first();
+
+            if ($existing !== null) {
+                DB::table('cloud_call_queue')->where('id', $existing->id)->update([
+                    'payload' => $payload !== null ? json_encode($payload) : null,
+                    'idempotency_key' => $options['idempotency_key'] ?? null,
+                    'status' => 'pending',
+                    'attempts' => 0,
+                    'available_at' => now(),
+                    'last_error' => null,
+                    'sent_at' => null,
+                    'updated_at' => now(),
+                ]);
+
+                // Older sent leftovers for the same job add nothing.
+                DB::table('cloud_call_queue')
+                    ->where('group_key', $options['group'] ?? null)
+                    ->where('path', $path)
+                    ->where('id', '!=', $existing->id)
+                    ->where('status', 'sent')
+                    ->delete();
+
+                if (! $this->link->isOffline()) {
+                    rescue(fn (): array => $this->drain(8), report: false);
+                }
+
+                return (int) $existing->id;
+            }
+        }
+
         $id = (int) DB::table('cloud_call_queue')->insertGetId([
             'group_key' => $options['group'] ?? null,
             'label' => Str::limit($options['label'] ?? strtoupper($method).' '.$path, 160, ''),
@@ -283,6 +325,13 @@ final class CloudCallQueue
             'last_error' => $note,
             'updated_at' => now(),
         ]);
+
+        // A delivered password has no business sitting in the queue table.
+        // (Pending/dead rows keep theirs — a retry still needs it.)
+        DB::table('cloud_call_queue')
+            ->where('id', $id)
+            ->where('path', 'like', '%/players/password')
+            ->update(['payload' => null]);
     }
 
     /** @param array<int, int> $sessions */

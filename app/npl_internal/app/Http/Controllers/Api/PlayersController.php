@@ -212,35 +212,64 @@ final class PlayersController extends Controller
         return $this->ok(['result' => ['queued' => true]]);
     }
 
-    /** Edit details — email included, no verification code by design. */
+    /**
+     * Edit details — email included, no verification code by design.
+     * Submit → queue → backend: the local roster updates NOW from the
+     * submitted fields, the cloud write rides the queue; the delta sync
+     * settles any difference once it lands.
+     */
     public function updatePlayer(Request $request): JsonResponse
     {
         $payload = $request->all();
+        $nplId = mb_strtoupper(trim((string) ($payload['npl_id'] ?? '')));
 
-        $response = $this->cloudCall(fn (): array => $this->cloud->postJson('/api/v1/internal/players/update', $payload));
-
-        // Keep the local roster in step so the next scan shows the edit.
-        $data = $response->getData(true);
-        $player = $data['data']['result']['player'] ?? null;
-
-        if (is_array($player) && isset($player['npl_id'])) {
-            DB::table('mirror_players')
-                ->whereRaw('UPPER(npl_id) = ?', [strtoupper((string) $player['npl_id'])])
-                ->update([
-                    'display_name' => (string) ($player['display_name'] ?? $player['npl_id']),
-                    'first_name' => $player['first_name'] ?? null,
-                    'last_name' => $player['last_name'] ?? null,
-                    'state_code' => $player['state_code'] ?? null,
-                    'updated_at' => now(),
-                ]);
+        if ($nplId === '') {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'npl_id' => ['A player NPL ID is required.'],
+            ]);
         }
 
-        return $response;
+        // Optimistic roster update from what the operator typed — only the
+        // columns the mirror actually holds.
+        $mirror = array_filter([
+            'display_name' => isset($payload['display_name']) ? (string) $payload['display_name'] : null,
+            'first_name' => $payload['first_name'] ?? null,
+            'last_name' => $payload['last_name'] ?? null,
+            'state_code' => $payload['state_code'] ?? null,
+        ], fn ($value): bool => $value !== null && $value !== '');
+
+        if ($mirror !== []) {
+            DB::table('mirror_players')
+                ->whereRaw('UPPER(npl_id) = ?', [$nplId])
+                ->update($mirror + ['updated_at' => now()]);
+        }
+
+        $this->queue->enqueue('post', '/api/v1/internal/players/update', $payload, [
+            'group' => 'player:'.$nplId,
+            'label' => 'Edit player '.$nplId,
+        ]);
+
+        return $this->ok(['result' => ['queued' => true, 'player' => ['npl_id' => $nplId] + $mirror]]);
     }
 
+    /**
+     * Set a password from the desk. The cloud's format rules are enforced
+     * HERE, before queueing — the only thing left to refuse cloud-side is
+     * "no login account", which lands visibly in the queue panel.
+     */
     public function setPassword(Request $request): JsonResponse
     {
-        return $this->cloudCall(fn (): array => $this->cloud->postJson('/api/v1/internal/players/password', $request->all()));
+        $validated = $request->validate([
+            'npl_id' => ['required', 'string', 'max:60'],
+            'password' => ['required', 'string', 'min:10', 'max:128', 'confirmed', 'regex:/[a-z]/', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
+        ]);
+
+        $this->queue->enqueue('post', '/api/v1/internal/players/password', $request->all(), [
+            'group' => 'player:'.mb_strtoupper(trim((string) $validated['npl_id'])),
+            'label' => 'Set password for '.$validated['npl_id'],
+        ]);
+
+        return $this->ok(['result' => ['queued' => true]]);
     }
 
     public function vouchers(Request $request): JsonResponse

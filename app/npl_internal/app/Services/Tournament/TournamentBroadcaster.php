@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Tournament;
 
-use App\Services\Cloud\CloudClient;
-use App\Services\Cloud\CloudLinkState;
+use App\Services\Cloud\CloudCallQueue;
 use App\Services\Cloud\LicenseKeyProvider;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,31 +15,25 @@ use Throwable;
  * their phones.
  *
  * Never throws: a venue with flaky internet must keep running its
- * tournament. A missed push self-heals, because the next state change sends
- * the full picture again rather than a delta.
+ * tournament. Every state rides the call queue as a COALESCED job (one
+ * live row per session, newest payload wins), so online it sends within
+ * the same call, and after an outage exactly the latest picture — the
+ * "finished" state included — lands the moment the link returns instead
+ * of being lost.
  */
 final class TournamentBroadcaster
 {
     public function __construct(
-        private readonly CloudClient $cloud,
+        private readonly CloudCallQueue $queue,
         private readonly TournamentClockService $clock,
         private readonly TournamentService $tournaments,
         private readonly LicenseKeyProvider $license,
         private readonly TournamentGateService $gates,
-        private readonly CloudLinkState $link,
     ) {}
 
     public function publish(int $sessionId): bool
     {
         if (! $this->license->isActivated()) {
-            return false;
-        }
-
-        // Paused, not an error: the clock keeps running locally, and the
-        // first sweep after the link returns broadcasts the full picture
-        // again. Skipping here keeps the 5s sweep from dialing a doomed
-        // connect timeout (and logging it) all night.
-        if ($this->link->isOffline()) {
             return false;
         }
 
@@ -52,7 +45,7 @@ final class TournamentBroadcaster
             // Cash desks report too — their Start drives the cloud's
             // pre-registration purge — flagged so the public live feed
             // filters them out.
-            $this->cloud->postJson('/api/v1/internal/tournament/state', [
+            $this->queue->enqueue('post', '/api/v1/internal/tournament/state', [
                 'game_type' => ($session->game_type ?? 'tournament') === 'cash' ? 'cash' : 'tournament',
                 // Stable per device + local tournament, so a re-report
                 // updates rather than duplicating.
@@ -101,6 +94,10 @@ final class TournamentBroadcaster
                 ],
                 'started_at' => $state['started_at'],
                 'finished_at' => $state['finished_at'],
+            ], [
+                'group' => 'clock:'.$sessionId,
+                'label' => 'Clock state — '.(string) $state['name'],
+                'coalesce' => true,
             ]);
 
             return true;

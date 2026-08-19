@@ -75,7 +75,7 @@ export default function MembershipWorkspace({ venue }: { venue: Venue | null }) 
 
       {source === "mirror" ? (
         <p className="membership__offline" role="alert">
-          <CloudOff size={14} /> Cloud unreachable — showing the last synced copy. Connect the backend link to make changes.
+          <CloudOff size={14} /> Cloud unreachable — showing the last synced copy. Changes still save here and sync automatically when the link returns.
         </p>
       ) : null}
       {loadError ? <p className="membership__error" role="alert">{loadError}</p> : null}
