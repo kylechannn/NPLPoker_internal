@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Loader2, ScanLine, Trophy, X } from "lucide-react"
 import { deskApi } from "./deskApi"
 import { notify } from "../notifications/store"
@@ -14,22 +14,47 @@ type Props = {
   mode?: "tournament" | "cash"
 }
 
+const MAX_PLACES = 16
+
 /**
- * Step 4 — Finishing. Ten ranked slots; the staff scans each finisher into
- * their place (1st first), presses Finish game, and the page freezes while
- * the standings push to the NPL cloud. The confirmation popup only appears
- * once the cloud has answered.
+ * Step 4 — Finishing. Sixteen ranked slots; the staff scans each
+ * finisher's card (or types their NPL ID) into their place, 1st first.
+ * EVERY place must be identified — top 16, or the whole field when fewer
+ * than 16 played — before Finish unlocks; the server enforces the same
+ * rule. Applies to every tournament: daily games, special events and
+ * championships alike. The page freezes while the standings push to the
+ * NPL cloud; the confirmation popup only appears once the cloud answered.
  */
 export default function FinishGame({ sessionId, onBack, onFinished, mode = "tournament" }: Props) {
   const cash = mode === "cash"
-  const [slots, setSlots] = useState<Slot[]>(Array.from({ length: 10 }, () => null))
-  const [inputs, setInputs] = useState<string[]>(Array.from({ length: 10 }, () => ""))
+  const [required, setRequired] = useState<number | null>(cash ? 0 : null)
+  const [fieldSize, setFieldSize] = useState<number>(0)
+  const [slots, setSlots] = useState<Slot[]>(Array.from({ length: MAX_PLACES }, () => null))
+  const [inputs, setInputs] = useState<string[]>(Array.from({ length: MAX_PLACES }, () => ""))
   const [busyRow, setBusyRow] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pushing, setPushing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [done, setDone] = useState<{ name: string, venue: string | null, pushed: boolean } | null>(null)
   const rowRefs = useRef<Array<HTMLInputElement | null>>([])
+
+  // How many places MUST be identified: 16, or the whole field when the
+  // room was smaller. Local read — works with no internet.
+  useEffect(() => {
+    if (cash) return
+    let cancelled = false
+    deskApi.seating(sessionId)
+      .then((seating) => {
+        if (cancelled) return
+        const entries = seating.counts?.entries ?? 0
+        setFieldSize(entries)
+        setRequired(Math.min(MAX_PLACES, entries))
+      })
+      .catch(() => {
+        if (!cancelled) setError("The roster could not be read — go back to the desk and try again.")
+      })
+    return () => { cancelled = true }
+  }, [sessionId, cash])
 
   async function resolveRow(index: number) {
     const raw = inputs[index].trim()
@@ -64,16 +89,19 @@ export default function FinishGame({ sessionId, onBack, onFinished, mode = "tour
     }
   }
 
-  const placedCount = slots.filter(Boolean).length
+  const slotCount = cash ? 0 : (required ?? MAX_PLACES)
+  const visibleSlots = slots.slice(0, slotCount)
+  const placedCount = visibleSlots.filter(Boolean).length
+  const allConfirmed = required !== null && placedCount >= (required ?? 0)
 
   async function finishGame() {
-    if ((placedCount === 0 && !cash) || pushing) return
+    if ((!allConfirmed && !cash) || pushing) return
 
     setPushing(true)
     setError(null)
 
     try {
-      const placements = slots
+      const placements = visibleSlots
         .map((slot, index) => (slot ? { npl_id: slot.npl_id, position: index + 1 } : null))
         .filter((entry): entry is { npl_id: string, position: number } => entry !== null)
 
@@ -109,7 +137,11 @@ export default function FinishGame({ sessionId, onBack, onFinished, mode = "tour
           <p>
             {cash
               ? "Cash games record no standings — finishing closes the game and marks the online session finished."
-              : "Scan each finisher into their rank — 1st place first. Empty ranks are fine."}
+              : required === null
+                ? "Reading the roster…"
+                : required < MAX_PLACES
+                  ? `Scan each finisher's card or type their NPL ID — 1st place first. The field was ${fieldSize}, so all ${required} place${required === 1 ? "" : "s"} must be identified before the game can finish.`
+                  : `Scan each finisher's card or type their NPL ID — 1st place first. All ${MAX_PLACES} places must be identified before the game can finish.`}
           </p>
         </div>
         <button type="button" className="host-desk__exit" disabled={pushing} onClick={onBack}>Back to desk</button>
@@ -117,8 +149,8 @@ export default function FinishGame({ sessionId, onBack, onFinished, mode = "tour
 
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}
 
-      {cash ? null : <ol className="host-finish__slots">
-        {slots.map((slot, index) => (
+      {cash || required === null ? null : <ol className="host-finish__slots">
+        {visibleSlots.map((slot, index) => (
           <li key={index} className={slot ? "host-finish__slot host-finish__slot--filled" : "host-finish__slot"}>
             <span className="host-finish__rank">{ordinal(index + 1)}</span>
             {slot ? (
@@ -158,11 +190,17 @@ export default function FinishGame({ sessionId, onBack, onFinished, mode = "tour
       </ol>}
 
       <footer className="host-finish__footer">
-        <span>{cash ? "" : `${placedCount} of 10 placed`}</span>
+        <span>
+          {cash || required === null
+            ? ""
+            : allConfirmed
+              ? `All ${required} confirmed — ready to finish.`
+              : `${placedCount} of ${required} confirmed — every place must be identified.`}
+        </span>
         <button
           type="button"
           className="host-finish__submit"
-          disabled={(placedCount === 0 && !cash) || pushing}
+          disabled={(!allConfirmed && !cash) || pushing}
           onClick={() => setConfirming(true)}
         >
           {pushing ? "Pushing to the NPL cloud…" : "Finish game"}
@@ -181,7 +219,7 @@ export default function FinishGame({ sessionId, onBack, onFinished, mode = "tour
                 </>
               ) : (
                 <>
-                  The top {placedCount} placement{placedCount === 1 ? "" : "s"} will be recorded and pushed to the
+                  All {placedCount} confirmed placement{placedCount === 1 ? "" : "s"} will be recorded and pushed to the
                   NPL cloud, and the session will be marked <strong>finished</strong>. Once finished there is
                   <strong> no turning back</strong> — check the ranks one more time.
                 </>

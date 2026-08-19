@@ -477,11 +477,12 @@ final class DeskController
     public function finalise(Request $request, int $id): JsonResponse
     {
         // Cash games finish with NO placements — nothing is ranked, the
-        // session just completes. Tournaments still scan their top 10.
+        // session just completes. Tournaments scan their top 16, every
+        // place identified; the service enforces the full-count rule.
         $validated = $request->validate([
-            'placements' => ['present', 'array', 'max:10'],
+            'placements' => ['present', 'array', 'max:16'],
             'placements.*.npl_id' => ['required', 'string', 'max:32', 'distinct'],
-            'placements.*.position' => ['required', 'integer', 'min:1', 'max:10', 'distinct'],
+            'placements.*.position' => ['required', 'integer', 'min:1', 'max:16', 'distinct'],
         ]);
 
         $result = $this->desk->finishWithResults($id, $validated['placements']);

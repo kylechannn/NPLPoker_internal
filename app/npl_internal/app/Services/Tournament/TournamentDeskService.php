@@ -614,6 +614,40 @@ final class TournamentDeskService
     {
         $session = $this->clock->session($sessionId);
 
+        // Every tournament — daily game, special event and championship
+        // alike — finishes only when the top 16 (or the WHOLE field when
+        // fewer than 16 played) are each identified by scan or NPL ID.
+        // Cash games rank nobody and are exempt.
+        if (($session->game_type ?? 'tournament') !== 'cash') {
+            $entryIds = DB::table('tournament_entries')
+                ->where('tournament_session_id', $sessionId)
+                ->pluck('player_npl_id')
+                ->map(fn ($id): string => Str::upper(trim((string) $id)));
+
+            $required = min(16, $entryIds->count());
+
+            $covered = [];
+            foreach ($placements as $placement) {
+                $nplId = $this->normaliseId((string) ($placement['npl_id'] ?? ''));
+                $position = (int) ($placement['position'] ?? 0);
+
+                if ($position >= 1 && $position <= $required && $entryIds->contains($nplId)) {
+                    $covered[$position] = true;
+                }
+            }
+
+            if (count($covered) < $required) {
+                throw ValidationException::withMessages([
+                    'placements' => [sprintf(
+                        'All top %d places must be identified (scan the card or enter the NPL ID) before the game can finish — %d of %d confirmed.',
+                        $required,
+                        count($covered),
+                        $required,
+                    )],
+                ]);
+            }
+        }
+
         $recorded = 0;
 
         DB::transaction(function () use ($sessionId, $placements, &$recorded): void {
