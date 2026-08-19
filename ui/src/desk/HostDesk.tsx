@@ -1601,6 +1601,12 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             <dt>Blinds</dt><dd>{tableCard.table.blinds_text ?? "—"}</dd>
             <dt>Rules</dt><dd>{tableCard.table.rules_text?.trim() ? tableCard.table.rules_text : "—"}</dd>
             <dt>Access</dt><dd>{tableCard.table.allow_strangers ? "Open to all" : "Friends of the creator only"}</dd>
+            <dt>Time slot</dt>
+            <dd>
+              {tableCard.table.gather_starts_at
+                ? `${new Date(tableCard.table.gather_starts_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} — the 30-min gather starts then`
+                : "None — gathering started at creation"}
+            </dd>
             <dt>Gathering</dt>
             <dd>
               {tableCard.table.activated_at

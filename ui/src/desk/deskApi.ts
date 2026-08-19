@@ -87,6 +87,8 @@ export type TableMirrorMeta = {
   rules_text?: string | null
   allow_strangers?: boolean | null
   activation_deadline_at?: string | null
+  /** The creator's time slot — the 30-min gather starts THEN. */
+  gather_starts_at?: string | null
   activated_at?: string | null
 }
 

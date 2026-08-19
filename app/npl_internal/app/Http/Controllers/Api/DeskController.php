@@ -257,6 +257,7 @@ final class DeskController
                     ? null
                     : (bool) $seats->first()->allow_strangers,
                 'activation_deadline_at' => optional($seats->first())->activation_deadline_at,
+                'gather_starts_at' => optional($seats->first())->gather_starts_at,
                 'activated_at' => optional($seats->first())->activated_at,
                 'players' => $seats
                     ->filter(fn (object $seat): bool => $seat->player_npl_id !== null)
