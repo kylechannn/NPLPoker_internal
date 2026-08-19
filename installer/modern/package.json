@@ -1,6 +1,6 @@
 {
   "name": "nplpoker-os-modern-installer",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "description": "Modern Electron installer shell for NPL Poker OS",
   "main": "electron/main.js",
