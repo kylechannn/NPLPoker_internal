@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Tournament;
 
 use App\Services\Cloud\CloudClient;
+use App\Services\Cloud\CloudLinkState;
 use App\Services\Cloud\LicenseKeyProvider;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -26,11 +27,20 @@ final class TournamentBroadcaster
         private readonly TournamentService $tournaments,
         private readonly LicenseKeyProvider $license,
         private readonly TournamentGateService $gates,
+        private readonly CloudLinkState $link,
     ) {}
 
     public function publish(int $sessionId): bool
     {
         if (! $this->license->isActivated()) {
+            return false;
+        }
+
+        // Paused, not an error: the clock keeps running locally, and the
+        // first sweep after the link returns broadcasts the full picture
+        // again. Skipping here keeps the 5s sweep from dialing a doomed
+        // connect timeout (and logging it) all night.
+        if ($this->link->isOffline()) {
             return false;
         }
 

@@ -32,6 +32,7 @@ final class CloudCallQueue
     public function __construct(
         private readonly CloudClient $cloud,
         private readonly SyncService $sync,
+        private readonly CloudLinkState $link,
     ) {}
 
     /**
@@ -55,7 +56,11 @@ final class CloudCallQueue
 
         // Land it NOW when the network allows — the queue is for resilience
         // and instant UI, not for making every change wait for the sweep.
-        rescue(fn (): array => $this->drain(8), report: false);
+        // Offline the drain is skipped outright: the operator's action must
+        // answer instantly, and the 15s sweep owns the recovery probe.
+        if (! $this->link->isOffline()) {
+            rescue(fn (): array => $this->drain(8), report: false);
+        }
 
         return $id;
     }
@@ -65,6 +70,17 @@ final class CloudCallQueue
      */
     public function drain(?int $limit = null): array
     {
+        // Paused while the cloud link is down — no dials, no attempt burn.
+        // The probe flips the link back and every group resumes in order.
+        if ($this->link->isOffline() && ! $this->link->probeIfDue()) {
+            return [
+                'sent' => 0,
+                'deferred' => 0,
+                'dead' => 0,
+                'pending' => (int) DB::table('cloud_call_queue')->where('status', 'pending')->count(),
+            ];
+        }
+
         $limit ??= 24;
 
         $heads = DB::table('cloud_call_queue')
@@ -130,6 +146,21 @@ final class CloudCallQueue
                 $sent++;
                 $this->rememberSession($touchedSessions, $entry->group_key);
             } catch (CloudException $e) {
+                if ($e->errorCode === CloudException::UNREACHABLE) {
+                    // The LINK failed, not this job: it keeps its attempt
+                    // count and stays due, and the drain stops here — the
+                    // 24-attempt budget is for real cloud verdicts only.
+                    DB::table('cloud_call_queue')->where('id', $entry->id)->update([
+                        'status' => 'pending',
+                        'available_at' => now(),
+                        'last_error' => Str::limit($e->getMessage(), 500),
+                        'updated_at' => now(),
+                    ]);
+                    $deferred++;
+
+                    break;
+                }
+
                 // "Already done" answers count as done for removal-type jobs
                 // — a retry after a half-applied attempt must not go dead.
                 $alreadyGone = in_array($e->status, [404, 410], true)
@@ -160,12 +191,6 @@ final class CloudCallQueue
 
                 ($retryable && ! $exhausted) ? $deferred++ : $dead++;
                 $parkedGroups[$group] = true;
-
-                // Unreachable cloud: one connect timeout per drain, not one
-                // per job — this runs on the desk's only PHP worker.
-                if ($e->errorCode === CloudException::UNREACHABLE) {
-                    break;
-                }
             } catch (Throwable $e) {
                 DB::table('cloud_call_queue')->where('id', $entry->id)->update([
                     'status' => 'dead',
@@ -236,7 +261,7 @@ final class CloudCallQueue
                 'updated_at' => now(),
             ]);
 
-        if ($updated > 0) {
+        if ($updated > 0 && ! $this->link->isOffline()) {
             rescue(fn (): array => $this->drain(8), report: false);
         }
 

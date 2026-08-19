@@ -6,6 +6,7 @@ namespace App\Services\Sync;
 
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
+use App\Services\Cloud\CloudLinkState;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -23,7 +24,10 @@ use Throwable;
  */
 final class OutboxService
 {
-    public function __construct(private readonly CloudClient $cloud) {}
+    public function __construct(
+        private readonly CloudClient $cloud,
+        private readonly CloudLinkState $link,
+    ) {}
 
     /** Queue a change. Re-queuing identical content is a no-op. */
     public function enqueue(string $entityType, string $operation, array $payload): string
@@ -60,6 +64,18 @@ final class OutboxService
      */
     public function drain(?int $limit = null): array
     {
+        // Paused while the cloud link is down: no dials, no attempt burn,
+        // no worker stall. The probe flips the link back and the queue
+        // resumes in FIFO order — offline must never dead-letter money.
+        if ($this->link->isOffline() && ! $this->link->probeIfDue()) {
+            return [
+                'sent' => 0,
+                'failed' => 0,
+                'dead' => 0,
+                'remaining' => (int) DB::table('sync_outbox')->where('status', 'pending')->count(),
+            ];
+        }
+
         $limit ??= (int) config('nplcloud.outbox.chunk', 20);
         $maxAttempts = (int) config('nplcloud.outbox.max_attempts', 12);
 
@@ -153,6 +169,22 @@ final class OutboxService
                 ]);
                 $sent++;
             } catch (Throwable $e) {
+                if ($e instanceof CloudException && $e->errorCode === CloudException::UNREACHABLE) {
+                    // The LINK failed, not this entry: it keeps its attempt
+                    // count and stays due, and the whole queue pauses until
+                    // the link probe brings it back. Retry budget is for
+                    // real cloud verdicts only — never for being offline.
+                    DB::table('sync_outbox')->where('id', $entry->id)->update([
+                        'status' => 'pending',
+                        'available_at' => now(),
+                        'last_error' => Str::limit($e->getMessage(), 500),
+                        'updated_at' => now(),
+                    ]);
+                    $failed++;
+
+                    break;
+                }
+
                 $retryable = ! ($e instanceof CloudException) || $e->isRetryable();
                 $exhausted = $attempts >= $maxAttempts;
 

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\Cloud\CloudCallQueue;
+use App\Services\Cloud\CloudLinkState;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -15,11 +16,21 @@ use Illuminate\Http\JsonResponse;
  */
 final class CloudQueueController extends Controller
 {
-    public function __construct(private readonly CloudCallQueue $queue) {}
+    public function __construct(
+        private readonly CloudCallQueue $queue,
+        private readonly CloudLinkState $link,
+    ) {}
 
     public function status(): JsonResponse
     {
+        // The UI polls this every 15s while visible — that poll doubles as
+        // the recovery probe, so an operator watching the chip sees the
+        // link come back (and the queues release) without waiting for the
+        // scheduled sweep.
+        $this->link->probeIfDue();
+
         $status = $this->queue->status();
+        $status['link'] = $this->link->snapshot();
 
         // The money outbox (jackpot entries, finish reports) shares the
         // panel: its dead letters are the ones that MUST get eyes.
@@ -69,5 +80,13 @@ final class CloudQueueController extends Controller
     public function discard(int $id): JsonResponse
     {
         return $this->ok(['discarded' => $this->queue->discard($id)]);
+    }
+
+    // Every controller here answers the same envelope; this one always
+    // called $this->ok() but never had it — all five endpoints fatalled
+    // and the shell's "status is cosmetic" catch swallowed the 500s.
+    private function ok(array $data, int $status = 200): JsonResponse
+    {
+        return response()->json(['ok' => true, 'data' => $data], $status);
     }
 }

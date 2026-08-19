@@ -391,6 +391,8 @@ export type CloudQueueStatus = {
   /** The money outbox's dead letters — the ones that MUST get eyes. */
   outbox_dead: CloudQueueDeadItem[]
   outbox_dead_count: number
+  /** The cloud link itself — offline means the queues are PAUSED, not failing. */
+  link?: { state: 'online' | 'offline'; offline_since: string | null; last_ok_at: string | null }
 }
 
 export const deskApi = {

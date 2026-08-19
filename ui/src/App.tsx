@@ -1198,17 +1198,27 @@ export default function App() {
             <span>Local services {health.status === "ready" ? "operational" : health.status}</span>
           </div>
           <div>
-            {cloudQueue !== null && (cloudQueue.pending > 0 || cloudQueue.dead > 0 || (cloudQueue.outbox_dead_count ?? 0) > 0) ? (
+            {cloudQueue !== null && (cloudQueue.link?.state === "offline" || cloudQueue.pending > 0 || cloudQueue.dead > 0 || (cloudQueue.outbox_dead_count ?? 0) > 0) ? (
               <>
                 <button
                   type="button"
-                  className={(cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0 ? "cloudq-chip cloudq-chip--dead" : "cloudq-chip"}
+                  className={
+                    cloudQueue.link?.state === "offline"
+                      ? "cloudq-chip cloudq-chip--offline"
+                      : (cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0 ? "cloudq-chip cloudq-chip--dead" : "cloudq-chip"
+                  }
                   onClick={() => setQueuePanelOpen(true)}
-                  title="Cloud sync queue — desk changes on their way to the NPL cloud"
+                  title={
+                    cloudQueue.link?.state === "offline"
+                      ? "Cloud link is down — changes keep applying on this desk and sync automatically when it returns"
+                      : "Cloud sync queue — desk changes on their way to the NPL cloud"
+                  }
                 >
-                  {(cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0
-                    ? `Cloud sync: ${cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)} failed${cloudQueue.pending > 0 ? ` · ${cloudQueue.pending} on the way` : ""}`
-                    : `Cloud sync: ${cloudQueue.pending} on the way`}
+                  {cloudQueue.link?.state === "offline"
+                    ? `Offline — ${cloudQueue.pending > 0 ? `${cloudQueue.pending} waiting` : "desk keeps working"}${(cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0 ? ` · ${cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)} failed` : ""}`
+                    : (cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0
+                      ? `Cloud sync: ${cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)} failed${cloudQueue.pending > 0 ? ` · ${cloudQueue.pending} on the way` : ""}`
+                      : `Cloud sync: ${cloudQueue.pending} on the way`}
                 </button>
                 <span className="statusbar-divider" />
               </>
@@ -1232,6 +1242,13 @@ export default function App() {
               {cloudQueue?.pending ?? 0} on the way · {(cloudQueue?.dead ?? 0) + (cloudQueue?.outbox_dead_count ?? 0)} failed for good.
               Changes apply on this desk instantly and ride this queue to the NPL cloud with automatic retries.
             </p>
+
+            {cloudQueue?.link?.state === "offline" ? (
+              <p className="cloudq-modal__meta cloudq-modal__meta--offline">
+                The cloud link is down — the desk keeps working, nothing is lost, and everything
+                waiting below sends automatically the moment the connection returns.
+              </p>
+            ) : null}
 
             {(cloudQueue?.outbox_dead?.length ?? 0) > 0 ? (
               <>

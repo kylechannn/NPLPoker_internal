@@ -24,7 +24,10 @@ use Illuminate\Support\Str;
  */
 final class CloudClient
 {
-    public function __construct(private readonly LicenseKeyProvider $license) {}
+    public function __construct(
+        private readonly LicenseKeyProvider $license,
+        private readonly CloudLinkState $link,
+    ) {}
 
     /**
      * Conditional GET. Pass the stored ETag to get a cheap 304 instead of
@@ -36,6 +39,8 @@ final class CloudClient
      */
     public function getJson(string $path, array $query = [], ?string $etag = null): array
     {
+        $this->guard($path);
+
         // Only connection failures are retried; a 4xx/5xx body is returned so
         // assertOk() can classify it into a typed CloudException.
         $request = $this->base()->retry(3, 250, function (?\Throwable $e): bool {
@@ -49,8 +54,12 @@ final class CloudClient
         try {
             $response = $request->get($this->url($path), $query);
         } catch (ConnectionException $e) {
+            $this->link->markOffline();
+
             throw new CloudException(CloudException::UNREACHABLE, 'Could not reach the NPL cloud: '.$e->getMessage(), null, $e);
         }
+
+        $this->link->markOnline();
 
         if ($response->status() === 304) {
             return ['status' => 304, 'data' => [], 'etag' => $etag, 'not_modified' => true];
@@ -78,6 +87,8 @@ final class CloudClient
     /** Writes carry an idempotency key and are never retried behind your back. */
     public function postJson(string $path, array $payload, ?string $idempotencyKey = null): array
     {
+        $this->guard($path);
+
         $request = $this->base()->withHeaders([
             'Idempotency-Key' => $idempotencyKey ?: (string) Str::uuid(),
         ]);
@@ -85,8 +96,12 @@ final class CloudClient
         try {
             $response = $request->post($this->url($path), $payload);
         } catch (ConnectionException $e) {
+            $this->link->markOffline();
+
             throw new CloudException(CloudException::UNREACHABLE, 'Could not reach the NPL cloud: '.$e->getMessage(), null, $e);
         }
+
+        $this->link->markOnline();
 
         $this->assertOk($response, $path);
 
@@ -95,11 +110,17 @@ final class CloudClient
 
     public function deleteJson(string $path): array
     {
+        $this->guard($path);
+
         try {
             $response = $this->base()->delete($this->url($path));
         } catch (ConnectionException $e) {
+            $this->link->markOffline();
+
             throw new CloudException(CloudException::UNREACHABLE, 'Could not reach the NPL cloud: '.$e->getMessage(), null, $e);
         }
+
+        $this->link->markOnline();
 
         $this->assertOk($response, $path);
 
@@ -136,6 +157,10 @@ final class CloudClient
      */
     public function downloadMedia(string $url, string $destination, ?string $etag = null, ?string $lastModified = null): ?array
     {
+        // Fail fast while the link is down, but never let a media host's
+        // outcome speak for the API link — media may live on another host.
+        $this->guard($url);
+
         $headers = [];
         if ($etag) {
             $headers['If-None-Match'] = $etag;
@@ -195,6 +220,23 @@ final class CloudClient
             'etag' => $response->header('ETag') ?: null,
             'last_modified' => $response->header('Last-Modified') ?: null,
         ];
+    }
+
+    /**
+     * While the link is known-down, refuse in microseconds instead of
+     * holding the desk's only PHP worker through a 10s connect timeout.
+     * The error code matches a real connection failure, so every existing
+     * catch — queue pause, 502 messages, "offline" fallbacks — behaves
+     * identically; recovery staleness is bounded by the link probe.
+     */
+    private function guard(string $path): void
+    {
+        if ($this->link->isOffline()) {
+            throw new CloudException(
+                CloudException::UNREACHABLE,
+                sprintf('%s skipped — the cloud link is offline; queued work resumes automatically when it returns.', $path),
+            );
+        }
     }
 
     private function base(): PendingRequest
