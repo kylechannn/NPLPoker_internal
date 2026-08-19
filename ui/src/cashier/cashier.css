@@ -1,0 +1,200 @@
+.cashier {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cashier__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.cashier__head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.cashier__head p {
+  margin: 0;
+  color: rgba(214, 226, 244, 0.62);
+  font-size: 0.82rem;
+}
+
+.cashier__controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cashier__controls select {
+  background: rgba(10, 20, 36, 0.85);
+  border: 1px solid rgba(120, 160, 220, 0.28);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 7px 10px;
+  max-width: 340px;
+}
+
+.cashier__controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(61, 123, 255, 0.12);
+  border: 1px solid rgba(120, 180, 255, 0.35);
+  border-radius: 8px;
+  color: #9fc3ef;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.cashier__controls button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cashier__error {
+  color: #ff9d9d;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.cashier__empty {
+  color: rgba(214, 226, 244, 0.55);
+  font-size: 0.88rem;
+}
+
+.cashier__tablewrap {
+  overflow-x: auto;
+  border: 1px solid rgba(120, 160, 220, 0.16);
+  border-radius: 12px;
+}
+
+.cashier__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.cashier__table th,
+.cashier__table td {
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(120, 160, 220, 0.1);
+  white-space: nowrap;
+}
+
+.cashier__table thead th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(214, 226, 244, 0.55);
+  background: rgba(10, 20, 36, 0.6);
+}
+
+.cashier__table td small {
+  display: block;
+  color: rgba(214, 226, 244, 0.5);
+  font-size: 0.72rem;
+}
+
+.cashier__row--removed td {
+  opacity: 0.62;
+}
+
+.cashier__status {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 2px 9px;
+  border: 1px solid rgba(120, 220, 160, 0.4);
+  color: #9fe7bb;
+  text-transform: capitalize;
+}
+
+.cashier__status--eliminated {
+  border-color: rgba(214, 226, 244, 0.3);
+  color: rgba(214, 226, 244, 0.6);
+}
+
+.cashier__status--removed,
+.cashier__status--auto_removed {
+  border-color: rgba(255, 160, 120, 0.45);
+  color: #ffbd9d;
+}
+
+.cashier__tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #9fe7bb;
+}
+
+.cashier__tick em,
+.cashier__totalcell em {
+  font-style: normal;
+  color: rgba(214, 226, 244, 0.78);
+}
+
+.cashier__dash {
+  color: rgba(214, 226, 244, 0.28);
+}
+
+.cashier__num {
+  text-align: right !important;
+}
+
+.cashier__table tfoot td {
+  background: rgba(10, 20, 36, 0.6);
+  border-top: 1px solid rgba(120, 160, 220, 0.25);
+}
+
+.cashier__totalcell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(214, 226, 244, 0.65);
+}
+
+.cashier__summary {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cashier__summary > div {
+  flex: 1 1 140px;
+  border: 1px solid rgba(120, 160, 220, 0.18);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(10, 20, 36, 0.5);
+}
+
+.cashier__summary span {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(214, 226, 244, 0.55);
+  margin-bottom: 4px;
+}
+
+.cashier__summary strong {
+  font-size: 1.05rem;
+}
+
+.cashier__summary-total {
+  border-color: rgba(240, 200, 100, 0.45) !important;
+}
+
+.cashier__summary-total strong {
+  color: #f5d47e;
+}

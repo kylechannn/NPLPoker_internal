@@ -112,6 +112,9 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::post('sessions/{gameSessionId}/registrations/{nplId}/promote', 'promoteCloudRegistration')->whereNumber('gameSessionId');
     Route::post('structure-preview', 'previewStructure');
     Route::get('chat/recent', 'chatRecent');
+    // The Cashier tab: local sessions and one session's money grid.
+    Route::get('cashier/sessions', 'cashierSessions');
+    Route::get('{id}/cashier', 'cashier')->whereNumber('id');
 
     Route::post('{id}/scan', 'scan')->whereNumber('id');
     Route::post('{id}/act', 'act')->whereNumber('id');

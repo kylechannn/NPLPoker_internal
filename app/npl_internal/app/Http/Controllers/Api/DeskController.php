@@ -632,6 +632,34 @@ final class DeskController
         ));
     }
 
+    /** Sessions the Cashier tab can open — newest first, local only. */
+    public function cashierSessions(): JsonResponse
+    {
+        $rows = DB::table('tournament_sessions')
+            ->orderByDesc('id')
+            ->limit(60)
+            ->get(['id', 'name', 'venue_name', 'status', 'game_type', 'created_at', 'started_at', 'finished_at']);
+
+        return $this->ok([
+            'sessions' => $rows->map(fn (object $row): array => [
+                'id' => (int) $row->id,
+                'name' => (string) $row->name,
+                'venue_name' => $row->venue_name !== null ? (string) $row->venue_name : null,
+                'status' => (string) $row->status,
+                'game_type' => ($row->game_type ?? 'tournament') === 'cash' ? 'cash' : 'tournament',
+                'created_at' => $row->created_at !== null ? (string) $row->created_at : null,
+                'started_at' => $row->started_at !== null ? (string) $row->started_at : null,
+                'finished_at' => $row->finished_at !== null ? (string) $row->finished_at : null,
+            ])->all(),
+        ]);
+    }
+
+    /** One session's money grid + totals, straight off the local ledger. */
+    public function cashier(int $id): JsonResponse
+    {
+        return $this->ok($this->desk->cashierReport($id));
+    }
+
     private function ok(array $data, int $status = 200): JsonResponse
     {
         return response()->json(['ok' => true, 'data' => $data], $status);

@@ -7,6 +7,7 @@ import NplTransitLoader from "./NplTransitLoader"
 const HostWorkspace = lazy(() => import("./desk/HostWorkspace"))
 const EventsWorkspace = lazy(() => import("./desk/EventsWorkspace"))
 const ExportWorkspace = lazy(() => import("./export/ExportWorkspace"))
+const CashierWorkspace = lazy(() => import("./cashier/CashierWorkspace"))
 const JackpotWheelWorkspace = lazy(() => import("./jackpot/JackpotWheelWorkspace"))
 const MembershipWorkspace = lazy(() => import("./membership/MembershipWorkspace"))
 const PlayersWorkspace = lazy(() => import("./players/PlayersWorkspace"))
@@ -20,6 +21,7 @@ import nplLogoUrl from "./assets/npl-logo.png"
 import {
   Activity,
   AlertTriangle,
+  Banknote,
   Bell,
   CalendarDays,
   ChevronDown,
@@ -136,6 +138,7 @@ type NavId =
   | "players"
   | "membership"
   | "jackpot"
+  | "cashier"
   | "export"
 
 
@@ -162,7 +165,10 @@ const navigation: Array<{
   },
   {
     label: "Reports",
-    items: [{ id: "export", label: "Export", icon: FileSpreadsheet }],
+    items: [
+      { id: "cashier", label: "Cashier", icon: Banknote },
+      { id: "export", label: "Export", icon: FileSpreadsheet },
+    ],
   },
 ]
 
@@ -214,6 +220,11 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     eyebrow: "Club programme",
     title: "Jackpot Wheel",
     description: "Spin the venue jackpot wheel and track the live prize pool.",
+  },
+  cashier: {
+    eyebrow: "Reports",
+    title: "Cashier",
+    description: "The till, live: every player's buy-ins, rebuys, add-ons and jackpot with a tick per action and the session totals.",
   },
   export: {
     eyebrow: "Reports",
@@ -1173,6 +1184,8 @@ export default function App() {
                   <HostWorkspace venue={activeVenue} mode="cash" />
                 ) : activeSection === "events" ? (
                   <EventsWorkspace venue={activeVenue} />
+                ) : activeSection === "cashier" ? (
+                  <CashierWorkspace />
                 ) : activeSection === "export" ? (
                   <ExportWorkspace venue={activeVenue} />
                 ) : (

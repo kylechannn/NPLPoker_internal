@@ -392,6 +392,11 @@ final class TournamentDeskService
             );
         }
 
+        // The cashier's book: one event per applied money action rides the
+        // money outbox to the cloud. The keyed replay short-circuit exits
+        // long before this line, so a replay never double-records.
+        $this->recordCashierEvent($sessionId, $session, $nplId, $action);
+
         return $result;
     }
 
@@ -825,6 +830,17 @@ final class TournamentDeskService
             $fresh = $this->clock->session((int) $session->id);
             $this->outbox->enqueue('session_report', 'create', $this->buildSessionReport((int) $session->id, $fresh));
 
+            // Every player still standing was auto-cleared with the
+            // session — the cashier log records each one by name.
+            foreach (DB::table('tournament_entries')
+                ->where('tournament_session_id', (int) $session->id)
+                ->where('status', 'active')
+                ->pluck('player_npl_id') as $activeNplId) {
+                $this->recordCashierEvent((int) $session->id, $fresh, (string) $activeNplId, 'auto_removed', [
+                    'reason' => 'stale_session_force_finish',
+                ]);
+            }
+
             Log::warning('stale session force-finished', [
                 'session' => (int) $session->id,
                 'name' => (string) $session->name,
@@ -919,6 +935,10 @@ final class TournamentDeskService
 
         $this->broadcaster->publish($sessionId);
 
+        // Cashier record regardless of cloud linkage — a removal at an
+        // unlinked desk still belongs in the money book.
+        $this->recordCashierEvent($sessionId, $session, $nplId, 'removed', ['reason' => 'staff_removed']);
+
         if ($session->game_session_id !== null) {
             $this->outbox->enqueue('session_registration_cancel', 'delete', [
                 'game_session_id' => (int) $session->game_session_id,
@@ -931,6 +951,161 @@ final class TournamentDeskService
         }
 
         return $this->seating($sessionId);
+    }
+
+    /**
+     * One cashier event into the money outbox: who, what, how much, when.
+     * Amounts come off the just-written ledger row (voucher-adjusted and
+     * tier prices included), so the stream is exactly what the till took.
+     * rescue()d — a cashier bookkeeping hiccup must never fail a sale.
+     */
+    private function recordCashierEvent(int $sessionId, object $session, string $nplId, string $kind, array $meta = []): void
+    {
+        rescue(function () use ($sessionId, $session, $nplId, $kind, $meta): void {
+            $amount = 0;
+            $chips = 0;
+
+            if (in_array($kind, ['buy_in', 'rebuy', 'addon', 'jackpot'], true)) {
+                $ledger = DB::table('tournament_actions')
+                    ->where('tournament_session_id', $sessionId)
+                    ->where('player_npl_id', $nplId)
+                    ->where('action', $kind)
+                    ->orderByDesc('id')
+                    ->first();
+
+                $amount = max(0, (int) ($ledger->price_cents ?? 0));
+                $chips = (int) ($ledger->chips ?? 0);
+
+                if ($ledger?->level_index !== null) {
+                    $meta['level_index'] = (int) $ledger->level_index;
+                }
+            }
+
+            $playerName = DB::table('tournament_entries')
+                ->where('tournament_session_id', $sessionId)
+                ->whereRaw('UPPER(player_npl_id) = ?', [$nplId])
+                ->value('player_name')
+                ?? DB::table('mirror_players')->whereRaw('UPPER(npl_id) = ?', [$nplId])->value('display_name');
+
+            $this->outbox->enqueue('cashier_event', 'create', [
+                'reference' => (string) Str::uuid(),
+                'tournament_uid' => (string) $session->uuid,
+                'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
+                'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
+                'game_type' => ($session->game_type ?? 'tournament') === 'cash' ? 'cash' : 'tournament',
+                'session_name' => (string) $session->name,
+                'venue_name' => $session->venue_name !== null ? (string) $session->venue_name : null,
+                'player_npl_id' => $nplId,
+                'player_name' => $playerName !== null ? (string) $playerName : null,
+                'kind' => $kind,
+                'amount_cents' => $amount,
+                'chips' => $chips,
+                'occurred_at' => now()->toIso8601String(),
+                'meta' => $meta !== [] ? $meta : null,
+            ]);
+
+            $this->drainSoon();
+        }, report: false);
+    }
+
+    /**
+     * The Cashier tab's read model, built from the LOCAL ledger so it
+     * works with no internet at all: rows = every player who ever paid or
+     * registered (removed players keep their money — what was paid was
+     * paid), cols = the money actions with counts and cents, plus the
+     * per-column and grand totals the till must reconcile against.
+     */
+    public function cashierReport(int $sessionId): array
+    {
+        $session = $this->clock->session($sessionId);
+
+        $entries = DB::table('tournament_entries')
+            ->where('tournament_session_id', $sessionId)
+            ->get()
+            ->keyBy(fn (object $entry): string => Str::upper((string) $entry->player_npl_id));
+
+        $actions = DB::table('tournament_actions')
+            ->where('tournament_session_id', $sessionId)
+            ->whereIn('action', ['buy_in', 'rebuy', 'addon', 'jackpot'])
+            ->orderBy('id')
+            ->get();
+
+        $players = [];
+
+        $ensure = function (string $nplId) use (&$players, $entries): void {
+            if (isset($players[$nplId])) {
+                return;
+            }
+
+            $entry = $entries->get($nplId);
+
+            $players[$nplId] = [
+                'npl_id' => $nplId,
+                'player_name' => $entry?->player_name !== null ? (string) $entry->player_name : null,
+                'status' => $entry !== null ? (string) ($entry->status ?? 'active') : 'removed',
+                'table_number' => $entry?->table_number !== null ? (int) $entry->table_number : null,
+                'seat_number' => $entry?->seat_number !== null ? (int) $entry->seat_number : null,
+                'buy_in' => ['count' => 0, 'cents' => 0],
+                'rebuy' => ['count' => 0, 'cents' => 0],
+                'addon' => ['count' => 0, 'cents' => 0],
+                'jackpot' => ['count' => 0, 'cents' => 0],
+                'paid_cents' => 0,
+            ];
+        };
+
+        foreach ($entries as $nplId => $entry) {
+            $ensure((string) $nplId);
+        }
+
+        foreach ($actions as $action) {
+            $nplId = Str::upper((string) $action->player_npl_id);
+            $ensure($nplId);
+
+            $kind = (string) $action->action;
+            $cents = max(0, (int) $action->price_cents);
+
+            $players[$nplId][$kind]['count']++;
+            $players[$nplId][$kind]['cents'] += $cents;
+            $players[$nplId]['paid_cents'] += $cents;
+
+            if ($players[$nplId]['player_name'] === null) {
+                $players[$nplId]['player_name'] = DB::table('mirror_players')
+                    ->whereRaw('UPPER(npl_id) = ?', [$nplId])
+                    ->value('display_name');
+            }
+        }
+
+        $totals = [
+            'buy_in' => ['count' => 0, 'cents' => 0],
+            'rebuy' => ['count' => 0, 'cents' => 0],
+            'addon' => ['count' => 0, 'cents' => 0],
+            'jackpot' => ['count' => 0, 'cents' => 0],
+            'gross_cents' => 0,
+        ];
+
+        foreach ($players as $player) {
+            foreach (['buy_in', 'rebuy', 'addon', 'jackpot'] as $kind) {
+                $totals[$kind]['count'] += $player[$kind]['count'];
+                $totals[$kind]['cents'] += $player[$kind]['cents'];
+            }
+            $totals['gross_cents'] += $player['paid_cents'];
+        }
+
+        $rows = array_values($players);
+        usort($rows, fn (array $a, array $b): int => strcasecmp((string) ($a['player_name'] ?? $a['npl_id']), (string) ($b['player_name'] ?? $b['npl_id'])));
+
+        return [
+            'session' => [
+                'id' => $sessionId,
+                'name' => (string) $session->name,
+                'venue_name' => $session->venue_name !== null ? (string) $session->venue_name : null,
+                'game_type' => ($session->game_type ?? 'tournament') === 'cash' ? 'cash' : 'tournament',
+                'status' => (string) $session->status,
+                'created_at' => $session->created_at !== null ? (string) $session->created_at : null,
+            ],
+            'players' => $rows,
+            'totals' => $totals,
+        ];
     }
 
     /**
