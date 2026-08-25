@@ -568,14 +568,53 @@ final class DeskController
      * to the local ledger. Called on a timer while the desk is open. The
      * same beat refreshes the admin-counted chip stacks — the next 5s
      * seating poll then carries them onto the seats.
+     *
+     * ONE cloud round trip: the desk-pulse endpoint carries the service
+     * feed and the chip counts together (this used to be two sequential
+     * GETs every 15 seconds). Flaky internet must never break the desk —
+     * a failed pulse answers from local state and the next poll retries.
      */
     public function serviceSync(
         int $id,
         \App\Services\Tournament\TableServicePuller $puller,
         \App\Services\Tournament\ChipCountPuller $chips,
+        \App\Services\Cloud\CloudClient $cloud,
+        \App\Services\Cloud\LicenseKeyProvider $license,
+        \App\Services\Tournament\TournamentBroadcaster $broadcaster,
     ): JsonResponse {
-        $result = $puller->sync($id);
-        $result['chip_counts'] = $chips->sync($id);
+        $empty = ['applied' => [], 'failed' => [], 'pending' => [], 'recent' => []];
+
+        if (! $license->isActivated()) {
+            return $this->ok($empty + ['chip_counts' => $chips->localSummary($id)]);
+        }
+
+        try {
+            $pulse = $cloud->getJson('/api/v1/internal/desk-pulse', [
+                'uid' => $broadcaster->uid($id),
+            ])['data'] ?? [];
+        } catch (\App\Services\Cloud\CloudException $e) {
+            // Version skew (OS updated before the cloud, or a rollback):
+            // the combined endpoint is missing, but the two standalone
+            // reads still exist — fall back so the table-service loop
+            // never goes dark over deploy order.
+            if ($e->status === 404) {
+                $result = $puller->sync($id);
+                $result['chip_counts'] = $chips->sync($id);
+
+                return $this->ok($result);
+            }
+
+            \Illuminate\Support\Facades\Log::info('desk pulse skipped', ['session' => $id, 'error' => $e->getMessage()]);
+
+            return $this->ok($empty + ['chip_counts' => $chips->localSummary($id)]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::info('desk pulse skipped', ['session' => $id, 'error' => $e->getMessage()]);
+
+            return $this->ok($empty + ['chip_counts' => $chips->localSummary($id)]);
+        }
+
+        $result = $puller->applyFeed($id, (array) ($pulse['service'] ?? []));
+        $result['chip_counts'] = $chips->applyCounts($id, (array) ($pulse['chip_counts']['counts'] ?? []));
 
         return $this->ok($result);
     }

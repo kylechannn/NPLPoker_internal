@@ -89,9 +89,23 @@ $BackendSource = Join-Path $RepoRoot "app\npl_internal"
 $BackendTarget = Join-Path $OutputDirectory "app\npl_internal"
 robocopy $BackendSource $BackendTarget /MIR /NFL /NDL /NJH /NJS `
     /XD "tests" "node_modules" `
-    /XF ".env" "database.sqlite" "*.log" | Out-Null
+    /XF ".env" "*.sqlite" "*.sqlite-wal" "*.sqlite-shm" "*.sqlite-journal" "*.log" | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Copying the bundled backend failed (robocopy $LASTEXITCODE)." }
 $LASTEXITCODE = 0
+
+# Never ship a dev checkout's baked framework caches: config.php and the
+# route cache embed THIS machine's absolute paths. The host re-caches at
+# every boot, so the bundle must start clean.
+foreach ($stale in @("config.php", "routes-v7.php", "routes.php", "events.php")) {
+    $stalePath = Join-Path $BackendTarget "bootstrap\cache\$stale"
+    if (Test-Path -LiteralPath $stalePath) { Remove-Item -LiteralPath $stalePath -Force }
+}
+
+# robocopy /MIR never purges files its /XF list excludes, so a database or
+# WAL left behind by a previous run of the bundle survives the mirror. A
+# stale -wal beside the fresh empty database.sqlite below would be
+# "recovered" into it — purge every SQLite artefact before migrating.
+Remove-Item -Path (Join-Path $BackendTarget "database\*.sqlite*") -Force -ErrorAction SilentlyContinue
 
 # 4. Fresh env + key, fresh migrated database. Every install starts clean;
 #    venue data arrives via licence activation and Manual update.

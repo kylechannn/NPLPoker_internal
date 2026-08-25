@@ -47,6 +47,21 @@ return [
             'transaction_mode' => 'DEFERRED',
         ],
 
+        // The cache store's own SQLite file. Cache churn — link-state reads
+        // on every cloud call, scheduler locks — used to share the desk
+        // data file's single write lock; a separate file means the two can
+        // never contend. Created by the cache-tables migration.
+        'cache' => [
+            'driver' => 'sqlite',
+            'database' => env('CACHE_DB_DATABASE', database_path('cache.sqlite')),
+            'prefix' => '',
+            'foreign_key_constraints' => false,
+            'busy_timeout' => (int) env('DB_BUSY_TIMEOUT', 5000),
+            'journal_mode' => env('DB_JOURNAL_MODE', 'wal'),
+            'synchronous' => env('DB_SYNCHRONOUS', 'normal'),
+            'transaction_mode' => 'DEFERRED',
+        ],
+
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),

@@ -6,6 +6,7 @@ namespace App\Services\Cloud;
 
 use App\Services\Sync\SyncService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -34,6 +35,26 @@ final class CloudCallQueue
         private readonly SyncService $sync,
         private readonly CloudLinkState $link,
     ) {}
+
+    /**
+     * Land queued work promptly — without making the operator's click wait
+     * for the round trip. Web requests only ENQUEUE: under `artisan serve`
+     * (the shipped runtime) the client is released when the script ends,
+     * so an inline OR App::terminating drain both hold the click for the
+     * full cloud round trip — verified empirically, Content-Length or not.
+     * The resident drains sweeper (ops:sweep --role=drains, every few
+     * seconds) owns the landing instead. Console runs (the sweeper itself,
+     * artisan, tests) keep draining inline exactly as before. Offline the
+     * drain is skipped outright: the sweep owns the recovery probe.
+     */
+    private function drainSoon(int $limit = 8): void
+    {
+        if ($this->link->isOffline() || ! App::runningInConsole()) {
+            return;
+        }
+
+        rescue(fn (): array => $this->drain($limit), report: false);
+    }
 
     /**
      * @param array{group?: ?string, label?: string, idempotency_key?: ?string, tolerate_missing?: bool, coalesce?: bool} $options
@@ -74,9 +95,7 @@ final class CloudCallQueue
                     ->where('status', 'sent')
                     ->delete();
 
-                if (! $this->link->isOffline()) {
-                    rescue(fn (): array => $this->drain(8), report: false);
-                }
+                $this->drainSoon();
 
                 return (int) $existing->id;
             }
@@ -96,13 +115,7 @@ final class CloudCallQueue
             'updated_at' => now(),
         ]);
 
-        // Land it NOW when the network allows — the queue is for resilience
-        // and instant UI, not for making every change wait for the sweep.
-        // Offline the drain is skipped outright: the operator's action must
-        // answer instantly, and the 15s sweep owns the recovery probe.
-        if (! $this->link->isOffline()) {
-            rescue(fn (): array => $this->drain(8), report: false);
-        }
+        $this->drainSoon();
 
         return $id;
     }
@@ -139,6 +152,18 @@ final class CloudCallQueue
         $dead = 0;
         $parkedGroups = [];
         $touchedSessions = [];
+
+        // Fresh in-flight sends are invisible to the heads query above;
+        // their groups must park here, or a group's second job could
+        // overtake its first across concurrent drainers.
+        foreach (DB::table('cloud_call_queue')
+            ->where('status', 'sending')
+            ->where('updated_at', '>=', now()->subMinutes(5))
+            ->whereNotNull('group_key')
+            ->distinct()
+            ->pluck('group_key') as $groupInFlight) {
+            $parkedGroups[(string) $groupInFlight] = true;
+        }
 
         foreach ($heads as $entry) {
             if ($sent + $dead >= $limit) {
@@ -303,8 +328,8 @@ final class CloudCallQueue
                 'updated_at' => now(),
             ]);
 
-        if ($updated > 0 && ! $this->link->isOffline()) {
-            rescue(fn (): array => $this->drain(8), report: false);
+        if ($updated > 0) {
+            $this->drainSoon();
         }
 
         return $updated > 0;

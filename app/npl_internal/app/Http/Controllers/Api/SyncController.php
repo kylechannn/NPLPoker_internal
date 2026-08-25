@@ -69,15 +69,23 @@ final class SyncController
     {
         $validated = $request->validate([
             'venue_id' => ['sometimes', 'nullable', 'integer'],
+            // A realtime signal names the session it touched — refreshing
+            // just that one is a single cloud call instead of one per
+            // scheduled session in the venue's whole window.
+            'session_ids' => ['sometimes', 'nullable', 'array', 'max:20'],
+            'session_ids.*' => ['integer', 'min:1'],
         ]);
+
+        $sessionIds = array_values(array_unique(array_map('intval', $validated['session_ids'] ?? [])));
 
         try {
             $sessions = $this->sync->syncEntity('game_sessions');
-            // Venue-scoped incremental refresh: a handful of calls, and it
-            // covers the venue's WHOLE scheduled window — a desk may link
-            // any of those sessions, not just tonight's.
+            // Targeted when the caller knows which session moved; otherwise
+            // the venue-scoped full refresh — it covers the venue's WHOLE
+            // scheduled window, since a desk may link any of those sessions.
             $seating = $this->sync->refreshSeatingFor(
                 isset($validated['venue_id']) ? (int) $validated['venue_id'] : null,
+                $sessionIds !== [] ? $sessionIds : null,
             );
         } catch (CloudException $e) {
             return response()->json([

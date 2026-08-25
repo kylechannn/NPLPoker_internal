@@ -78,12 +78,13 @@ func run(cfg config) error {
 
 	logger := log.New(os.Stdout, "[npl-internal] ", log.LstdFlags|log.Lmsgprefix)
 	logger.Printf(
-		"resource profile %s: Go %d workers/%d MiB, Caddy %d workers/%d MiB, network cache %s",
+		"resource profile %s: Go %d workers/%d MiB, Caddy %d workers/%d MiB, PHP %d workers, network cache %s",
 		cfg.resources.profileName,
 		cfg.resources.goMaxProcs,
 		cfg.resources.goMemoryLimitMiB,
 		cfg.resources.caddyMaxProcs,
 		cfg.resources.caddyMemoryLimitMiB,
+		cfg.resources.phpWorkers,
 		cfg.resources.networkQualityCacheTime,
 	)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -107,7 +108,7 @@ func run(cfg config) error {
 	// start it is logged rather than fatal: the console, the licence gate and
 	// the diagnostics all still work, which is what an operator needs in
 	// order to see and fix the problem.
-	backend, backendErr := startBackendApp(ctx, "http://"+cfg.backendListen)
+	backend, backendErr := startBackendApp(ctx, "http://"+cfg.backendListen, cfg.resources.phpWorkers)
 	if backendErr != nil {
 		logger.Printf("[npl-internal] operational backend unavailable: %v", backendErr)
 	}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Clock, Coffee, Coins, Copy, Minus, PlusCircle, RefreshCw, Square, Users, X } from "lucide-react"
-import { countdown, deskApi, type AddonTier, type PrizeBreakdownRow, type Seating } from "./deskApi"
+import { countdown, deskApi, stableSnapshot, type AddonTier, type PrizeBreakdownRow, type Seating } from "./deskApi"
 import nplLogoUrl from "../assets/npl-logo.png"
 import "./timer.css"
 
@@ -311,6 +311,10 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
     prevLevelRef.current = clock?.current_level?.level_no ?? prevLevelRef.current
   }, [clock?.current_level?.level_no])
 
+  // The last applied sync payload with its per-call timestamps stripped —
+  // an unchanged answer (a paused or idle room) re-renders nothing.
+  const lastRawRef = useRef("")
+
   useEffect(() => {
     let cancelled = false
 
@@ -323,6 +327,9 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
         if (cancelled) return
 
         setError(null)
+        const raw = stableSnapshot(seating)
+        if (raw === lastRawRef.current) return
+        lastRawRef.current = raw
         setClock(seating.clock as unknown as ClockState)
         setSummary({
           total_players: seating.counts.total_players ?? seating.counts.entries,

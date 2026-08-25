@@ -45,39 +45,61 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 /**
  * Pull sessions + seat maps now; tell every open workspace when done.
  *
- * Single-flight with a trailing rerun: the pull fans out one HTTP call per
- * scheduled session on the desk's only PHP worker, so a burst of signals
- * (five phones registering in the same minute) must coalesce into at most
- * one running pull plus one queued rerun — never a pile-up that starves
- * the operator's own requests.
+ * Single-flight with a trailing rerun: a burst of signals (five phones
+ * registering in the same minute) coalesces into at most one running pull
+ * plus one queued rerun — never a pile-up that starves the operator's own
+ * requests.
+ *
+ * Targeted when possible: a session.touched signal names the session it
+ * touched, and refreshing just that one is a single cloud call instead of
+ * one per scheduled session in the venue's whole window. Ids accumulate
+ * across coalesced signals; any caller with no session id (connect
+ * catch-up, the fallback and reconcile timers) makes the next run a full
+ * venue pull.
  */
 let pullInFlight: Promise<void> | null = null
 let pullQueued = false
 let pullVenueId: number | null = null
+let pullWantsFull = false
+const pullTargets = new Set<number>()
 
-export function pullSessionsNow(venueId: number | null = pullVenueId): Promise<void> {
+export function pullSessionsNow(venueId: number | null = pullVenueId, sessionId?: number): Promise<void> {
   pullVenueId = venueId
+
+  if (sessionId === undefined) pullWantsFull = true
+  else pullTargets.add(sessionId)
 
   if (pullInFlight) {
     pullQueued = true
     return pullInFlight
   }
 
+  return startPull()
+}
+
+function startPull(): Promise<void> {
   pullInFlight = (async () => {
     try {
+      const full = pullWantsFull || pullTargets.size === 0 || pullTargets.size > 20
+      const ids = full ? [] : [...pullTargets]
+      pullWantsFull = false
+      pullTargets.clear()
+
       await fetchJson("/api/v1/sync/pull-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        // Venue-scoped: the seat-map refresh covers the venue's whole
-        // scheduled window with a handful of calls.
-        body: JSON.stringify({ venue_id: venueId }),
+        // Venue-scoped: a full refresh covers the venue's whole scheduled
+        // window; a targeted one names exactly the sessions that moved.
+        body: JSON.stringify({ venue_id: pullVenueId, ...(full ? {} : { session_ids: ids }) }),
       })
       window.dispatchEvent(new CustomEvent("npl:sessions-updated"))
     } finally {
       pullInFlight = null
       if (pullQueued) {
         pullQueued = false
-        void pullSessionsNow().catch(() => {})
+        // The rerun consumes whatever accumulated while this one ran —
+        // it must not widen a targeted backlog into a full pull itself.
+        void startPull().catch(() => {})
       }
     }
   })()
@@ -252,7 +274,12 @@ export function useBackendLink(venueId: number | null) {
             labels[kind] ?? "Session updated",
             `Session #${data?.game_session_id ?? "?"} — syncing now.`,
           )
-          void pullSessionsNow(venueId).catch(() => {})
+          // The signal names its session — pull just that one. A signal
+          // without an id falls back to the full venue pull.
+          void pullSessionsNow(
+            venueId,
+            typeof data?.game_session_id === "number" ? data.game_session_id : undefined,
+          ).catch(() => {})
         }
 
         if (message?.event === (details.chat_event ?? "chat.touched")) {

@@ -7,6 +7,9 @@ namespace App\Services\Sync;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
 use App\Services\Media\MediaCacheService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -56,6 +59,37 @@ final class SyncService
             throw new \InvalidArgumentException("Unknown sync entity [{$entity}].");
         }
 
+        // One syncer per entity at a time: the _staging table is shared,
+        // not per-run, so two concurrent stagers could swap a partial (or
+        // wiped) snapshot in and then pin it with a fresh ETag. Web
+        // callers yield instantly — another pull is already landing the
+        // same data; console runs (Manual update) wait their turn.
+        $lock = Cache::lock("sync-entity:{$entity}", 120);
+
+        try {
+            $lock->block(App::runningInConsole() ? 30 : 0);
+        } catch (LockTimeoutException) {
+            $state = $this->state($entity);
+
+            return [
+                'entity' => $entity,
+                'status' => 'busy',
+                'rows' => (int) ($state->row_count ?? 0),
+                'not_modified' => false,
+                'message' => 'Another sync already holds this entity.',
+            ];
+        }
+
+        try {
+            return $this->runEntitySync($entity, $definition, $force);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /** The locked body of syncEntity — never call without holding the lock. */
+    private function runEntitySync(string $entity, array $definition, bool $force): array
+    {
         $state = $this->state($entity);
         $this->touchState($entity, ['status' => 'running', 'last_attempt_at' => now()]);
 

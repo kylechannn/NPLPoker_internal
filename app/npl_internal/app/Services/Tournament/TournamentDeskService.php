@@ -352,7 +352,7 @@ final class TournamentDeskService
             'buy_in' => $this->buyIn($sessionId, $session, $nplId, $options),
             'rebuy' => $this->rebuy($sessionId, $nplId, $options),
             'addon' => $this->tournaments->act($sessionId, $nplId, 'addon', $options),
-            'jackpot' => $this->joinJackpot($sessionId, $session, $nplId, $state),
+            'jackpot' => $this->joinJackpot($sessionId, $session, $nplId, $state, $idempotencyKey),
             default => throw ValidationException::withMessages(['action' => ["Unsupported desk action [{$action}]."]]),
         };
 
@@ -1143,20 +1143,24 @@ final class TournamentDeskService
     }
 
     /**
-     * Push the outbox after the response is sent. Instant when online,
-     * silently deferred to the 15-second scheduled sweep when not — the
-     * desk response is never held up either way.
+     * Push the outbox promptly without holding the desk response. Under
+     * `artisan serve` the client is only released when the script ENDS —
+     * App::terminating work still made every buy-in click wait for the
+     * cloud round trip (verified empirically). Web requests now just
+     * enqueue; the resident drains sweeper (every few seconds) lands the
+     * money. Console runs (the sweeper, artisan, tests) drain inline.
      */
     private function drainSoon(): void
     {
-        $outbox = $this->outbox;
-        App::terminating(function () use ($outbox): void {
-            try {
-                $outbox->drain();
-            } catch (Throwable) {
-                // Already queued locally; the scheduled drain retries.
-            }
-        });
+        if (! App::runningInConsole()) {
+            return;
+        }
+
+        try {
+            $this->outbox->drain();
+        } catch (Throwable) {
+            // Already queued locally; the sweeper retries.
+        }
     }
 
     /**
@@ -1187,7 +1191,7 @@ final class TournamentDeskService
      * is the only place it can be collected, but it must not be the only
      * place it is known.
      */
-    private function joinJackpot(int $sessionId, object $session, string $nplId, array $state): array
+    private function joinJackpot(int $sessionId, object $session, string $nplId, array $state, ?string $idempotencyKey = null): array
     {
         if (! (bool) $session->jackpot_enabled) {
             throw ValidationException::withMessages(['action' => ['The jackpot is not running for this tournament.']]);
@@ -1205,7 +1209,25 @@ final class TournamentDeskService
         $amount = (int) $session->jackpot_price_cents;
         $reference = (string) Str::uuid();
 
-        DB::transaction(function () use ($sessionId, $nplId, $amount, $state, $reference): void {
+        DB::transaction(function () use ($sessionId, $nplId, $amount, $state, $reference, $entry, $idempotencyKey): void {
+            // Atomic claim FIRST: flipping in_jackpot 0→1 conditionally
+            // means two concurrent joins (two desk surfaces, an overlapping
+            // poll replay) can never both charge — the loser matches zero
+            // rows and aborts before any money lands. The read above is
+            // only the friendly early answer; THIS is the guard. Entry-less
+            // joins keep the old tolerant behavior (nothing to claim).
+            if ($entry !== null) {
+                $claimed = DB::table('tournament_entries')
+                    ->where('tournament_session_id', $sessionId)
+                    ->where('player_npl_id', $nplId)
+                    ->where('in_jackpot', false)
+                    ->update(['in_jackpot' => true, 'updated_at' => now()]);
+
+                if ($claimed === 0) {
+                    throw ValidationException::withMessages(['action' => ['This player is already in the jackpot.']]);
+                }
+            }
+
             DB::table('tournament_actions')->insert([
                 'tournament_session_id' => $sessionId,
                 'player_npl_id' => $nplId,
@@ -1213,16 +1235,21 @@ final class TournamentDeskService
                 'chips' => 0,
                 'price_cents' => $amount,
                 'level_index' => $state['level_index'],
-                'idempotency_key' => $reference,
+                // The request's own key when it carries one, so apply()'s
+                // replay short-circuit recognises a retried jackpot instead
+                // of refusing it as "already joined".
+                'idempotency_key' => $idempotencyKey ?: $reference,
                 'meta' => json_encode(['reference' => $reference]),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            DB::table('tournament_entries')
-                ->where('tournament_session_id', $sessionId)
-                ->where('player_npl_id', $nplId)
-                ->update(['in_jackpot' => true, 'updated_at' => now()]);
+            if ($entry === null) {
+                DB::table('tournament_entries')
+                    ->where('tournament_session_id', $sessionId)
+                    ->where('player_npl_id', $nplId)
+                    ->update(['in_jackpot' => true, 'updated_at' => now()]);
+            }
         }, 3);
 
         // Queued, not posted inline: the desk must keep working through a
@@ -1501,14 +1528,22 @@ final class TournamentDeskService
                 ->keyBy(fn (object $row): string => $row->table_number.':'.$row->seat_number);
         }
 
+        // Indexed once so the table×seat loop below is O(1) per seat — the
+        // room clock and the desk grid poll this every 5 seconds, and the
+        // old per-seat roster rescan grew with tables × seats × entries.
+        $occupantBySeat = [];
+        $occupiedByTable = [];
+        foreach ($seated as $row) {
+            $occupantBySeat[((int) $row->table_number).':'.((int) $row->seat_number)] ??= $row;
+            $occupiedByTable[(int) $row->table_number] = ($occupiedByTable[(int) $row->table_number] ?? 0) + 1;
+        }
+
         $tables = [];
         for ($number = 1; $number <= $tableCount; $number++) {
             $seats = [];
 
             for ($seat = 1; $seat <= $perTable; $seat++) {
-                $occupant = $seated->first(
-                    fn (object $row): bool => (int) $row->table_number === $number && (int) $row->seat_number === $seat,
-                );
+                $occupant = $occupantBySeat[$number.':'.$seat] ?? null;
 
                 $player = $occupant ? $this->presentEntry($occupant, $sessionId, $session) : null;
 
@@ -1529,7 +1564,7 @@ final class TournamentDeskService
             $tables[] = [
                 'table_number' => $number,
                 'seats' => $seats,
-                'occupied' => $seated->where('table_number', $number)->count(),
+                'occupied' => $occupiedByTable[$number] ?? 0,
                 'table_kind' => optional($meta)->table_kind,
                 'creator_npl_id' => optional($meta)->creator_npl_id,
                 'creator_display_name' => optional($meta)->creator_display_name,

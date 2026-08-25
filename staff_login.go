@@ -504,7 +504,7 @@ func rosterResolver(backend *backendApp) func(string) (staffIdentity, error) {
 			return staffIdentity{}, errors.New("The staff lookup could not be prepared.")
 		}
 
-		response, err := client.Post(backend.target.String()+"/api/v1/staff/resolve", "application/json", bytes.NewReader(payload))
+		response, err := client.Post(backend.baseURL()+"/api/v1/staff/resolve", "application/json", bytes.NewReader(payload))
 		if err != nil {
 			return staffIdentity{}, errors.New("The staff register could not be reached — is the local service still starting?")
 		}

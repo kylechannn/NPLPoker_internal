@@ -84,7 +84,17 @@ class TableServicePullerTest extends TestCase
 
     private function fakeCloud(array $applyRows, array $pendingRows = []): void
     {
+        // service-sync reads the combined desk-pulse; the standalone
+        // requests feed stays faked for the desk-handle path, which still
+        // reads it directly.
         Http::fake([
+            '*/internal/desk-pulse*' => Http::response([
+                'ok' => true,
+                'data' => [
+                    'service' => ['pending' => $pendingRows, 'apply' => $applyRows, 'recent' => []],
+                    'chip_counts' => ['counts' => [], 'chip_total' => null, 'chip_counted' => 0],
+                ],
+            ]),
             '*/internal/table-service/requests/*/applied' => Http::response([
                 'ok' => true,
                 'data' => ['request' => ['id' => 0]],

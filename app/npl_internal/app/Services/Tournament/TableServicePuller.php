@@ -55,13 +55,25 @@ final class TableServicePuller
                 'uid' => $this->broadcaster->uid($sessionId),
             ]);
             $data = $response['data'] ?? [];
-            $rows = $data['apply'] ?? [];
         } catch (Throwable $e) {
             // Flaky internet must never break the desk — next poll retries.
             Log::info('table service pull skipped', ['session' => $sessionId, 'error' => $e->getMessage()]);
 
             return $empty;
         }
+
+        return $this->applyFeed($sessionId, (array) $data);
+    }
+
+    /**
+     * Apply an already-fetched cloud feed — the desk-pulse read shares one
+     * round trip between this and the chip counts.
+     *
+     * @return array{applied: list<array>, failed: list<array>, pending: list<array>, recent: list<array>}
+     */
+    public function applyFeed(int $sessionId, array $data): array
+    {
+        $rows = $data['apply'] ?? [];
 
         $applied = [];
         $failed = [];

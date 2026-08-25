@@ -12,13 +12,7 @@ use Illuminate\Support\Facades\Route;
  * reachable from the LAN unless the host chooses to expose it.
  */
 
-Route::get('/health', function () {
-    return response()->json([
-        'ok' => true,
-        'service' => 'npl-internal-backend',
-        'time' => now()->toIso8601String(),
-    ]);
-});
+Route::get('/health', \App\Http\Controllers\Api\HealthController::class);
 
 Route::prefix('v1/sync')->controller(SyncController::class)->group(function (): void {
     Route::get('manifest', 'manifest');

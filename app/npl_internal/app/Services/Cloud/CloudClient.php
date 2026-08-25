@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Cloud;
 
+use GuzzleHttp\Utils as GuzzleUtils;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -24,6 +25,15 @@ use Illuminate\Support\Str;
  */
 final class CloudClient
 {
+    /**
+     * One curl handler for the whole process: consecutive cloud calls in
+     * the same run (a queue drain, a seating refresh loop) reuse the TLS
+     * connection instead of paying a fresh handshake per call. Laravel
+     * wraps this with its own middleware stack, so Http::fake() in tests
+     * still intercepts before the wire.
+     */
+    private static mixed $sharedHandler = null;
+
     public function __construct(
         private readonly LicenseKeyProvider $license,
         private readonly CloudLinkState $link,
@@ -249,6 +259,7 @@ final class CloudClient
             // decide whether the desk is current enough to keep operating.
             'X-App-Version' => (string) config('app.version', ''),
         ]))
+            ->setHandler(self::$sharedHandler ??= GuzzleUtils::chooseHandler())
             ->withOptions(['verify' => $this->verify()])
             ->timeout((int) config('nplcloud.timeouts.request', 30))
             ->connectTimeout((int) config('nplcloud.timeouts.connect', 10));

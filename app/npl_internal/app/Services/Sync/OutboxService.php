@@ -79,6 +79,24 @@ final class OutboxService
         $limit ??= (int) config('nplcloud.outbox.chunk', 20);
         $maxAttempts = (int) config('nplcloud.outbox.max_attempts', 12);
 
+        // Another drainer mid-send holds the TRUE head as a fresh `sending`
+        // row this query cannot see — proceeding would send entry N+1
+        // before entry N lands, the exact reorder FIFO exists to prevent.
+        // Yield the pass; the head's owner (or the reclaim window) resumes.
+        $headInFlight = DB::table('sync_outbox')
+            ->where('status', 'sending')
+            ->where('updated_at', '>=', now()->subMinutes(5))
+            ->exists();
+
+        if ($headInFlight) {
+            return [
+                'sent' => 0,
+                'failed' => 0,
+                'dead' => 0,
+                'remaining' => (int) DB::table('sync_outbox')->where('status', 'pending')->count(),
+            ];
+        }
+
         $entries = DB::table('sync_outbox')
             ->where(fn ($query) => $query
                 ->where('status', 'pending')

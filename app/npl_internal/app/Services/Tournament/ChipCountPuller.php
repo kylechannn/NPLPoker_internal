@@ -44,6 +44,17 @@ final class ChipCountPuller
             return $this->localSummary($sessionId);
         }
 
+        return $this->applyCounts($sessionId, (array) $counts);
+    }
+
+    /**
+     * Apply an already-fetched cloud counts payload — the desk-pulse read
+     * shares one round trip between this and the table-service feed.
+     *
+     * @return array{counted: int, total: int|null}
+     */
+    public function applyCounts(int $sessionId, array $counts): array
+    {
         DB::transaction(function () use ($sessionId, $counts): void {
             DB::table('live_chip_counts')->where('tournament_session_id', $sessionId)->delete();
 
@@ -76,7 +87,7 @@ final class ChipCountPuller
     }
 
     /** @return array{counted: int, total: int|null} */
-    private function localSummary(int $sessionId): array
+    public function localSummary(int $sessionId): array
     {
         $summary = DB::table('live_chip_counts')
             ->where('tournament_session_id', $sessionId)

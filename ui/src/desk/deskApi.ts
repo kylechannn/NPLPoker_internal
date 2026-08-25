@@ -641,6 +641,19 @@ export function money(cents: number): string {
   return `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
 }
 
+/**
+ * The seating payload minus its per-call timestamps: the server stamps
+ * `server_time`/`server_time_ms` fresh on EVERY answer (paused and draft
+ * rooms included), so a byte-compare of the raw payload never matches.
+ * Stripping just those makes "nothing actually changed" detectable — the
+ * clock face derives its countdown from `remaining_ms`, which is frozen
+ * while paused and genuinely changes while running.
+ */
+export function stableSnapshot(payload: unknown): string {
+  return JSON.stringify(payload, (key, value) =>
+    key === "server_time" || key === "server_time_ms" ? undefined : value)
+}
+
 export function countdown(ms: number | null): string {
   if (ms === null) return '—'
   const total = Math.max(0, Math.ceil(ms / 1000))

@@ -41,9 +41,12 @@ return [
 
         'database' => [
             'driver' => 'database',
-            'connection' => env('DB_CACHE_CONNECTION'),
+            // Cache and its locks live in their own SQLite file (see the
+            // 'cache' connection) so cache churn never holds the desk data
+            // file's write lock.
+            'connection' => env('DB_CACHE_CONNECTION', 'cache'),
             'table' => env('DB_CACHE_TABLE', 'cache'),
-            'lock_connection' => env('DB_CACHE_LOCK_CONNECTION'),
+            'lock_connection' => env('DB_CACHE_LOCK_CONNECTION', 'cache'),
             'lock_table' => env('DB_CACHE_LOCK_TABLE'),
         ],
 

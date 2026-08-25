@@ -18,6 +18,9 @@ func TestAdaptiveResourceProfile(t *testing.T) {
 	if settings.goMaxProcs != 4 || settings.caddyMaxProcs != 2 {
 		t.Fatalf("unexpected worker limits: %+v", settings)
 	}
+	if settings.phpWorkers != 4 {
+		t.Fatalf("expected 4 PHP workers on 8 CPUs, got %d", settings.phpWorkers)
+	}
 	if settings.goMemoryLimitMiB != 192 || settings.caddyMemoryLimitMiB != 96 {
 		t.Fatalf("unexpected memory limits: %+v", settings)
 	}
@@ -32,6 +35,7 @@ func TestLowResourceProfileAndOverrides(t *testing.T) {
 		"NPL_GO_MAX_PROCS":           "1",
 		"NPL_NETWORK_CACHE_SECONDS":  "60",
 		"NPL_CADDY_MEMORY_LIMIT_MIB": "80",
+		"NPL_PHP_WORKERS":            "1",
 	}
 	settings, err := loadResourceSettings(func(name string) string { return values[name] }, 4)
 	if err != nil {
@@ -40,6 +44,9 @@ func TestLowResourceProfileAndOverrides(t *testing.T) {
 
 	if settings.profileName != "low" || settings.goMaxProcs != 1 {
 		t.Fatalf("unexpected low-resource workers: %+v", settings)
+	}
+	if settings.phpWorkers != 1 {
+		t.Fatalf("expected the PHP worker override to hold, got %d", settings.phpWorkers)
 	}
 	if settings.caddyMaxProcs != 1 || settings.caddyMemoryLimitMiB != 80 {
 		t.Fatalf("unexpected Caddy settings: %+v", settings)

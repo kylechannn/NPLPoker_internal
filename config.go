@@ -31,6 +31,12 @@ type resourceSettings struct {
 	goMemoryLimitMiB        int
 	caddyMaxProcs           int
 	caddyMemoryLimitMiB     int
+	// How many `artisan serve` worker processes carry the bundled Laravel
+	// app. PHP's built-in server handles ONE request at a time per
+	// process (PHP_CLI_SERVER_WORKERS never worked on Windows), so a
+	// single worker serialises every desk screen behind the slowest
+	// request; the Go proxy round-robins across this many.
+	phpWorkers              int
 	networkQualityCacheTime time.Duration
 }
 
@@ -128,6 +134,15 @@ func loadResourceSettings(getenv func(string) string, cpuCount int) (resourceSet
 	); err != nil {
 		return resourceSettings{}, err
 	}
+	if settings.phpWorkers, err = boundedIntEnv(
+		getenv,
+		"NPL_PHP_WORKERS",
+		settings.phpWorkers,
+		1,
+		8,
+	); err != nil {
+		return resourceSettings{}, err
+	}
 	cacheSeconds, err := boundedIntEnv(
 		getenv,
 		"NPL_NETWORK_CACHE_SECONDS",
@@ -155,12 +170,19 @@ func resourceProfile(name string, cpuCount int) (resourceSettings, error) {
 		if cpuCount >= 6 {
 			caddyWorkers = 2
 		}
+		phpWorkers := 2
+		if cpuCount >= 6 {
+			phpWorkers = 4
+		} else if cpuCount >= 4 {
+			phpWorkers = 3
+		}
 		return resourceSettings{
 			profileName:             name,
 			goMaxProcs:              goWorkers,
 			goMemoryLimitMiB:        192,
 			caddyMaxProcs:           caddyWorkers,
 			caddyMemoryLimitMiB:     96,
+			phpWorkers:              phpWorkers,
 			networkQualityCacheTime: 30 * time.Second,
 		}, nil
 	case "low":
@@ -170,6 +192,7 @@ func resourceProfile(name string, cpuCount int) (resourceSettings, error) {
 			goMemoryLimitMiB:        128,
 			caddyMaxProcs:           1,
 			caddyMemoryLimitMiB:     64,
+			phpWorkers:              2,
 			networkQualityCacheTime: 45 * time.Second,
 		}, nil
 	case "balanced":
@@ -179,6 +202,7 @@ func resourceProfile(name string, cpuCount int) (resourceSettings, error) {
 			goMemoryLimitMiB:        256,
 			caddyMaxProcs:           min(cpuCount, 2),
 			caddyMemoryLimitMiB:     128,
+			phpWorkers:              3,
 			networkQualityCacheTime: 20 * time.Second,
 		}, nil
 	default:

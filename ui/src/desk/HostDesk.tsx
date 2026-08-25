@@ -12,6 +12,7 @@ import {
   deskApi,
   money,
   privateGatherMinutes,
+  stableSnapshot,
   type AdminQr,
   type DeskOption,
   type DeskVoucher, type OnlineCoverage,
@@ -219,7 +220,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
     try {
       const result = await deskApi.serviceHandle(sessionId, requestId)
-      setSeating(result.seating)
+      applySeatingDirect(result.seating)
       setServicePending((rows) => rows.filter((row) => row.id !== requestId))
       setFlash(`Handled — ${result.handled.npl_id}`)
     } catch (e) {
@@ -255,9 +256,23 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     }
   }, [value])
 
+  // The last applied poll payload with its per-call timestamps stripped:
+  // an unchanged answer (idle or paused room) must not re-render the
+  // whole grid every 5 seconds. Any NON-poll seating write blanks the
+  // ref, so a poll after a desk action always applies.
+  const seatingRawRef = useRef("")
+
+  const applySeatingDirect = useCallback((next: Seating) => {
+    seatingRawRef.current = ""
+    setSeating(next)
+  }, [])
+
   const refresh = useCallback(async () => {
     try {
       const next = await deskApi.seating(sessionId)
+      const raw = stableSnapshot(next)
+      if (raw === seatingRawRef.current) return
+      seatingRawRef.current = raw
       setSeating(next)
       const status = (next.clock as { status?: string } | undefined)?.status
       if (status) {
@@ -283,8 +298,14 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
 
   // Phone requests the admin resolved at the table: pull them into the
   // local ledger every 15s and tell the operator what just landed.
+  // Single-flight: on venue internet a pull can outlive the interval, and
+  // two overlapping pulls used to land the same unacked feed row twice —
+  // double receipts, double cloud cashier events.
+  const servicePullBusyRef = useRef(false)
   useEffect(() => {
     const pull = async () => {
+      if (servicePullBusyRef.current) return
+      servicePullBusyRef.current = true
       try {
         const result = await deskApi.serviceSync(sessionId)
         setServicePending(result.pending)
@@ -314,6 +335,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         if (result.applied.length > 0) void refresh()
       } catch {
         // Offline is fine — the next pull retries.
+      } finally {
+        servicePullBusyRef.current = false
       }
     }
 
@@ -553,7 +576,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 voucher_code: coveredOnline.code,
                 voucher_limit_cents: coveredOnline.entry_fee_limit_cents ?? null,
               })
-          setSeating(result.seating)
+          applySeatingDirect(result.seating)
           const label = stack ? `${stack.length} special tickets` : `voucher ${coveredOnline.code}`
           applied.push(deficit > 0
             ? `Buy-in (paid online with ${label} + ${money(deficit)} difference)`
@@ -583,7 +606,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             voucher_covered_cents: Math.min(covered, option.price_cents),
           })
           voucherRefRef.current = null
-          setSeating(result.seating)
+          applySeatingDirect(result.seating)
           applied.push(deficit > 0
             ? `Buy-in (${useTickets.length} special ticket${useTickets.length === 1 ? "" : "s"} + ${money(deficit)} difference)`
             : `Buy-in (FREE — ${useTickets.length} special ticket${useTickets.length === 1 ? "" : "s"})`)
@@ -604,7 +627,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             voucher_limit_cents: voucher.entry_fee_limit_cents ?? null,
           })
           voucherRefRef.current = null
-          setSeating(result.seating)
+          applySeatingDirect(result.seating)
           applied.push(deficit > 0
             ? `Buy-in (voucher ${voucher.code} + ${money(deficit)} difference)`
             : `Buy-in (FREE — voucher ${voucher.code})`)
@@ -622,7 +645,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             ...(option.action === "jackpot" && jackpotWithBuyIn ? { first_buy_in: true } : {}),
           },
         )
-        setSeating(result.seating)
+        applySeatingDirect(result.seating)
         applied.push(option.label)
         total += priceFor(option)
       }
@@ -664,7 +687,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     setMenu(null)
 
     try {
-      setSeating(await fn())
+      applySeatingDirect(await fn())
       setFlash(message)
     } catch (e) {
       setError(e instanceof Error ? e.message : "That change could not be applied.")

@@ -81,7 +81,20 @@ class ChipCountPullerTest extends TestCase
 
     private function fakeCloudCounts(array $counts): void
     {
+        // service-sync reads the combined desk-pulse now; the standalone
+        // chip-counts fake stays for direct ChipCountPuller::sync() paths.
         Http::fake([
+            '*/internal/desk-pulse*' => Http::response([
+                'ok' => true,
+                'data' => [
+                    'service' => ['pending' => [], 'apply' => [], 'recent' => []],
+                    'chip_counts' => [
+                        'counts' => $counts,
+                        'chip_total' => array_sum(array_column($counts, 'chips')) ?: null,
+                        'chip_counted' => count($counts),
+                    ],
+                ],
+            ]),
             '*/internal/chip-counts*' => Http::response([
                 'ok' => true,
                 'data' => [
@@ -164,6 +177,16 @@ class ChipCountPullerTest extends TestCase
         Http::fake(function ($request) use (&$counts, &$cloudDown) {
             if ($cloudDown) {
                 return Http::response(['ok' => false], 500);
+            }
+            if (str_contains($request->url(), '/internal/desk-pulse')) {
+                return Http::response(['ok' => true, 'data' => [
+                    'service' => ['pending' => [], 'apply' => [], 'recent' => []],
+                    'chip_counts' => [
+                        'counts' => $counts,
+                        'chip_total' => array_sum(array_column($counts, 'chips')) ?: null,
+                        'chip_counted' => count($counts),
+                    ],
+                ]]);
             }
             if (str_contains($request->url(), '/internal/chip-counts')) {
                 return Http::response(['ok' => true, 'data' => [
