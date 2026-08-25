@@ -914,6 +914,14 @@ export default function TimerDisplay({ sessionId }: { sessionId: number }) {
                 type="button"
                 className="mx-bbtn"
                 disabled={busy || !canStep}
+                onClick={() => void control("prev")}
+              >
+                Previous level
+              </button>
+              <button
+                type="button"
+                className="mx-bbtn"
+                disabled={busy || !canStep}
                 onClick={() => void control("next")}
               >
                 Next level
