@@ -59,8 +59,14 @@ final class WheelController extends Controller
      * phone apps show, cached for a minute so the big clock can wear it
      * without hammering the cloud. Offline = last cached value, else null.
      */
-    public function pool(): JsonResponse
+    public function pool(Request $request): JsonResponse
     {
+        // A realtime jackpot signal names a move the minute-cache would
+        // hide — fresh=1 re-reads the cloud right now.
+        if ($request->boolean('fresh')) {
+            \Illuminate\Support\Facades\Cache::forget('jackpot.pool');
+        }
+
         $cached = \Illuminate\Support\Facades\Cache::remember('jackpot.pool', 60, function (): ?array {
             try {
                 // Through CloudClient — the raw Http call skipped the CA

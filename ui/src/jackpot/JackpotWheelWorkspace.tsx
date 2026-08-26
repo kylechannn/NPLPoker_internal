@@ -20,7 +20,50 @@ import { ScanLine, RefreshCw, ShieldCheck, Undo2 } from "lucide-react"
 import PrizeWheel, { type SpinOutcome } from "./PrizeWheel"
 import { toWheelPrizes, wheelApi, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier } from "./wheelApi"
 import { hueGradients, type WheelPrize } from "./wheelPrizes"
+import { money } from "../desk/deskApi"
 import "./jackpot-wheel.css"
+
+/**
+ * The live cloud pool — the same public figure the website and the phone
+ * apps show. 60s poll, plus an instant move whenever the backend link
+ * relays a `jackpot.touched` signal (its payload carries the fresh
+ * amount; a cache-busting re-read reconciles behind it).
+ */
+function useJackpotPool(): number | null {
+  const [cents, setCents] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const load = (fresh = false) => {
+      wheelApi.pool(fresh)
+        .then((result) => {
+          if (!cancelled) setCents(result.pool?.amount_cents ?? null)
+        })
+        .catch(() => {
+          // Offline or mid-restart — keep the last figure on screen.
+        })
+    }
+
+    load()
+    const interval = window.setInterval(() => load(), 60_000)
+
+    const onTouched = (event: Event) => {
+      const detail = (event as CustomEvent<number | null>).detail
+      if (typeof detail === "number") setCents(detail)
+      load(true)
+    }
+    window.addEventListener("npl:jackpot-touched", onTouched)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      window.removeEventListener("npl:jackpot-touched", onTouched)
+    }
+  }, [])
+
+  return cents
+}
 
 /** The odds legend beside the wheel: every prize, its chance, and a bar
  *  coloured to match that prize's wedge — biggest chance first. */
@@ -58,6 +101,7 @@ function WheelOddsList({ prizes, golden }: { prizes: WheelPrize[], golden: boole
  * is the prize that pays (and what comes off the jackpot).
  */
 export default function JackpotWheelWorkspace() {
+  const poolCents = useJackpotPool()
   const [segments, setSegments] = useState<WheelSegment[] | null>(null)
   const [goldenSegments, setGoldenSegments] = useState<WheelSegment[]>([])
   const [segmentsError, setSegmentsError] = useState(false)
@@ -224,6 +268,11 @@ export default function JackpotWheelWorkspace() {
         <section className="wheel-scan-card" aria-labelledby="wheel-scan-heading">
           <span className="wheel-scan-card__icon"><ScanLine size={26} /></span>
           <p className="wheel-scan-card__kicker">Jackpot Wheel</p>
+          {poolCents !== null ? (
+            <p className="wheel-scan-card__pool">
+              Live prize pool <strong>{money(poolCents)}</strong>
+            </p>
+          ) : null}
           <h1 id="wheel-scan-heading">Scan the player to spin</h1>
           <p className="wheel-scan-card__lead">
             Scan their club card or enter the NPL ID — same as registration. The wheel opens once the player is identified.

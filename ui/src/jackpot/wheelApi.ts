@@ -99,9 +99,10 @@ export const wheelApi = {
   segments: (wheel: WheelTier = "normal") =>
     request<{ wheel?: WheelTier, segments: WheelSegment[] }>(`/api/v1/wheel?wheel=${wheel}`),
 
-  /** The live jackpot pool, cached a minute host-side; null when offline. */
-  pool: () =>
-    request<{ pool: { amount_cents: number | null } | null }>("/api/v1/wheel/pool"),
+  /** The live jackpot pool, cached a minute host-side; null when offline.
+   *  `fresh` busts that cache — used when a realtime signal names a move. */
+  pool: (fresh = false) =>
+    request<{ pool: { amount_cents: number | null } | null }>(`/api/v1/wheel/pool${fresh ? "?fresh=1" : ""}`),
 
   lookup: (nplId: string) =>
     request<{ player: WheelPlayer, eligibility: WheelEligibility }>("/api/v1/wheel/lookup", {

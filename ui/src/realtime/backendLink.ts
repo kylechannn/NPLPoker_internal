@@ -27,6 +27,8 @@ type RealtimeDetails = {
   event: string
   /** Advertised chat event name — the endpoint exists so this stays soft. */
   chat_event?: string
+  /** The global jackpot pool signal — soft, older clouds don't send it. */
+  jackpot?: { channel?: string, event?: string }
 }
 
 const FALLBACK_PULL_MS = 60_000
@@ -218,14 +220,22 @@ export function useBackendLink(venueId: number | null) {
             event: "pusher:subscribe",
             data: { channel: `${details.channel_prefix}${venueId}` },
           }))
+          // The global jackpot pool signal rides the same socket — the
+          // wheel tab's live figure moves off this.
+          socket.send(JSON.stringify({
+            event: "pusher:subscribe",
+            data: { channel: details.jackpot?.channel ?? "jackpot.pool" },
+          }))
           return
         }
 
-        // Green only once the venue channel is actually subscribed — a
+        // Green only once the VENUE channel is actually subscribed — a
         // connected socket with a failed subscription hears nothing, and
         // showing it green would disable the fallback poll exactly when
-        // it is needed.
-        if (message?.event === "pusher_internal:subscription_succeeded") {
+        // it is needed. (The jackpot channel also raises this event; it
+        // must not flip the light or double the catch-up pull.)
+        if (message?.event === "pusher_internal:subscription_succeeded"
+          && (message as { channel?: string }).channel !== (details.jackpot?.channel ?? "jackpot.pool")) {
           attemptRef.current = 0
           setLastError(null)
           setPhase(null)
@@ -251,6 +261,22 @@ export function useBackendLink(venueId: number | null) {
           const data = message.data as { code?: number, message?: string } | undefined
           setLastError(`Realtime server refused the connection${data?.code ? ` (${data.code})` : ""}: ${data?.message ?? "unknown error"}`)
           socket.close()
+          return
+        }
+
+        if (message?.event === (details.jackpot?.event ?? "jackpot.touched")) {
+          let cents: number | null = null
+          try {
+            const data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as
+              | { amount_cents?: number }
+              | undefined
+            cents = typeof data?.amount_cents === "number" ? data.amount_cents : null
+          } catch {
+            cents = null
+          }
+          // The wheel tab listens; the payload's amount lands instantly
+          // and the tab re-fetches the pool behind it to reconcile.
+          window.dispatchEvent(new CustomEvent("npl:jackpot-touched", { detail: cents }))
           return
         }
 
