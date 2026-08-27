@@ -160,3 +160,11 @@ Route::prefix('v1/membership')->controller(\App\Http\Controllers\Api\MembershipC
     // Negative ids are this desk's own queued-but-unsent creates.
     Route::delete('{cloudId}', 'destroy')->where('cloudId', '-?[0-9]+');
 });
+
+// Feedback & Reports: bug reports, feedback and feature requests from the
+// desk to NPL head office. Sends ride the cloud call queue (offline-safe);
+// the feed reads live from the cloud with this desk's queued rows overlaid.
+Route::prefix('v1/feedback')->controller(\App\Http\Controllers\Api\FeedbackController::class)->group(function (): void {
+    Route::get('/', 'index');
+    Route::post('/', 'store');
+});

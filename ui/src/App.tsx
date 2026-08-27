@@ -12,6 +12,7 @@ const JackpotWheelWorkspace = lazy(() => import("./jackpot/JackpotWheelWorkspace
 const MembershipWorkspace = lazy(() => import("./membership/MembershipWorkspace"))
 const PlayersWorkspace = lazy(() => import("./players/PlayersWorkspace"))
 const RegistrationsWorkspace = lazy(() => import("./registrations/RegistrationsWorkspace"))
+const FeedbackWorkspace = lazy(() => import("./feedback/FeedbackWorkspace"))
 const ChatPane = lazy(() => import("./notifications/ChatPane"))
 import { deskApi, type ActiveSession, type CloudQueueStatus, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
@@ -40,6 +41,7 @@ import {
   LogOut,
   Medal,
   Menu,
+  MessageSquareWarning,
   Minus,
   MoreHorizontal,
   Pause,
@@ -140,6 +142,7 @@ type NavId =
   | "jackpot"
   | "cashier"
   | "export"
+  | "feedback"
 
 
 
@@ -169,6 +172,10 @@ const navigation: Array<{
       { id: "cashier", label: "Cashier", icon: Banknote },
       { id: "export", label: "Export", icon: FileSpreadsheet },
     ],
+  },
+  {
+    label: "Support",
+    items: [{ id: "feedback", label: "Feedback & Reports", icon: MessageSquareWarning }],
   },
 ]
 
@@ -230,6 +237,11 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     eyebrow: "Reports",
     title: "Export",
     description: "Every finished game summarised from the NPL cloud's records, with attendance and CSV downloads.",
+  },
+  feedback: {
+    eyebrow: "Support",
+    title: "Feedback & Reports",
+    description: "Tell NPL what broke or what would help — reports go straight to head office with this desk's diagnostics attached.",
   },
 }
 
@@ -1188,6 +1200,13 @@ export default function App() {
                   <CashierWorkspace />
                 ) : activeSection === "export" ? (
                   <ExportWorkspace venue={activeVenue} />
+                ) : activeSection === "feedback" ? (
+                  <FeedbackWorkspace
+                    venue={activeVenue}
+                    staff={activeStaff}
+                    health={health.status === "ready" ? health.health : null}
+                    network={networkQuality.status === "ready" ? networkQuality.quality : null}
+                  />
                 ) : (
                   <RegistrationsWorkspace venue={activeVenue} />
                 )}

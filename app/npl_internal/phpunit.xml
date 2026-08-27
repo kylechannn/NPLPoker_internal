@@ -33,5 +33,17 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!--
+         | The Go host bakes bootstrap/cache/{config,routes-v7,events}.php
+         | for the running desk, with THAT machine's absolute paths and env.
+         | A test run must never read them: a cached route table 404s every
+         | route added since the last boot, and a cached config overrides
+         | the in-memory database above with the desk's real SQLite file.
+         | Pointing the cache paths at files that never exist keeps tests on
+         | the live config/ and routes/ sources whatever the host last baked.
+        -->
+        <env name="APP_CONFIG_CACHE" value="storage/framework/testing/never-cached-config.php"/>
+        <env name="APP_ROUTES_CACHE" value="storage/framework/testing/never-cached-routes.php"/>
+        <env name="APP_EVENTS_CACHE" value="storage/framework/testing/never-cached-events.php"/>
     </php>
 </phpunit>

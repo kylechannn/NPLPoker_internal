@@ -79,3 +79,16 @@ For direct Go-only troubleshooting without Caddy:
 ├── ui/                React/Vite source
 └── dist/              Portable build output (generated)
 ```
+
+## Feedback & Reports
+
+The sidebar's **Support → Feedback & Reports** tab (`ui/src/feedback/`) lets
+venue staff send bug reports, feedback and feature requests to NPL head
+office, and read back each report's status and reply. A report is queued by
+the bundled Laravel app (`POST /api/v1/feedback` →
+`app/npl_internal/app/Http/Controllers/Api/FeedbackController.php`) and rides
+the cloud call queue, so it can be written during an outage and still lands;
+with the "Include this install's diagnostics" option on, the OS version,
+resource profile, network grade, venue and operator are attached. Reports are
+read in the website admin console under OS feedback. See
+`docs/FEEDBACK.md`.
