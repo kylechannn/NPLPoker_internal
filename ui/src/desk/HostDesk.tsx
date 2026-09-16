@@ -18,6 +18,7 @@ import {
   stableSnapshot,
   type AdminQr,
   type DeskOption,
+  type TablePhase,
   type DeskVoucher, type OnlineCoverage,
   type DeskTable,
   type Gates,
@@ -163,6 +164,14 @@ function CashTimer({ clock, status }: { clock: CashClockState | undefined, statu
       <small>{status === "finished" ? "FINISHED" : status === "paused" ? "PAUSED" : "PLAYING"}</small>
     </span>
   )
+}
+
+/** The pill text for each cash-table phase — the colour does the rest. */
+const PHASE_LABEL: Record<TablePhase, string> = {
+  closed: "CLOSED",
+  open: "OPEN",
+  scheduled: "SET TO START",
+  live: "LIVE",
 }
 
 export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGame, mode = "tournament" }: Props) {
@@ -726,6 +735,28 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       setBusy(false)
       focusScan()
     }
+  }
+
+  /**
+   * The director's per-table switch (cash games): open a table for
+   * registration, close it (everyone on it is released and told), or take
+   * it live on its own — independent of the clock and of every other
+   * table. The mirror repaints at once; the cloud call rides the queue.
+   */
+  function flipTable(tableNumber: number, state: "open" | "closed" | "live") {
+    const gameSessionId = seating?.game_session_id
+    if (gameSessionId == null) return
+    void seatAction(
+      async () => {
+        await deskApi.setTableState(gameSessionId, tableNumber, state)
+        return deskApi.seating(sessionId)
+      },
+      state === "closed"
+        ? `Table ${tableNumber} closed — the players on it are being told.`
+        : state === "live"
+          ? `Table ${tableNumber} is live.`
+          : `Table ${tableNumber} is open for registration.`,
+    )
   }
 
   const gates = seating?.gates
@@ -1380,6 +1411,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 className={[
                   "host-table",
                   table.table_kind === "private" ? "host-table--private" : "",
+                  // Cash tables wear their phase: red / blue / yellow / green.
+                  mode === "cash" && table.table_phase ? `host-table--phase-${table.table_phase}` : "",
                 ].filter(Boolean).join(" ")}
                 onContextMenu={(e) => {
                   // Right-click on the table itself (not a seat) offers
@@ -1419,6 +1452,57 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                     >
                       STOP
                     </button>
+                  ) : null}
+                  {mode === "cash" && seating.game_session_id != null && table.table_phase ? (
+                    <span className="host-table__switch" role="group" aria-label={`Table ${table.table_number} state`}>
+                      <i className={`host-table__phase host-table__phase--${table.table_phase}`}>{PHASE_LABEL[table.table_phase]}</i>
+                      {table.table_phase === "closed" ? (
+                        <button
+                          type="button"
+                          className="host-table__flip host-table__flip--open"
+                          disabled={busy}
+                          title="Open this table for registration"
+                          onClick={() => flipTable(table.table_number, "open")}
+                        >
+                          OPEN
+                        </button>
+                      ) : (
+                        <>
+                          {table.table_phase === "live" ? (
+                            <button
+                              type="button"
+                              className="host-table__flip host-table__flip--open"
+                              disabled={busy}
+                              title="Back to open for registration"
+                              onClick={() => flipTable(table.table_number, "open")}
+                            >
+                              OPEN
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="host-table__flip host-table__flip--live"
+                              disabled={busy}
+                              title="Start this table now — whatever its head count"
+                              onClick={() => flipTable(table.table_number, "live")}
+                            >
+                              LIVE
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="host-table__flip host-table__flip--close"
+                            disabled={busy}
+                            title={table.occupied > 0
+                              ? "Close this table — everyone on it is released and told"
+                              : "Close this table to registration"}
+                            onClick={() => flipTable(table.table_number, "closed")}
+                          >
+                            CLOSE
+                          </button>
+                        </>
+                      )}
+                    </span>
                   ) : null}
                   <span>{table.occupied} / {seating.seats_per_table}</span>
                 </header>

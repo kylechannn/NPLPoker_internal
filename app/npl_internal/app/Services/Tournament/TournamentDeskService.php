@@ -1503,7 +1503,7 @@ final class TournamentDeskService
                 ->get([
                     'table_number', 'seat_number', 'table_kind', 'creator_npl_id', 'creator_display_name',
                     'game_mode', 'blinds_text', 'rules_text', 'allow_strangers',
-                    'activation_deadline_at', 'activated_at',
+                    'activation_deadline_at', 'activated_at', 'table_status', 'table_phase',
                     'player_npl_id', 'player_display_name', 'registration_status', 'pre_registered',
                     'hold_expires_at', 'checked_in',
                 ]);
@@ -1577,6 +1577,10 @@ final class TournamentDeskService
                     : (bool) $meta->allow_strangers,
                 'activation_deadline_at' => optional($meta)->activation_deadline_at,
                 'activated_at' => optional($meta)->activated_at,
+                // The director's per-table switch reads and paints these:
+                // closed / open / scheduled / live, straight from the cloud.
+                'table_status' => optional($meta)->table_status,
+                'table_phase' => optional($meta)->table_phase,
             ];
         }
 

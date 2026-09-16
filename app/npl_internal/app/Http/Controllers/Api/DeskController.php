@@ -244,6 +244,7 @@ final class DeskController
             ->map(fn ($seats, $tableNumber): array => [
                 'table_number' => (int) $tableNumber,
                 'status' => optional($seats->first())->table_status,
+                'phase' => optional($seats->first())->table_phase,
                 'max_seats' => (int) (optional($seats->first())->max_seats ?? 8),
                 // Table-level meta rides on every seat row (the mirror is
                 // seat-grained), so the first row speaks for the table.
@@ -322,6 +323,46 @@ final class DeskController
         ]);
 
         return $this->ok(['result' => ['queued' => true]]);
+    }
+
+    /**
+     * The director's per-table switch: open / closed / live for ONE cash
+     * table. The mirror repaints NOW (status + phase) so the grid changes
+     * colour under the operator's finger; the cloud call — which releases
+     * seats and tells the players — rides the queue.
+     */
+    public function setCloudTableState(Request $request, int $gameSessionId, int $tableNumber): JsonResponse
+    {
+        $state = (string) $request->input('state', '');
+
+        if (! in_array($state, ['open', 'closed', 'live'], true)) {
+            return response()->json([
+                'ok' => false,
+                'error' => ['code' => 'INVALID_STATE', 'message' => 'State must be open, closed or live.'],
+            ], 422);
+        }
+
+        // Optimistic paint. 'live' shows live; 'open' shows open (the cloud
+        // may promote it to scheduled on the next refresh); 'closed' closes.
+        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+            ->where('session_id', $gameSessionId)
+            ->where('table_number', $tableNumber)
+            ->update([
+                'table_status' => $state === 'live' ? 'active' : $state,
+                'table_phase' => $state,
+                'updated_at' => now(),
+            ]);
+
+        $this->queue->enqueue('post', sprintf(
+            '/api/v1/internal/sessions/%d/tables/%d/state',
+            $gameSessionId,
+            $tableNumber,
+        ), ['state' => $state], [
+            'group' => 'session:'.$gameSessionId,
+            'label' => sprintf('Table %d → %s — session #%d', $tableNumber, $state, $gameSessionId),
+        ]);
+
+        return $this->ok(['result' => ['queued' => true, 'state' => $state]]);
     }
 
     /** Remove a player's online registration — synchronous, then refresh. */

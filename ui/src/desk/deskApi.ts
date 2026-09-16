@@ -97,7 +97,17 @@ export type TableMirrorMeta = {
   /** The creator's time slot — the 30-min gather starts THEN. */
   gather_starts_at?: string | null
   activated_at?: string | null
+  /** The cloud row's status: open | active | closed | cancelled. */
+  table_status?: string | null
+  /**
+   * The face the table shows the room — the colour on every seat map —
+   * and the state the director's OPEN / CLOSE / LIVE switch flips. Null
+   * on unlinked sessions and pre-migration mirrors.
+   */
+  table_phase?: TablePhase | null
 }
+
+export type TablePhase = 'closed' | 'open' | 'scheduled' | 'live'
 
 /**
  * How many seated players a player-created table needs before it is
@@ -615,6 +625,18 @@ export const deskApi = {
     request<{ result: Record<string, unknown> }>(
       `/api/v1/desk/sessions/${gameSessionId}/tables/${tableNumber}/stop-countdown`,
       { method: 'POST', body: JSON.stringify({}) },
+    ),
+
+  /**
+   * The director's per-table switch on a cash game: open it for
+   * registration, close it (seats released, players told), or take it
+   * live on its own — independent of the session clock and of every
+   * other table.
+   */
+  setTableState: (gameSessionId: number, tableNumber: number, state: 'open' | 'closed' | 'live') =>
+    request<{ result: Record<string, unknown> }>(
+      `/api/v1/desk/sessions/${gameSessionId}/tables/${tableNumber}/state`,
+      { method: 'POST', body: JSON.stringify({ state }) },
     ),
 
   /** Open a new table in the cloud for a linked session. */

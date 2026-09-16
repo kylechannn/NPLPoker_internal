@@ -2467,3 +2467,57 @@
   color: #7dffbe;
   background: rgba(61, 255, 160, 0.1);
 }
+
+/* ── The director's per-table switch (cash games) ──────────────────────
+   Each table wears its phase: red closed, blue open for registration,
+   yellow scheduled to start, green live — and the header carries the
+   OPEN / CLOSE / LIVE buttons that flip it, one table at a time. */
+.host-table--phase-closed { border-color: rgba(248, 113, 113, 0.55); }
+.host-table--phase-closed > header { background: rgba(248, 113, 113, 0.10); }
+.host-table--phase-open { border-color: rgba(96, 165, 250, 0.55); }
+.host-table--phase-open > header { background: rgba(96, 165, 250, 0.10); }
+.host-table--phase-scheduled { border-color: rgba(250, 204, 21, 0.55); }
+.host-table--phase-scheduled > header { background: rgba(250, 204, 21, 0.10); }
+.host-table--phase-live { border-color: rgba(61, 255, 160, 0.55); }
+.host-table--phase-live > header { background: rgba(61, 255, 160, 0.10); }
+
+.host-table__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-right: 0.55rem;
+}
+
+.host-table__phase {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.6rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.host-table__phase--closed { color: #fca5a5; border-color: rgba(248, 113, 113, 0.5); background: rgba(248, 113, 113, 0.12); }
+.host-table__phase--open { color: #93c5fd; border-color: rgba(96, 165, 250, 0.5); background: rgba(96, 165, 250, 0.12); }
+.host-table__phase--scheduled { color: #fde047; border-color: rgba(250, 204, 21, 0.5); background: rgba(250, 204, 21, 0.12); }
+.host-table__phase--live { color: #7dffbe; border-color: rgba(61, 255, 160, 0.5); background: rgba(61, 255, 160, 0.12); }
+
+.host-table__flip {
+  border: 1px solid var(--host-line);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  background: transparent;
+  color: inherit;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.host-table__flip:disabled { opacity: 0.5; cursor: default; }
+.host-table__flip--open:hover:not(:disabled) { border-color: rgba(96, 165, 250, 0.7); color: #93c5fd; }
+.host-table__flip--live:hover:not(:disabled) { border-color: rgba(61, 255, 160, 0.7); color: #7dffbe; }
+.host-table__flip--close:hover:not(:disabled) { border-color: rgba(248, 113, 113, 0.7); color: #fca5a5; }
