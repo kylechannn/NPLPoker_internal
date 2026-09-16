@@ -278,6 +278,8 @@ export type ChatRecentRow = {
   sender_name: string | null
   npl_id: string | null
   thread: { player_id: number, npl_id: string | null, display_name: string | null } | null
+  /** Rooms are per table: which one this line lives in (null = a TD announcement every table heard). */
+  table_number?: number | null
   body: string
   created_at: string
 }

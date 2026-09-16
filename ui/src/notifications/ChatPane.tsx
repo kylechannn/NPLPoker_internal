@@ -137,6 +137,11 @@ export default function ChatPane({ venue }: { venue: Venue | null }) {
                       {name}
                     </span>
                     {row.sender === "td" ? <span className="chat-pill chat-pill--td">TD</span> : null}
+                    {row.scope === "table" ? (
+                      <span className="chat-line__scope">
+                        {row.table_number != null ? `Table ${row.table_number}` : "All tables"}
+                      </span>
+                    ) : null}
                     {row.scope === "td" && row.sender === "td" ? (
                       <span className="chat-line__scope">TD → {row.thread?.display_name ?? row.thread?.npl_id ?? "player"}</span>
                     ) : null}
