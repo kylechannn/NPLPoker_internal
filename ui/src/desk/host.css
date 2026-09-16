@@ -2281,6 +2281,37 @@
   vertical-align: 1px;
 }
 
+/* Arrival clock on player-created tables: m:ss under the name until the
+   desk confirms the player (LIVE). Red once it has lapsed — the cloud
+   sweep releases the seat within the minute. */
+.host-seat__hold {
+  display: block;
+  margin-top: 2px;
+  color: #facc15;
+  font-size: 0.62rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.host-seat__hold--lapsed {
+  color: #f87171;
+}
+
+.host-seat__live {
+  border: 1px solid rgba(74, 222, 128, 0.5);
+  border-radius: 4px;
+  margin-right: 5px;
+  padding: 0 4px;
+  background: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
+
 /* The private table's whole creation record, on header hover. */
 .host-table-card {
   position: fixed;

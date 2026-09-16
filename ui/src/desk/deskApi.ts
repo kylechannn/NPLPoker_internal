@@ -61,6 +61,13 @@ export type SeatedPlayer = {
   status: 'active' | 'eliminated' | 'online'
   /** True until desk check-in (or a voucher) secures the online seat. */
   pre_registered?: boolean
+  /**
+   * Player-created tables only: ISO deadline of the seat's 20-minute
+   * arrival clock (null once checked in, and on house tables), and whether
+   * the desk has confirmed the player — the seat's LIVE state.
+   */
+  hold_expires_at?: string | null
+  checked_in?: boolean
   table_number: number | null
   seat_number: number | null
   finish_position: number | null
@@ -111,6 +118,25 @@ export const privateGatherMinutes = (table: TableMirrorMeta): number | null => {
   if (!Number.isFinite(deadline)) return null
   const remaining = deadline - Date.now()
   return remaining > 0 ? Math.max(1, Math.ceil(remaining / 60_000)) : null
+}
+
+/**
+ * Milliseconds left on a seat's arrival clock (player-created tables);
+ * null when the seat carries none or the player has been confirmed.
+ */
+export const holdRemainingMs = (
+  player: { hold_expires_at?: string | null, checked_in?: boolean },
+  nowMs: number = Date.now(),
+): number | null => {
+  if (!player.hold_expires_at || player.checked_in) return null
+  const deadline = Date.parse(player.hold_expires_at)
+  return Number.isFinite(deadline) ? Math.max(0, deadline - nowMs) : null
+}
+
+/** "m:ss" for an arrival countdown. */
+export const holdClock = (ms: number): string => {
+  const total = Math.ceil(ms / 1000)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
 export type DeskTable = TableMirrorMeta & {

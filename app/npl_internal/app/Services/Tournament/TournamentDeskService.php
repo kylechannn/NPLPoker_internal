@@ -1505,6 +1505,7 @@ final class TournamentDeskService
                     'game_mode', 'blinds_text', 'rules_text', 'allow_strangers',
                     'activation_deadline_at', 'activated_at',
                     'player_npl_id', 'player_display_name', 'registration_status', 'pre_registered',
+                    'hold_expires_at', 'checked_in',
                 ]);
 
             $mirrorMeta = $mirrorRows
@@ -1874,6 +1875,9 @@ final class TournamentDeskService
             'live_chips_at' => $chips->counted_at ?? null,
             'status' => $entry->status,
             'pre_registered' => false,
+            // A desk entry is a player in the room: no arrival clock, LIVE.
+            'hold_expires_at' => null,
+            'checked_in' => true,
             'table_number' => $entry->table_number !== null ? (int) $entry->table_number : null,
             'seat_number' => $entry->seat_number !== null ? (int) $entry->seat_number : null,
             'finish_position' => $entry->finish_position !== null ? (int) $entry->finish_position : null,
@@ -1910,6 +1914,10 @@ final class TournamentDeskService
             'live_chips_at' => null,
             'status' => 'online',
             'pre_registered' => (bool) ($booking->pre_registered ?? true),
+            // Player-created tables: the seat's 20-minute arrival clock,
+            // ticking until the desk confirms the player.
+            'hold_expires_at' => $booking->hold_expires_at ?? null,
+            'checked_in' => (bool) ($booking->checked_in ?? false),
             'table_number' => (int) $booking->table_number,
             'seat_number' => (int) $booking->seat_number,
             'finish_position' => null,
