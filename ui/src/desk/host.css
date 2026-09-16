@@ -2521,3 +2521,83 @@
 .host-table__flip--open:hover:not(:disabled) { border-color: rgba(96, 165, 250, 0.7); color: #93c5fd; }
 .host-table__flip--live:hover:not(:disabled) { border-color: rgba(61, 255, 160, 0.7); color: #7dffbe; }
 .host-table__flip--close:hover:not(:disabled) { border-color: rgba(248, 113, 113, 0.7); color: #fca5a5; }
+
+/* ── The director's table board (cash games) ────────────────────────────
+   Live / scheduled to start / open for registration / closed — each table
+   with who is registered on it (PRE = booked online, not yet at the desk)
+   and who showed interest (its wait list). */
+.host-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.host-board__group {
+  padding: 13px 15px;
+  border: 1px solid var(--host-line);
+  border-radius: 14px;
+  background: var(--host-surface);
+}
+
+.host-board__group h4 {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 9px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.host-board__group h4 span { font-variant-numeric: tabular-nums; opacity: 0.8; }
+.host-board__group--live h4 { color: #7dffbe; }
+.host-board__group--scheduled h4 { color: #fde047; }
+.host-board__group--open h4 { color: #93c5fd; }
+.host-board__group--closed h4 { color: #fca5a5; }
+.host-board__group--closed { opacity: 0.7; }
+
+.host-board__group ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.host-board__group li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  font-size: 0.78rem;
+}
+
+.host-board__group li strong { font-weight: 700; }
+.host-board__count { color: var(--host-text-dim); font-variant-numeric: tabular-nums; }
+
+.host-board__names,
+.host-board__interest {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--host-text-dim);
+  line-height: 1.4;
+}
+
+.host-board__names em { opacity: 0.7; }
+
+.host-board__names i {
+  margin-left: 4px;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fde047;
+}
+
+.host-board__interest b {
+  margin-right: 5px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}

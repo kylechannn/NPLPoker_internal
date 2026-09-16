@@ -249,6 +249,11 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                           <header>
                             <strong>Table {table.table_number}</strong>
                             {table.table_kind === "private" ? <i className="host-table__pill">PRIVATE</i> : null}
+                            {table.table_phase ? (
+                              <i className={`host-table__phase host-table__phase--${table.table_phase}`}>
+                                {table.table_phase === "scheduled" ? "SET TO START" : table.table_phase.toUpperCase()}
+                              </i>
+                            ) : null}
                             <span>{table.players.filter((p) => p.status !== "waitlisted").length} / {table.max_seats}</span>
                             <button
                               type="button"

@@ -174,6 +174,66 @@ const PHASE_LABEL: Record<TablePhase, string> = {
   live: "LIVE",
 }
 
+/** The board's groups, in the order the director reads the room. */
+const BOARD_GROUPS: Array<{ phase: TablePhase, title: string }> = [
+  { phase: "live", title: "Live" },
+  { phase: "scheduled", title: "Scheduled to start" },
+  { phase: "open", title: "Open for registration" },
+  { phase: "closed", title: "Closed" },
+]
+
+/**
+ * The director's table board (cash games): every table that is open for
+ * registration, scheduled to start or live — with the players registered
+ * on it and those who showed interest (its wait list). Closed tables
+ * trail in a muted group so nothing the desk shut goes missing.
+ */
+function TableBoard({ tables }: { tables: DeskTable[] }) {
+  const groups = BOARD_GROUPS
+    .map((group) => ({ ...group, tables: tables.filter((table) => (table.table_phase ?? "open") === group.phase) }))
+    .filter((group) => group.tables.length > 0)
+
+  if (groups.length === 0) return null
+
+  return (
+    <div className="host-board" aria-label="Table board">
+      {groups.map((group) => (
+        <section key={group.phase} className={`host-board__group host-board__group--${group.phase}`}>
+          <h4>{group.title} <span>{group.tables.length}</span></h4>
+          <ul>
+            {group.tables.map((table) => {
+              const seated = table.seats.filter((seat) => seat.player !== null)
+              const waiting = table.waitlist ?? []
+
+              return (
+                <li key={table.table_number}>
+                  <strong>Table {table.table_number}</strong>
+                  <span className="host-board__count">{seated.length} / {table.seats.length}</span>
+                  <p className="host-board__names">
+                    {seated.length === 0 ? <em>No one yet</em> : seated.map((seat, index) => (
+                      <span key={seat.player!.npl_id}>
+                        {index > 0 ? ", " : ""}
+                        {seat.player!.display_name}
+                        {seat.player!.status === "online" && seat.player!.pre_registered !== false ? <i>PRE</i> : null}
+                      </span>
+                    ))}
+                  </p>
+                  {waiting.length > 0 ? (
+                    <p className="host-board__interest">
+                      <b>Interested</b>
+                      {waiting.map((row) => row.display_name ?? row.npl_id).join(", ")}
+                    </p>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGame, mode = "tournament" }: Props) {
   const scanRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState("")
@@ -1394,6 +1454,10 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 ))}
               </div>
             </div>
+          ) : null}
+
+          {mode === "cash" && seating && seating.game_session_id != null ? (
+            <TableBoard tables={seating.tables} />
           ) : null}
 
           <div className="host-desk__grid">

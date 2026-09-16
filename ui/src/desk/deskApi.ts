@@ -153,6 +153,13 @@ export type DeskTable = TableMirrorMeta & {
   table_number: number
   occupied: number
   seats: Array<{ seat_number: number, player: SeatedPlayer | null }>
+  /** Players who showed interest — the table's cloud wait list, in order. */
+  waitlist?: Array<{
+    npl_id: string
+    display_name: string | null
+    waitlist_position: number | null
+    pre_registered?: boolean
+  }>
 }
 
 export type Seating = {

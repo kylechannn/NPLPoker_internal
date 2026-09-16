@@ -1495,6 +1495,7 @@ final class TournamentDeskService
         // table numbers with no mirror rows.
         $mirrorMeta = collect();
         $cloudSeated = collect();
+        $cloudWaiting = collect();
         if ($session->game_session_id !== null) {
             $mirrorRows = DB::table('mirror_session_tables')
                 ->where('session_id', $session->game_session_id)
@@ -1527,6 +1528,14 @@ final class TournamentDeskService
                     && $row->registration_status === 'registered'
                     && ! isset($locallySeen[mb_strtoupper((string) $row->player_npl_id)]))
                 ->keyBy(fn (object $row): string => $row->table_number.':'.$row->seat_number);
+
+            // Players who showed interest — each table's cloud wait list,
+            // for the director's table board.
+            $cloudWaiting = $mirrorRows
+                ->filter(fn (object $row): bool => $row->player_npl_id !== null
+                    && $row->registration_status === 'waitlisted')
+                ->sortBy('waitlist_position')
+                ->groupBy('table_number');
         }
 
         // Indexed once so the table×seat loop below is O(1) per seat — the
@@ -1581,6 +1590,16 @@ final class TournamentDeskService
                 // closed / open / scheduled / live, straight from the cloud.
                 'table_status' => optional($meta)->table_status,
                 'table_phase' => optional($meta)->table_phase,
+                // Who showed interest: the table's wait list, in order.
+                'waitlist' => ($cloudWaiting->get($number) ?? collect())
+                    ->map(fn (object $row): array => [
+                        'npl_id' => (string) $row->player_npl_id,
+                        'display_name' => $row->player_display_name,
+                        'waitlist_position' => $row->waitlist_position !== null ? (int) $row->waitlist_position : null,
+                        'pre_registered' => (bool) ($row->pre_registered ?? true),
+                    ])
+                    ->values()
+                    ->all(),
             ];
         }
 

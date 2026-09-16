@@ -244,7 +244,8 @@ final class DeskController
             ->map(fn ($seats, $tableNumber): array => [
                 'table_number' => (int) $tableNumber,
                 'status' => optional($seats->first())->table_status,
-                'phase' => optional($seats->first())->table_phase,
+                'table_status' => optional($seats->first())->table_status,
+                'table_phase' => optional($seats->first())->table_phase,
                 'max_seats' => (int) (optional($seats->first())->max_seats ?? 8),
                 // Table-level meta rides on every seat row (the mirror is
                 // seat-grained), so the first row speaks for the table.
