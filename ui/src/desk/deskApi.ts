@@ -93,6 +93,14 @@ export type TableMirrorMeta = {
 }
 
 /**
+ * How many seated players a player-created table needs before it is
+ * activated for good — mirrors GameSessionTable::PRIVATE_ACTIVATION_MIN
+ * on the cloud (house cash tables wait for 6; these start at 4). The
+ * mirror rows carry no threshold column, so the desk copy quotes this.
+ */
+export const PRIVATE_TABLE_ACTIVATION_MIN = 4
+
+/**
  * Whole minutes left for a private table to gather its players — null
  * unless the table is private, not yet activated, and the deadline is
  * still ahead. Coarse by design: the grids refresh every ~15s anyway.

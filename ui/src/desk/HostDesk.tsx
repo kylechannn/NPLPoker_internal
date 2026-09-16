@@ -11,6 +11,7 @@ import {
   countdown,
   deskApi,
   money,
+  PRIVATE_TABLE_ACTIVATION_MIN,
   privateGatherMinutes,
   stableSnapshot,
   type AdminQr,
@@ -1395,7 +1396,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   <p className="host-table__meta">
                     {meta ? <span>{meta}</span> : null}
                     {table.allow_strangers ? <i className="host-table__pill host-table__pill--open">OPEN TO ALL</i> : null}
-                    {gather !== null ? <em>{gather} min to gather 6</em> : null}
+                    {gather !== null ? <em>{gather} min to gather {PRIVATE_TABLE_ACTIVATION_MIN}</em> : null}
                   </p>
                 ) : null}
                 <ul>
@@ -1637,7 +1638,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 : tableCard.table.activation_deadline_at
                   ? (() => {
                       const minutes = privateGatherMinutes(tableCard.table)
-                      return minutes !== null ? `${minutes} min left to gather 6` : "Window closed — sweep pending"
+                      return minutes !== null ? `${minutes} min left to gather ${PRIVATE_TABLE_ACTIVATION_MIN}` : "Window closed — sweep pending"
                     })()
                   : "Countdown stopped — the table stays"}
             </dd>

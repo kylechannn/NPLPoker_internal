@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { CalendarDays, ChevronDown, Loader2, Play, Table2, Trash2, Users, X } from "lucide-react"
-import { deskApi, privateGatherMinutes, type RosterTable, type UpcomingSession, type Venue } from "./deskApi"
+import { deskApi, PRIVATE_TABLE_ACTIVATION_MIN, privateGatherMinutes, type RosterTable, type UpcomingSession, type Venue } from "./deskApi"
 import { notify } from "../notifications/store"
 import "./host.css"
 
@@ -271,7 +271,7 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                             <p className="host-table__meta">
                               {meta ? <span>{meta}</span> : null}
                               {table.allow_strangers ? <i className="host-table__pill host-table__pill--open">OPEN TO ALL</i> : null}
-                              {gather !== null ? <em>{gather} min to gather 6</em> : null}
+                              {gather !== null ? <em>{gather} min to gather {PRIVATE_TABLE_ACTIVATION_MIN}</em> : null}
                             </p>
                           ) : null}
                           <ul>
