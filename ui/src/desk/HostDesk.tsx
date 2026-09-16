@@ -183,14 +183,16 @@ const BOARD_GROUPS: Array<{ phase: TablePhase, title: string }> = [
 ]
 
 /**
- * The director's table board (cash games): every table that is open for
- * registration, scheduled to start or live — with the players registered
- * on it and those who showed interest (its wait list). Closed tables
- * trail in a muted group so nothing the desk shut goes missing.
+ * The director's table board: every table that is open for registration,
+ * scheduled to start or live — with the players registered on it and
+ * those who showed interest (its wait list). Cash tables carry their own
+ * phase; a tournament's tables all share the clock's (open until Start,
+ * live after). Closed tables trail in a muted group so nothing the desk
+ * shut goes missing.
  */
-function TableBoard({ tables }: { tables: DeskTable[] }) {
+function TableBoard({ tables, phaseOf }: { tables: DeskTable[], phaseOf: (table: DeskTable) => TablePhase }) {
   const groups = BOARD_GROUPS
-    .map((group) => ({ ...group, tables: tables.filter((table) => (table.table_phase ?? "open") === group.phase) }))
+    .map((group) => ({ ...group, tables: tables.filter((table) => phaseOf(table) === group.phase) }))
     .filter((group) => group.tables.length > 0)
 
   if (groups.length === 0) return null
@@ -1456,8 +1458,15 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             </div>
           ) : null}
 
-          {mode === "cash" && seating && seating.game_session_id != null ? (
-            <TableBoard tables={seating.tables} />
+          {seating ? (
+            <TableBoard
+              tables={seating.tables}
+              phaseOf={(table) => (mode === "cash"
+                ? (table.table_phase ?? "open")
+                // A tournament's tables move together: registration until
+                // the director presses Start, live from then on.
+                : (clockStatus === "draft" ? "open" : "live"))}
+            />
           ) : null}
 
           <div className="host-desk__grid">
