@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Services\Tournament\BlindStructureGenerator;
 use App\Services\Tournament\TournamentDeskService;
+use App\Support\MirrorTableTimer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -345,14 +346,27 @@ final class DeskController
 
         // Optimistic paint. 'live' shows live; 'open' shows open (the cloud
         // may promote it to scheduled on the next refresh); 'closed' closes.
-        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+        // The table's stopwatch follows the cloud's rule: going live starts
+        // it, open / closed reset it, and a table already counting (or
+        // paused with time banked) keeps what the director set.
+        $tableRows = \Illuminate\Support\Facades\DB::table('mirror_session_tables')
             ->where('session_id', $gameSessionId)
-            ->where('table_number', $tableNumber)
-            ->update([
-                'table_status' => $state === 'live' ? 'active' : $state,
-                'table_phase' => $state,
-                'updated_at' => now(),
-            ]);
+            ->where('table_number', $tableNumber);
+        $current = (clone $tableRows)->first();
+        $nowMs = MirrorTableTimer::nowMs();
+
+        $timer = match (true) {
+            $state !== 'live' => MirrorTableTimer::cleared(),
+            $current === null || $current->table_phase !== 'live' => MirrorTableTimer::counting(0, $nowMs),
+            ! MirrorTableTimer::started($current) => MirrorTableTimer::counting(0, $nowMs),
+            default => [],
+        };
+
+        $tableRows->update([
+            'table_status' => $state === 'live' ? 'active' : $state,
+            'table_phase' => $state,
+            'updated_at' => now(),
+        ] + $timer);
 
         $this->queue->enqueue('post', sprintf(
             '/api/v1/internal/sessions/%d/tables/%d/state',
@@ -364,6 +378,87 @@ final class DeskController
         ]);
 
         return $this->ok(['result' => ['queued' => true, 'state' => $state]]);
+    }
+
+    /**
+     * The director's stopwatch on ONE cash table: start (or resume) and
+     * pause. The cloud is the only clock, so the button's job is to tell it
+     * WHEN it was pressed — the call rides the queue, and an offline desk
+     * replaying it an hour later still counts from the real instant. The
+     * mirror repaints NOW so the digits move under the operator's finger:
+     * start also takes the table live (the cloud does the same), pause
+     * banks the elapsed time and freezes it.
+     */
+    public function setCloudTableTimer(Request $request, int $gameSessionId, int $tableNumber): JsonResponse
+    {
+        $action = (string) $request->input('action', '');
+
+        if (! in_array($action, ['start', 'pause'], true)) {
+            return response()->json([
+                'ok' => false,
+                'error' => ['code' => 'INVALID_ACTION', 'message' => 'Action must be start or pause.'],
+            ], 422);
+        }
+
+        $tableRows = \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+            ->where('session_id', $gameSessionId)
+            ->where('table_number', $tableNumber);
+        $current = (clone $tableRows)->first();
+
+        if ($current === null) {
+            return response()->json([
+                'ok' => false,
+                'error' => ['code' => 'UNKNOWN_TABLE', 'message' => 'That table is not in the desk mirror yet — refresh and try again.'],
+            ], 404);
+        }
+
+        if ($action === 'start' && in_array($current->table_status, ['closed', 'cancelled'], true)) {
+            return response()->json([
+                'ok' => false,
+                'error' => ['code' => 'TABLE_CLOSED', 'message' => 'This table is closed — open it before starting its timer.'],
+            ], 422);
+        }
+
+        $nowMs = MirrorTableTimer::nowMs();
+        $elapsed = MirrorTableTimer::elapsedMs($current, $nowMs);
+        $running = MirrorTableTimer::running($current);
+        $paint = [];
+
+        if ($action === 'start') {
+            if ($current->table_phase !== 'live') {
+                // Going live starts the count from zero, exactly as the cloud will.
+                $paint = ['table_status' => 'active', 'table_phase' => 'live'] + MirrorTableTimer::counting(0, $nowMs);
+            } elseif (! $running) {
+                // Live but idle, or paused: begin / resume from what is banked.
+                $paint = MirrorTableTimer::counting($elapsed ?? 0, $nowMs);
+            }
+        } elseif ($running) {
+            $paint = MirrorTableTimer::frozen($elapsed ?? 0, $nowMs);
+        }
+
+        if ($paint !== []) {
+            $tableRows->update($paint + ['updated_at' => now()]);
+        }
+
+        $this->queue->enqueue('post', sprintf(
+            '/api/v1/internal/sessions/%d/tables/%d/timer',
+            $gameSessionId,
+            $tableNumber,
+        ), [
+            'action' => $action,
+            // Millisecond-precision ISO 8601: the moment of the press.
+            'at' => now()->format('Y-m-d\TH:i:s.vP'),
+        ], [
+            'group' => 'session:'.$gameSessionId,
+            'label' => sprintf('Table %d timer %s — session #%d', $tableNumber, $action === 'start' ? 'start' : 'pause', $gameSessionId),
+        ]);
+
+        return $this->ok(['result' => [
+            'queued' => true,
+            'action' => $action,
+            'timer_running' => $action === 'start',
+            'timer_elapsed_ms' => $paint['timer_elapsed_ms'] ?? $elapsed,
+        ]]);
     }
 
     /** Remove a player's online registration — synchronous, then refresh. */

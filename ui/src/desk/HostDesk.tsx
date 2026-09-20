@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { AlertTriangle, Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Play, QrCode, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
+import { AlertTriangle, Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Pause, Play, QrCode, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { notify } from "../notifications/store"
 import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
@@ -10,6 +10,7 @@ import "../players/players.css"
 import {
   countdown,
   deskApi,
+  elapsedClock,
   holdClock,
   holdRemainingMs,
   money,
@@ -364,8 +365,14 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   // ref, so a poll after a desk action always applies.
   const seatingRawRef = useRef("")
 
+  // When the last seating answer landed on this machine — the base every
+  // running table stopwatch counts on from between answers.
+  const [seatingAt, setSeatingAt] = useState(() => Date.now())
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
   const applySeatingDirect = useCallback((next: Seating) => {
     seatingRawRef.current = ""
+    setSeatingAt(Date.now())
     setSeating(next)
   }, [])
 
@@ -375,6 +382,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
       const raw = stableSnapshot(next)
       if (raw === seatingRawRef.current) return
       seatingRawRef.current = raw
+      setSeatingAt(Date.now())
       setSeating(next)
       const status = (next.clock as { status?: string } | undefined)?.status
       if (status) {
@@ -818,6 +826,41 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         : state === "live"
           ? `Table ${tableNumber} is live.`
           : `Table ${tableNumber} is open for registration.`,
+    )
+  }
+
+  // One-second tick, only while a table stopwatch is actually running.
+  const anyTimerRunning = mode === "cash" && Boolean(seating?.tables.some((table) => table.timer_running === true))
+  useEffect(() => {
+    if (!anyTimerRunning) return
+    const kick = window.setTimeout(() => setNowMs(Date.now()), 0)
+    const handle = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => {
+      window.clearTimeout(kick)
+      window.clearInterval(handle)
+    }
+  }, [anyTimerRunning])
+
+  /** A table's stopwatch right now: what the cloud last reported, plus the time since while it runs. */
+  const tableElapsedMs = (table: DeskTable): number | null => (table.timer_elapsed_ms == null
+    ? null
+    : table.timer_elapsed_ms + (table.timer_running === true ? Math.max(0, nowMs - seatingAt) : 0))
+
+  /**
+   * The director's stopwatch on one cash table. ▶ starts it (taking the
+   * table live if it is not) or resumes it; ⏸ pauses it. The desk repaints
+   * at once and the press is queued to the cloud, the only clock, stamped
+   * with the moment it was made.
+   */
+  function pressTimer(tableNumber: number, action: "start" | "pause") {
+    const gameSessionId = seating?.game_session_id
+    if (gameSessionId == null) return
+    void seatAction(
+      async () => {
+        await deskApi.setTableTimer(gameSessionId, tableNumber, action)
+        return deskApi.seating(sessionId)
+      },
+      action === "start" ? `Table ${tableNumber} timer running.` : `Table ${tableNumber} timer paused.`,
     )
   }
 
@@ -1458,20 +1501,28 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             </div>
           ) : null}
 
-          {seating ? (
+          {/* The board is for tournament desks. A cash desk has ONE view of
+              its tables — the draggable grid below, which already shows every
+              table's phase, registered players (PRE = booked online) and
+              stopwatch — so it would only repeat it. */}
+          {seating && mode !== "cash" ? (
             <TableBoard
               tables={seating.tables}
-              phaseOf={(table) => (mode === "cash"
-                ? (table.table_phase ?? "open")
-                // A tournament's tables move together: registration until
-                // the director presses Start, live from then on.
-                : (clockStatus === "draft" ? "open" : "live"))}
+              // A tournament's tables move together: registration until
+              // the director presses Start, live from then on.
+              phaseOf={() => (clockStatus === "draft" ? "open" : "live")}
             />
           ) : null}
 
           <div className="host-desk__grid">
             {seating?.tables.map((table) => {
               const gather = privateGatherMinutes(table)
+              const elapsed = mode === "cash" ? tableElapsedMs(table) : null
+              const showStop = table.table_kind === "private"
+                && Boolean(table.activation_deadline_at)
+                && !table.activated_at
+                && seating.game_session_id != null
+              const showSwitch = mode === "cash" && seating.game_session_id != null && Boolean(table.table_phase)
               const meta = [
                 table.creator_display_name ? `${table.creator_display_name}'s table` : null,
                 table.game_mode,
@@ -1501,83 +1552,113 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   }}
                   onMouseLeave={() => setTableCard(null)}
                 >
-                  <strong>Table {table.table_number}</strong>
-                  {table.table_kind === "private" ? <i className="host-table__pill">PRIVATE</i> : null}
-                  {table.table_kind === "private"
-                    && table.activation_deadline_at
-                    && !table.activated_at
-                    && seating.game_session_id != null ? (
-                    <button
-                      type="button"
-                      className="host-table__stop"
-                      disabled={busy}
-                      title="Stop the gather countdown — the table stays, however few gather."
-                      onClick={() => {
-                        const gameSessionId = seating.game_session_id!
-                        void seatAction(
-                          async () => {
-                            await deskApi.stopCountdown(gameSessionId, table.table_number)
-                            return deskApi.seating(sessionId)
-                          },
-                          `Countdown stopped — table ${table.table_number} stays.`,
-                        )
-                      }}
-                    >
-                      STOP
-                    </button>
-                  ) : null}
-                  {mode === "cash" && seating.game_session_id != null && table.table_phase ? (
-                    <span className="host-table__switch" role="group" aria-label={`Table ${table.table_number} state`}>
-                      <i className={`host-table__phase host-table__phase--${table.table_phase}`}>{PHASE_LABEL[table.table_phase]}</i>
-                      {table.table_phase === "closed" ? (
+                  {/* Row one: the table, and how many are sitting at it. */}
+                  <div className="host-table__titlebar">
+                    <strong>Table {table.table_number}</strong>
+                    {table.table_kind === "private" ? <i className="host-table__pill">PRIVATE</i> : null}
+                  </div>
+                  <span className="host-table__count">{table.occupied} / {seating.seats_per_table}</span>
+                  {/* Row two: the buttons — state, timer, start / pause, open, close. */}
+                  {showStop || showSwitch ? (
+                    <div className="host-table__controls">
+                      {showStop ? (
                         <button
                           type="button"
-                          className="host-table__flip host-table__flip--open"
+                          className="host-table__stop"
                           disabled={busy}
-                          title="Open this table for registration"
-                          onClick={() => flipTable(table.table_number, "open")}
+                          title="Stop the gather countdown — the table stays, however few gather."
+                          onClick={() => {
+                            const gameSessionId = seating.game_session_id!
+                            void seatAction(
+                              async () => {
+                                await deskApi.stopCountdown(gameSessionId, table.table_number)
+                                return deskApi.seating(sessionId)
+                              },
+                              `Countdown stopped — table ${table.table_number} stays.`,
+                            )
+                          }}
                         >
-                          OPEN
+                          STOP
                         </button>
-                      ) : (
-                        <>
-                          {table.table_phase === "live" ? (
+                      ) : null}
+                      {showSwitch && table.table_phase ? (
+                        <div className="host-table__switch" role="group" aria-label={`Table ${table.table_number} state`}>
+                          <i className={`host-table__phase host-table__phase--${table.table_phase}`}>{PHASE_LABEL[table.table_phase]}</i>
+                          {table.table_phase === "closed" ? (
                             <button
                               type="button"
                               className="host-table__flip host-table__flip--open"
                               disabled={busy}
-                              title="Back to open for registration"
+                              title="Open this table for registration"
                               onClick={() => flipTable(table.table_number, "open")}
                             >
                               OPEN
                             </button>
                           ) : (
-                            <button
-                              type="button"
-                              className="host-table__flip host-table__flip--live"
-                              disabled={busy}
-                              title="Start this table now — whatever its head count"
-                              onClick={() => flipTable(table.table_number, "live")}
-                            >
-                              LIVE
-                            </button>
+                            <>
+                              {elapsed !== null ? (
+                                <time
+                                  className={`host-table__timer${table.timer_running ? "" : " host-table__timer--paused"}`}
+                                  title={table.timer_running ? "This table's timer is running" : "This table's timer is paused"}
+                                >
+                                  {elapsedClock(elapsed)}
+                                </time>
+                              ) : null}
+                              <div className="host-table__actions">
+                                {table.timer_running ? (
+                                  <button
+                                    type="button"
+                                    className="host-table__timerbtn host-table__timerbtn--stop"
+                                    disabled={busy}
+                                    aria-label={`Pause table ${table.table_number} timer`}
+                                    title="Stop this table's timer"
+                                    onClick={() => pressTimer(table.table_number, "pause")}
+                                  >
+                                    <Pause size={12} fill="currentColor" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="host-table__timerbtn host-table__timerbtn--start"
+                                    disabled={busy}
+                                    aria-label={`${elapsed !== null ? "Resume" : "Start"} table ${table.table_number} timer`}
+                                    title={elapsed !== null
+                                      ? "Resume this table's timer"
+                                      : "Start this table — it goes live and its timer begins"}
+                                    onClick={() => pressTimer(table.table_number, "start")}
+                                  >
+                                    <Play size={12} fill="currentColor" />
+                                  </button>
+                                )}
+                                {table.table_phase === "live" ? (
+                                  <button
+                                    type="button"
+                                    className="host-table__flip host-table__flip--open"
+                                    disabled={busy}
+                                    title="Back to open for registration — the timer resets"
+                                    onClick={() => flipTable(table.table_number, "open")}
+                                  >
+                                    OPEN
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="host-table__flip host-table__flip--close"
+                                  disabled={busy}
+                                  title={table.occupied > 0
+                                    ? "Close this table — everyone on it is released and told"
+                                    : "Close this table to registration"}
+                                  onClick={() => flipTable(table.table_number, "closed")}
+                                >
+                                  CLOSE
+                                </button>
+                              </div>
+                            </>
                           )}
-                          <button
-                            type="button"
-                            className="host-table__flip host-table__flip--close"
-                            disabled={busy}
-                            title={table.occupied > 0
-                              ? "Close this table — everyone on it is released and told"
-                              : "Close this table to registration"}
-                            onClick={() => flipTable(table.table_number, "closed")}
-                          >
-                            CLOSE
-                          </button>
-                        </>
-                      )}
-                    </span>
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
-                  <span>{table.occupied} / {seating.seats_per_table}</span>
                 </header>
                 {table.table_kind === "private" ? (
                   <p className="host-table__meta">

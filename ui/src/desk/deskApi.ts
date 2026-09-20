@@ -105,6 +105,13 @@ export type TableMirrorMeta = {
    * on unlinked sessions and pre-migration mirrors.
    */
   table_phase?: TablePhase | null
+  /**
+   * The director's stopwatch on this cash table: elapsed right now, in
+   * relative ms the desk keeps counting from, and whether it runs. Null
+   * until the director has started it. The cloud is the only clock.
+   */
+  timer_elapsed_ms?: number | null
+  timer_running?: boolean | null
 }
 
 export type TablePhase = 'closed' | 'open' | 'scheduled' | 'live'
@@ -646,6 +653,17 @@ export const deskApi = {
       { method: 'POST', body: JSON.stringify({ state }) },
     ),
 
+  /**
+   * The director's stopwatch on one cash table: start (which takes the
+   * table live) or resume, and pause. The cloud counts; the press is
+   * queued stamped with the moment it was made.
+   */
+  setTableTimer: (gameSessionId: number, tableNumber: number, action: 'start' | 'pause') =>
+    request<{ result: Record<string, unknown> }>(
+      `/api/v1/desk/sessions/${gameSessionId}/tables/${tableNumber}/timer`,
+      { method: 'POST', body: JSON.stringify({ action }) },
+    ),
+
   /** Open a new table in the cloud for a linked session. */
   createTable: (sessionId: number) =>
     request<{ table: Record<string, unknown>, seating: Seating }>(`/api/v1/desk/${sessionId}/tables`, {
@@ -717,6 +735,16 @@ export function money(cents: number): string {
 export function stableSnapshot(payload: unknown): string {
   return JSON.stringify(payload, (key, value) =>
     key === "server_time" || key === "server_time_ms" ? undefined : value)
+}
+
+/** "mm:ss", or "h:mm:ss" past the hour — a table stopwatch counts UP, so it floors. */
+export function elapsedClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const pad = (value: number) => String(value).padStart(2, '0')
+
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(total % 60)}` : `${pad(minutes)}:${pad(total % 60)}`
 }
 
 export function countdown(ms: number | null): string {

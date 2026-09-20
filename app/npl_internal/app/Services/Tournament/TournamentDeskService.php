@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Tournament;
 
 use App\Services\Sync\OutboxService;
+use App\Support\MirrorTableTimer;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -1505,8 +1506,9 @@ final class TournamentDeskService
                     'table_number', 'seat_number', 'table_kind', 'creator_npl_id', 'creator_display_name',
                     'game_mode', 'blinds_text', 'rules_text', 'allow_strangers',
                     'activation_deadline_at', 'activated_at', 'table_status', 'table_phase',
+                    'timer_running', 'timer_elapsed_ms', 'timer_synced_ms',
                     'player_npl_id', 'player_display_name', 'registration_status', 'pre_registered',
-                    'hold_expires_at', 'checked_in',
+                    'waitlist_position', 'hold_expires_at', 'checked_in',
                 ]);
 
             $mirrorMeta = $mirrorRows
@@ -1590,6 +1592,11 @@ final class TournamentDeskService
                 // closed / open / scheduled / live, straight from the cloud.
                 'table_status' => optional($meta)->table_status,
                 'table_phase' => optional($meta)->table_phase,
+                // The director's stopwatch on this table: elapsed right now (relative
+                // ms — the desk keeps counting from it) and whether it runs.
+                // Null until the director has started it.
+                'timer_elapsed_ms' => MirrorTableTimer::elapsedMs($meta),
+                'timer_running' => MirrorTableTimer::started($meta) ? MirrorTableTimer::running($meta) : null,
                 // Who showed interest: the table's wait list, in order.
                 'waitlist' => ($cloudWaiting->get($number) ?? collect())
                     ->map(fn (object $row): array => [

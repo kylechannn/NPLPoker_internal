@@ -1544,7 +1544,7 @@
 
 .host-desk__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(262px, 1fr));
   gap: 13px;
 }
 
@@ -1574,16 +1574,39 @@
   color: var(--npl-gold);
 }
 
+/* Two rows: the table and its head count on top, its buttons underneath. */
 .host-table header {
-  display: flex;
-  justify-content: space-between;
-  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  row-gap: 9px;
+  padding: 11px 14px 12px;
   font-size: 0.79rem;
   font-weight: 600;
   background: rgba(4, 12, 26, 0.6);
 }
 
 .host-table header span { font-weight: 500; color: var(--host-text-dim); font-variant-numeric: tabular-nums; }
+
+.host-table__titlebar {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.host-table__count { font-size: 0.86rem; text-align: right; white-space: nowrap; }
+
+/* Row two. A hairline under the title row; wraps rather than overflows. */
+.host-table__controls {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--host-line);
+}
 
 .host-table ul { margin: 0; padding: 0; list-style: none; }
 
@@ -2224,22 +2247,13 @@
   white-space: nowrap;
 }
 
-/* In the desk grid's space-between header, hug the table title and leave
-   the seat count pinned right. */
+/* PRIVATE hugs the table title in row one; the head count stays pinned right. */
 .host-table > header .host-table__pill {
-  margin-right: auto;
-  margin-left: 0.55rem;
-}
-
-/* STOP sits right beside PRIVATE; when present it takes over the auto
-   margin so the pair hugs the title together. */
-.host-table > header .host-table__pill:has(+ .host-table__stop) {
-  margin-right: 0;
+  margin: 0;
 }
 
 .host-table__stop {
-  margin-right: auto;
-  margin-left: 0.4rem;
+  margin: 0;
   border: 1px solid rgba(248, 113, 113, 0.55);
   border-radius: 999px;
   padding: 0.1rem 0.55rem;
@@ -2482,10 +2496,20 @@
 .host-table--phase-live > header { background: rgba(61, 255, 160, 0.10); }
 
 .host-table__switch {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+/* Timer button, OPEN and CLOSE stay together at the right end of row two. */
+.host-table__actions {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  margin-right: 0.55rem;
+  margin-left: auto;
 }
 
 .host-table__phase {
@@ -2519,10 +2543,62 @@
 
 .host-table__flip:disabled { opacity: 0.5; cursor: default; }
 .host-table__flip--open:hover:not(:disabled) { border-color: rgba(96, 165, 250, 0.7); color: #93c5fd; }
-.host-table__flip--live:hover:not(:disabled) { border-color: rgba(61, 255, 160, 0.7); color: #7dffbe; }
 .host-table__flip--close:hover:not(:disabled) { border-color: rgba(248, 113, 113, 0.7); color: #fca5a5; }
 
-/* ── The director's table board (cash games) ────────────────────────────
+/* The table's own stopwatch, counting up: blue while it runs, dimmed and
+   dashed while the director has it paused. Fixed-width digits so the header
+   never jitters as the seconds turn over. */
+.host-table__timer {
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  background: rgba(96, 165, 250, 0.14);
+  color: #93c5fd;
+  font-family: var(--host-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.host-table__timer--paused {
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+/* ▶ green starts (or resumes); ⏸ red stops. A small round icon button. */
+.host-table__timerbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.host-table__timerbtn:active:not(:disabled) { transform: scale(0.92); }
+.host-table__timerbtn:disabled { opacity: 0.5; cursor: default; }
+
+.host-table__timerbtn--start {
+  color: #3dffa0;
+  border-color: rgba(61, 255, 160, 0.55);
+  background: rgba(61, 255, 160, 0.12);
+}
+
+.host-table__timerbtn--start:hover:not(:disabled) { background: rgba(61, 255, 160, 0.26); border-color: rgba(61, 255, 160, 0.85); }
+
+.host-table__timerbtn--stop {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.6);
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.host-table__timerbtn--stop:hover:not(:disabled) { background: rgba(248, 113, 113, 0.28); border-color: rgba(248, 113, 113, 0.9); }
+
+/* ── The director's table board (tournament desks) ───────────────────────
    Live / scheduled to start / open for registration / closed — each table
    with who is registered on it (PRE = booked online, not yet at the desk)
    and who showed interest (its wait list). */

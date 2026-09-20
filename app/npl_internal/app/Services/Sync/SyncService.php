@@ -7,6 +7,7 @@ namespace App\Services\Sync;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
 use App\Services\Media\MediaCacheService;
+use App\Support\MirrorTableTimer;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
@@ -285,6 +286,9 @@ final class SyncService
             }
 
             $seating = $result['data'];
+            // The instant this report landed, on THIS machine's clock — the base
+            // every table stopwatch in it counts on from.
+            $timerNowMs = MirrorTableTimer::nowMs();
 
             foreach ((array) ($seating['tables'] ?? []) as $table) {
                 $tableNumber = (int) ($table['table_number'] ?? 0);
@@ -300,6 +304,7 @@ final class SyncService
                         'seat_number' => $seatNumber,
                         'table_status' => $this->str($table['status'] ?? null, 20),
                         'table_phase' => $this->str($table['phase'] ?? null, 20),
+                        ...MirrorTableTimer::columnsFromCloud($table, $timerNowMs),
                         'max_seats' => (int) ($table['max_seats'] ?? 8),
                         'table_kind' => $this->str($table['kind'] ?? null, 10),
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
@@ -334,6 +339,7 @@ final class SyncService
                         'seat_number' => null,
                         'table_status' => $this->str($table['status'] ?? null, 20),
                         'table_phase' => $this->str($table['phase'] ?? null, 20),
+                        ...MirrorTableTimer::columnsFromCloud($table, $timerNowMs),
                         'max_seats' => (int) ($table['max_seats'] ?? 8),
                         'table_kind' => $this->str($table['kind'] ?? null, 10),
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
@@ -450,6 +456,9 @@ final class SyncService
             }
 
             $seating = $result['data'];
+            // The instant this report landed, on THIS machine's clock — the base
+            // every table stopwatch in it counts on from.
+            $timerNowMs = MirrorTableTimer::nowMs();
             $rows = [];
 
             foreach ((array) ($seating['tables'] ?? []) as $table) {
@@ -466,6 +475,7 @@ final class SyncService
                         'seat_number' => $seatNumber,
                         'table_status' => $this->str($table['status'] ?? null, 20),
                         'table_phase' => $this->str($table['phase'] ?? null, 20),
+                        ...MirrorTableTimer::columnsFromCloud($table, $timerNowMs),
                         'max_seats' => (int) ($table['max_seats'] ?? 8),
                         'table_kind' => $this->str($table['kind'] ?? null, 10),
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
@@ -500,6 +510,7 @@ final class SyncService
                         'seat_number' => null,
                         'table_status' => $this->str($table['status'] ?? null, 20),
                         'table_phase' => $this->str($table['phase'] ?? null, 20),
+                        ...MirrorTableTimer::columnsFromCloud($table, $timerNowMs),
                         'max_seats' => (int) ($table['max_seats'] ?? 8),
                         'table_kind' => $this->str($table['kind'] ?? null, 10),
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
