@@ -1,4 +1,5 @@
 node_modules/
 release/
+release_*_backup_*/
 payload/
 build/splash-preview.png
