@@ -1017,7 +1017,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         {onFinishGame ? (
           <button className="host-desk__finish" type="button" onClick={onFinishGame}>Finish game</button>
         ) : null}
-        <button className="host-desk__exit" type="button" onClick={onExit}>Preset</button>
+        <button className="host-desk__exit" type="button" title="Back to the sessions list" onClick={onExit}>Sessions</button>
       </header>
 
       {error ? <p className="host-desk__error" role="alert">{error}</p> : null}

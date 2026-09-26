@@ -7,6 +7,7 @@ namespace App\Services\Sync;
 use App\Services\Cloud\CloudException;
 use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Media\AvatarInstaller;
+use App\Services\Tournament\GameStructureService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -35,6 +36,7 @@ final class ManualUpdateRunner
         private readonly AvatarInstaller $avatars,
         private readonly HeartbeatService $heartbeat,
         private readonly LicenseKeyProvider $license,
+        private readonly GameStructureService $structures,
     ) {}
 
     /** Create the run row and execute it inline (CLI and tests). */
@@ -190,6 +192,19 @@ final class ManualUpdateRunner
                     CloudException::UNREACHABLE,
                     'No entity could be synced: '.implode(' | ', array_slice($warnings, 0, 2)),
                 );
+            }
+
+            // The super admin's game structure defaults ride every update
+            // too — a desk that never opens the Game Structure tab (a TD's)
+            // still opens tonight's game on the latest base setup.
+            $this->renewLock($owner);
+            $this->update($uuid, ['stage' => 'game_structure', 'progress' => 82]);
+            try {
+                $this->structures->pull();
+                $summary['game_structure'] = ['entity' => 'game_structure', 'status' => 'ok', 'rows' => 2, 'not_modified' => false, 'message' => null];
+            } catch (Throwable $e) {
+                $warnings['game_structure'] = $e->getMessage();
+                $summary['game_structure'] = ['entity' => 'game_structure', 'status' => 'failed', 'rows' => 0, 'not_modified' => false, 'message' => Str::limit($e->getMessage(), 300)];
             }
 
             $this->renewLock($owner);

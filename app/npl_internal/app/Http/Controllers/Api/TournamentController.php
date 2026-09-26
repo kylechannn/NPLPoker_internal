@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Tournament\GameStructureService;
 use App\Services\Tournament\TournamentBroadcaster;
 use App\Services\Tournament\TournamentClockService;
 use App\Services\Tournament\TournamentService;
@@ -95,6 +96,29 @@ final class TournamentController
         ]);
 
         return $this->ok($this->tournaments->create($validated), 201);
+    }
+
+    /**
+     * Open a desk straight from the game structure defaults — no
+     * preparation screen. The caller names only the night's own facts
+     * (which cloud session, which venue, the erase handshake); prices,
+     * tiers, cut-offs and the blind ladder are the super admin's base
+     * setup as mirrored on this desk. Same one-session-at-a-time rule as
+     * store(): an unfinished session must be replaced explicitly.
+     */
+    public function open(Request $request, GameStructureService $structures): JsonResponse
+    {
+        $validated = $request->validate([
+            'game_type' => ['required', Rule::in(['tournament', 'cash'])],
+            'game_session_id' => ['sometimes', 'nullable', 'integer'],
+            'venue_id' => ['sometimes', 'nullable', 'integer'],
+            'venue_name' => ['sometimes', 'nullable', 'string', 'max:160'],
+            'replace_session_id' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $payload = $structures->createPayload((string) $validated['game_type'], $validated);
+
+        return $this->ok($this->tournaments->create($payload), 201);
     }
 
     public function show(int $id): JsonResponse

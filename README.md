@@ -80,6 +80,16 @@ For direct Go-only troubleshooting without Caddy:
 └── dist/              Portable build output (generated)
 ```
 
+## Game structure
+
+Games open straight into registration: a tournament director or admin
+presses **Open desk** on tonight's session and the desk is built from the
+**game structure defaults** — prices, tiers, cut-offs and the blind ladder a
+super admin saved on the NPL cloud from the OS's **Administration → Game
+Structure** tab (visible to super admins only; the cloud enforces the same
+rule). Every install mirrors the defaults so a night still opens offline.
+See `docs/GAME_STRUCTURE.md`.
+
 ## Feedback & Reports
 
 The sidebar's **Support → Feedback & Reports** tab (`ui/src/feedback/`) lets

@@ -320,6 +320,18 @@ export type GeneratedLevel = {
   note: string | null
 }
 
+/**
+ * A refused request, with the local app's error code beside the sentence —
+ * the Game Structure tab reads the code to tell "sign in again" apart from
+ * "the cloud said no".
+ */
+export class DeskApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code: string | null = null) {
+    super(message)
+    this.name = 'DeskApiError'
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -331,14 +343,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   const body = (await response.json().catch(() => null)) as
-    | { ok?: boolean, data?: T, message?: string, error?: { message?: string }, errors?: Record<string, string[]> }
+    | { ok?: boolean, data?: T, message?: string, error?: { code?: string, message?: string }, errors?: Record<string, string[]> }
     | null
 
   if (!response.ok) {
     // Laravel puts the useful sentence in the first field error; the generic
     // "The given data was invalid" is never the thing the operator needs.
     const fieldError = body?.errors ? Object.values(body.errors)[0]?.[0] : undefined
-    throw new Error(fieldError ?? body?.error?.message ?? body?.message ?? `Request failed (${response.status})`)
+    throw new DeskApiError(
+      fieldError ?? body?.error?.message ?? body?.message ?? `Request failed (${response.status})`,
+      response.status,
+      body?.error?.code ?? null,
+    )
   }
 
   return body?.data as T
@@ -457,8 +473,114 @@ export type CloudQueueStatus = {
   link?: { state: 'online' | 'offline'; offline_since: string | null; last_ok_at: string | null }
 }
 
+/** The generator dials a tournament ladder is filled from. */
+export type StructurePattern = {
+  levels: number
+  duration_min: number
+  small_blind: number
+  big_blind_multiple: number
+  mode: 'multiply' | 'add'
+  step: number
+  break_every: number
+  break_duration_min: number
+  ante_from_level: number | null
+  ante_as_big_blind: boolean
+}
+
+/** The tournament desk's defaults — what every tournament opens on. */
+export type TournamentStructureSettings = {
+  seats_per_table: number
+  starting_stack: number
+  buy_in_price_cents: number
+  rebuy_tiers: AddonTier[]
+  max_rebuys_per_player: number
+  addon_tiers: AddonTier[]
+  max_addons_per_player: number
+  jackpot_enabled: boolean
+  jackpot_price_cents: number
+  /** Positions in the ladder (breaks count) — the clock's own rule. */
+  registration_closes_at_level: number
+  rebuy_closes_at_level: number | null
+  addon_closes_at_level: number | null
+  jackpot_closes_at_level: number | null
+  chip_denominations: string
+  pattern: StructurePattern | null
+}
+
+/** The cash desk's defaults — what every cash game opens on. */
+export type CashStructureSettings = {
+  buy_in_price_cents: number
+  starting_stack: number
+  seats_per_table: number
+  topups_enabled: boolean
+  rebuy_price_cents: number
+  rebuy_chips: number
+  jackpot_enabled: boolean
+  jackpot_price_cents: number
+  /** Minutes after Start game; 0 = open until the game finishes. */
+  cash_reg_close_min: number
+  cash_jackpot_close_min: number
+}
+
+export type GameStructureBlock<S> = {
+  game_type: 'tournament' | 'cash'
+  settings: S
+  levels: GeneratedLevel[] | null
+  /** 'cloud' once the super admin has saved; 'built_in' until then. */
+  source: 'cloud' | 'built_in'
+  cloud_updated_at: string | null
+  updated_by: string | null
+  pulled_at: string | null
+}
+
+/** The defaults in force on this desk, both kinds. */
+export type GameStructure = {
+  tournament: GameStructureBlock<TournamentStructureSettings>
+  cash: GameStructureBlock<CashStructureSettings>
+  pulled_at: string | null
+  refreshed?: boolean
+  warning?: string | null
+}
+
+export type GameStructureSave = {
+  tournament?: { settings: TournamentStructureSettings, levels: GeneratedLevel[] }
+  cash?: { settings: CashStructureSettings }
+}
+
 export const deskApi = {
   venues: () => request<{ venues: Venue[] }>('/api/v1/desk/venues'),
+
+  /**
+   * Open a desk straight from the game structure defaults — no preparation
+   * screen. Only the night's facts go up; the draft comes back to run.
+   */
+  openSession: (payload: {
+    game_type: 'tournament' | 'cash'
+    game_session_id: number | null
+    venue_id: number | null
+    venue_name: string | null
+    replace_session_id?: number
+  }) =>
+    request<{ session: { id: number, name: string, status: string } }>('/api/v1/tournaments/open', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** The defaults this desk opens on (`refresh` pulls the cloud first). */
+  gameStructure: (refresh = false) =>
+    request<GameStructure>(`/api/v1/console/game-structure${refresh ? '?refresh=1' : ''}`),
+
+  /** Best-effort refresh from the cloud; offline answers with the mirror. */
+  pullGameStructure: () =>
+    request<GameStructure>('/api/v1/console/game-structure/pull', { method: 'POST', body: JSON.stringify({}) }),
+
+  /** Save to the NPL cloud AS the signed-in super admin (their own token). */
+  saveGameStructure: (payload: GameStructureSave, adminToken: string) =>
+    request<GameStructure>('/api/v1/console/game-structure', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+      headers: { Authorization: `Bearer ${adminToken}` },
+    }),
 
   /** Queue health for the statusbar — pending on the way, dead need eyes. */
   cloudQueueStatus: () => request<CloudQueueStatus>('/api/v1/cloud-queue/status'),

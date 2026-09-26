@@ -34,6 +34,13 @@ Route::post('v1/staff/resolve', [\App\Http\Controllers\Api\StaffController::clas
 // Credentials are verified against the cloud; only the identity returns.
 Route::post('v1/console/login', [\App\Http\Controllers\Api\ConsoleAuthController::class, 'login']);
 
+// The game structure defaults every game opens from: read the mirror,
+// refresh it from the cloud, and (super admin only — the cloud checks the
+// bearer token) save changes straight to the cloud's database.
+Route::get('v1/console/game-structure', [\App\Http\Controllers\Api\GameStructureController::class, 'show']);
+Route::post('v1/console/game-structure/pull', [\App\Http\Controllers\Api\GameStructureController::class, 'pull']);
+Route::put('v1/console/game-structure', [\App\Http\Controllers\Api\GameStructureController::class, 'update']);
+
 // Receipt printing preferences + test receipt (the Overview tab's card).
 Route::get('v1/receipts/settings', [\App\Http\Controllers\Api\ReceiptController::class, 'settings']);
 Route::post('v1/receipts/settings', [\App\Http\Controllers\Api\ReceiptController::class, 'update']);
@@ -47,6 +54,9 @@ Route::post('v1/receipts/test', [\App\Http\Controllers\Api\ReceiptController::cl
  */
 Route::prefix('v1/tournaments')->controller(\App\Http\Controllers\Api\TournamentController::class)->group(function (): void {
     Route::post('/', 'store');
+    // Open a desk straight from the game structure defaults (no prep
+    // screen): the night's facts in, a draft session out.
+    Route::post('open', 'open');
     // The one unfinished session (with its admin QR) — null when idle.
     // The sidebar polls this; it is also why store() refuses seconds.
     Route::get('active', 'active');

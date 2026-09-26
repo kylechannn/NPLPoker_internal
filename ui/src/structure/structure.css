@@ -1,0 +1,145 @@
+/*
+ * Game Structure — the super admin's base setup for every desk. Reuses
+ * the preparation stylesheet (cards, fields, the blind table) and adds
+ * only the tab-level chrome: the cloud status strip and the save row.
+ */
+
+.structure .prep__top {
+  padding-bottom: 4px;
+}
+
+.structure-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin: 8px 0 16px;
+}
+
+.structure-head h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #0f172a;
+}
+
+.structure-head p {
+  margin: 0;
+  max-width: 720px;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.structure-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.structure-source--cloud {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.08);
+  color: #047857;
+}
+
+.structure-source small {
+  font-weight: 500;
+  color: #64748b;
+}
+
+.structure-kind {
+  margin-top: 28px;
+}
+
+.structure-kind__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.structure-kind__head h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.structure-kind__head small {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.structure-kind__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.structure-kind__saved {
+  color: #047857;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.structure-locked {
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+  padding: 28px;
+  background: #fff;
+  color: #334155;
+  text-align: center;
+}
+
+.structure-locked h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.structure-reauth {
+  display: grid;
+  gap: 12px;
+}
+
+.structure-reauth h3 {
+  margin: 0;
+}
+
+.structure-reauth p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.structure-reauth label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+.structure-reauth input {
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: #0b1a33;
+  color: #f8fafc;
+  font: inherit;
+}

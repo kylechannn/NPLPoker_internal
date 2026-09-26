@@ -25,7 +25,7 @@ class ConsoleLoginTest extends TestCase
                 'message' => 'Admin logged in successfully.',
                 'data' => [
                     'token_type' => 'Bearer',
-                    'access_token' => 'jwt-not-kept',
+                    'access_token' => 'jwt-super-admin',
                     'expires_in' => 3600,
                     'admin' => [
                         'id' => 7,
@@ -45,12 +45,49 @@ class ConsoleLoginTest extends TestCase
             ->assertJsonPath('data.identity.id', 'kyle')
             ->assertJsonPath('data.identity.name', 'Kyle Chan')
             ->assertJsonPath('data.identity.role', 'Super Admin')
-            ->assertJsonPath('data.identity.initials', 'KC');
+            ->assertJsonPath('data.identity.role_key', 'super_admin')
+            ->assertJsonPath('data.identity.super_admin', true)
+            ->assertJsonPath('data.identity.initials', 'KC')
+            // The super admin's own sign-in is kept for the Game Structure
+            // tab's saves — the ONE person-scoped credential on the console.
+            ->assertJsonPath('data.identity.admin_token', 'jwt-super-admin');
+        $this->assertNotNull($this->postJson('/api/v1/console/login', ['login' => 'Kyle', 'password' => 'Secret123!'])
+            ->json('data.identity.admin_token_expires_at'));
 
         // The exact website pathway: login lowercased, password verbatim.
         Http::assertSent(fn (ClientRequest $request): bool => str_contains($request->url(), '/api/v1/admin/auth/login')
             && $request['login'] === 'kyle'
             && $request['password'] === 'Secret123!');
+    }
+
+    public function test_a_tournament_directors_token_is_discarded(): void
+    {
+        Http::fake([
+            '*/api/v1/admin/auth/login' => Http::response([
+                'ok' => true,
+                'data' => [
+                    'token_type' => 'Bearer',
+                    'access_token' => 'jwt-td',
+                    'expires_in' => 3600,
+                    'admin' => [
+                        'id' => 9,
+                        'login' => 'director',
+                        'display_name' => 'Venue Director',
+                        'role' => 'td',
+                        'role_label' => 'Tournament Director',
+                        'status' => 'active',
+                    ],
+                ],
+            ]),
+        ]);
+
+        $this->postJson('/api/v1/console/login', ['login' => 'director', 'password' => 'Secret123!'])
+            ->assertOk()
+            ->assertJsonPath('data.identity.role', 'Tournament Director')
+            ->assertJsonPath('data.identity.role_key', 'td')
+            ->assertJsonPath('data.identity.super_admin', false)
+            ->assertJsonPath('data.identity.admin_token', null)
+            ->assertJsonPath('data.identity.admin_token_expires_at', null);
     }
 
     public function test_wrong_website_credentials_read_back_the_clouds_sentence(): void

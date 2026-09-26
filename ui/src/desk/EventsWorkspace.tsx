@@ -1,11 +1,10 @@
 import { useState } from "react"
 import { CircleDollarSign, Trophy, X } from "lucide-react"
-import CashPreset from "./CashPreset"
 import FinishGame from "./FinishGame"
 import HostDesk from "./HostDesk"
-import HostPreset from "./HostPreset"
 import SessionsHub from "./SessionsHub"
 import { HOST_STEPS } from "./HostWorkspace"
+import { useOpenDesk, type DeskMode } from "./openDesk"
 import type { Venue } from "./deskApi"
 import "./host.css"
 
@@ -14,74 +13,46 @@ import "./host.css"
  * hosted with the same desks as any other night — except the operator
  * chooses, per event, how the room runs: tournament style (the clock,
  * blind ladder, buy-in cut-offs) or cash style (free flow, no clock).
- * The choice is made at "Prepare & open"; resuming an open desk re-enters
- * whichever mode the event was opened with.
+ * The choice is made at "Open desk" and the desk opens straight into
+ * registration on that kind's game structure defaults; resuming an open
+ * desk re-enters whichever mode the event was opened with.
  */
-
-type DeskMode = "tournament" | "cash"
-
 export default function EventsWorkspace({ venue }: { venue: Venue | null }) {
   const [sessionId, setSessionId] = useState<number | null>(null)
-  const [view, setView] = useState<"hub" | "prep">("hub")
-  const [prepLink, setPrepLink] = useState<number | null>(null)
   const [deskMode, setDeskMode] = useState<DeskMode>("tournament")
   const [stage, setStage] = useState<"desk" | "finish">("desk")
   const [clockStatus, setClockStatus] = useState<string>("draft")
-  // Back-to-prep for an open draft: everything stays editable until Start.
-  const [editingSession, setEditingSession] = useState<number | null>(null)
   // The event awaiting its mode choice — the picker is open while set.
   const [choosing, setChoosing] = useState<number | null>(null)
 
-  const Preset = deskMode === "cash" ? CashPreset : HostPreset
+  const opener = useOpenDesk(venue, (id) => {
+    setSessionId(id)
+    setStage("desk")
+  })
 
   const pickMode = (mode: DeskMode) => {
-    setDeskMode(mode)
-    setPrepLink(choosing)
+    const gameSessionId = choosing
     setChoosing(null)
-    setView("prep")
-  }
-
-  if (editingSession !== null) {
-    return (
-      <Preset
-        venue={venue}
-        editSessionId={editingSession}
-        onBack={() => setEditingSession(null)}
-        onOpened={() => {
-          setEditingSession(null)
-          setStage("desk")
-        }}
-      />
-    )
+    setDeskMode(mode)
+    void opener.open(mode, gameSessionId)
   }
 
   if (sessionId === null) {
-    if (view === "prep") {
-      return (
-        <Preset
-          venue={venue}
-          initialLinkedSessionId={prepLink}
-          onBack={() => setView("hub")}
-          onOpened={(id) => {
-            setSessionId(id)
-            setStage("desk")
-          }}
-        />
-      )
-    }
-
     return (
       <>
+        {opener.error ? <p className="host-desk__error" role="alert">{opener.error}</p> : null}
         <SessionsHub
           venue={venue}
           mode="events"
+          opening={opener.opening}
           onOpenLocal={(localTournamentId, gameType) => {
             setDeskMode(gameType === "cash" ? "cash" : "tournament")
             setSessionId(localTournamentId)
             setStage("desk")
           }}
-          onPrepare={(gameSessionId) => setChoosing(gameSessionId)}
+          onOpen={(gameSessionId) => setChoosing(gameSessionId)}
         />
+        {opener.dialog}
 
         {choosing !== null ? (
           <div className="host-scan-modal" role="presentation" onMouseDown={() => setChoosing(null)}>
@@ -103,13 +74,13 @@ export default function EventsWorkspace({ venue }: { venue: Venue | null }) {
                 <button type="button" className="host-mode-pick__option" onClick={() => pickMode("tournament")}>
                   <Trophy size={22} />
                   <strong>Tournament mode</strong>
-                  <span>The daily-game desk: level clock, blind ladder, buy-in / rebuy / add-on cut-offs.</span>
+                  <span>The daily-game desk: level clock, blind ladder, buy-in / rebuy / add-on cut-offs — on the tournament defaults.</span>
                 </button>
 
                 <button type="button" className="host-mode-pick__option" onClick={() => pickMode("cash")}>
                   <CircleDollarSign size={22} />
                   <strong>Cash game mode</strong>
-                  <span>The free-flow desk: no clock or cut-offs — buy-ins and top-ups stay open all night.</span>
+                  <span>The free-flow desk: no clock or cut-offs — buy-ins and top-ups stay open all night, on the cash defaults.</span>
                 </button>
               </div>
             </section>
@@ -119,7 +90,7 @@ export default function EventsWorkspace({ venue }: { venue: Venue | null }) {
     )
   }
 
-  const currentStep = stage === "finish" ? 3 : clockStatus === "running" || clockStatus === "paused" ? 2 : 1
+  const currentStep = stage === "finish" ? 2 : clockStatus === "running" || clockStatus === "paused" ? 1 : 0
 
   return (
     <div className="host-staged">
@@ -134,17 +105,7 @@ export default function EventsWorkspace({ venue }: { venue: Venue | null }) {
               type="button"
               className="prep-steps__item"
               onClick={() => {
-                if (step.id === "prepare") {
-                  // A draft goes BACK to preparation with everything
-                  // editable; once Start has been pressed the night is
-                  // committed and Preparation exits to the events hub.
-                  if (clockStatus === "draft") {
-                    setEditingSession(sessionId)
-                  } else {
-                    setSessionId(null)
-                    setView("hub")
-                  }
-                } else if (step.id === "finish") setStage("finish")
+                if (step.id === "finish") setStage("finish")
                 else setStage("desk")
               }}
             >
@@ -180,17 +141,13 @@ export default function EventsWorkspace({ venue }: { venue: Venue | null }) {
           onFinished={() => {
             setStage("desk")
             setSessionId(null)
-            setView("hub")
           }}
         />
       ) : (
         <HostDesk
           sessionId={sessionId}
           mode={deskMode}
-          onExit={() => {
-            setSessionId(null)
-            setView("hub")
-          }}
+          onExit={() => setSessionId(null)}
           onClockStatus={setClockStatus}
           onFinishGame={() => setStage("finish")}
         />

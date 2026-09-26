@@ -1,21 +1,21 @@
 import { useState } from "react"
-import CashPreset from "./CashPreset"
 import FinishGame from "./FinishGame"
 import HostDesk from "./HostDesk"
-import HostPreset from "./HostPreset"
 import SessionsHub from "./SessionsHub"
+import { useOpenDesk } from "./openDesk"
 import type { Venue } from "./deskApi"
 import "./host.css"
 
 /**
  * The Tournament tab, staged: the Sessions hub is the front door (tonight's
- * cloud sessions with live counts), then Preparation → Host → Playing →
+ * cloud sessions with live counts). Open desk goes STRAIGHT into
+ * registration — the structure, prices and cut-offs are the super admin's
+ * game structure defaults, never typed at the desk — then Playing →
  * Finishing with the stepper always visible once a night is underway.
  */
 
 export const HOST_STEPS = [
-  { id: "prepare", label: "Preparation" },
-  { id: "host", label: "Host" },
+  { id: "host", label: "Registration" },
   { id: "play", label: "Playing" },
   { id: "finish", label: "Finishing" },
 ] as const
@@ -27,61 +27,34 @@ export default function HostWorkspace({ venue, mode = "tournament" }: { venue: V
     const requested = Number(new URLSearchParams(window.location.search).get("session"))
     return Number.isInteger(requested) && requested > 0 ? requested : null
   })
-  const [view, setView] = useState<"hub" | "prep">("hub")
-  const [prepLink, setPrepLink] = useState<number | null>(null)
   const [stage, setStage] = useState<"desk" | "finish">("desk")
   const [clockStatus, setClockStatus] = useState<string>("draft")
-  // Back-to-prep for an open draft: everything stays editable until Start.
-  const [editingSession, setEditingSession] = useState<number | null>(null)
 
-  const Preset = mode === "cash" ? CashPreset : HostPreset
-
-  if (editingSession !== null) {
-    return (
-      <Preset
-        venue={venue}
-        editSessionId={editingSession}
-        onBack={() => setEditingSession(null)}
-        onOpened={() => {
-          setEditingSession(null)
-          setStage("desk")
-        }}
-      />
-    )
-  }
+  const opener = useOpenDesk(venue, (id) => {
+    setSessionId(id)
+    setStage("desk")
+  })
 
   if (sessionId === null) {
-    if (view === "prep") {
-      return (
-        <Preset
+    return (
+      <>
+        {opener.error ? <p className="host-desk__error" role="alert">{opener.error}</p> : null}
+        <SessionsHub
           venue={venue}
-          initialLinkedSessionId={prepLink}
-          onBack={() => setView("hub")}
-          onOpened={(id) => {
-            setSessionId(id)
+          mode={mode}
+          opening={opener.opening}
+          onOpenLocal={(localTournamentId) => {
+            setSessionId(localTournamentId)
             setStage("desk")
           }}
+          onOpen={(gameSessionId) => void opener.open(mode, gameSessionId)}
         />
-      )
-    }
-
-    return (
-      <SessionsHub
-        venue={venue}
-        mode={mode}
-        onOpenLocal={(localTournamentId) => {
-          setSessionId(localTournamentId)
-          setStage("desk")
-        }}
-        onPrepare={(gameSessionId) => {
-          setPrepLink(gameSessionId)
-          setView("prep")
-        }}
-      />
+        {opener.dialog}
+      </>
     )
   }
 
-  const currentStep = stage === "finish" ? 3 : clockStatus === "running" || clockStatus === "paused" ? 2 : 1
+  const currentStep = stage === "finish" ? 2 : clockStatus === "running" || clockStatus === "paused" ? 1 : 0
 
   return (
     <div className="host-staged">
@@ -96,17 +69,7 @@ export default function HostWorkspace({ venue, mode = "tournament" }: { venue: V
               type="button"
               className="prep-steps__item"
               onClick={() => {
-                if (step.id === "prepare") {
-                  // A draft goes BACK to preparation with everything
-                  // editable; once Start has been pressed the night is
-                  // committed and Preparation exits to the sessions hub.
-                  if (clockStatus === "draft") {
-                    setEditingSession(sessionId)
-                  } else {
-                    setSessionId(null)
-                    setView("hub")
-                  }
-                } else if (step.id === "finish") setStage("finish")
+                if (step.id === "finish") setStage("finish")
                 else setStage("desk")
               }}
             >
@@ -142,17 +105,13 @@ export default function HostWorkspace({ venue, mode = "tournament" }: { venue: V
           onFinished={() => {
             setStage("desk")
             setSessionId(null)
-            setView("hub")
           }}
         />
       ) : (
         <HostDesk
           sessionId={sessionId}
           mode={mode}
-          onExit={() => {
-            setSessionId(null)
-            setView("hub")
-          }}
+          onExit={() => setSessionId(null)}
           onClockStatus={setClockStatus}
           onFinishGame={() => setStage("finish")}
         />

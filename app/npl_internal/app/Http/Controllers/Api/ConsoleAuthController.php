@@ -15,8 +15,10 @@ use Illuminate\Support\Str;
  * The OS operator gate's sign-in: the EXACT same pathway as the website's
  * admin console. Credentials go to the cloud's POST /admin/auth/login —
  * same accounts, same passwords — and only the verified identity comes
- * back to the console. The JWT is discarded: the OS's own cloud calls
- * authenticate with the CD-Key lease, not a person's session.
+ * back to the console. The JWT is discarded for everyone but a super
+ * admin: the OS's own cloud calls authenticate with the CD-Key lease, not
+ * a person's session — the one exception is the super admin's Game
+ * Structure saves, which the cloud only accepts from the person.
  */
 final class ConsoleAuthController extends Controller
 {
@@ -43,12 +45,24 @@ final class ConsoleAuthController extends Controller
 
         $admin = (array) ($data['admin'] ?? []);
         $name = trim((string) ($admin['display_name'] ?? '')) ?: (string) ($admin['login'] ?? 'Admin');
+        $roleKey = Str::lower(trim((string) ($admin['role'] ?? '')));
+        $superAdmin = $roleKey === 'super_admin';
 
         return response()->json(['ok' => true, 'data' => ['identity' => [
             'id' => (string) ($admin['login'] ?? ''),
             'name' => $name,
             'role' => trim((string) ($admin['role_label'] ?? '')) ?: Str::title((string) ($admin['role'] ?? 'Admin')),
+            // The cloud's role key — what gates the Game Structure tab.
+            'role_key' => $roleKey,
+            'super_admin' => $superAdmin,
             'initials' => $this->initials($name),
+            // A super admin's sign-in is the ONE person-scoped credential the
+            // console keeps: their Game Structure saves go to the cloud as
+            // them, not as the desk. Everyone else's token stays discarded.
+            'admin_token' => $superAdmin ? ((string) ($data['access_token'] ?? '') ?: null) : null,
+            'admin_token_expires_at' => $superAdmin && is_numeric($data['expires_in'] ?? null)
+                ? now()->addSeconds((int) $data['expires_in'])->toIso8601String()
+                : null,
         ]]]);
     }
 

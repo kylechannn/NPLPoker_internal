@@ -7,7 +7,10 @@ import "./host.css"
 type Props = {
   venue: Venue | null
   onOpenLocal: (localTournamentId: number, gameType?: string | null) => void
-  onPrepare: (gameSessionId: number | null) => void
+  /** Open the desk on a cloud session — straight into registration. */
+  onOpen: (gameSessionId: number | null) => void
+  /** An open is in flight: the buttons wait rather than double-open. */
+  opening?: boolean
   /**
    * Which sessions this hub fronts: cash games, events (Special Events +
    * Main Event flights), or every other tournament night.
@@ -28,9 +31,10 @@ const isEventSession = (session: UpcomingSession): boolean =>
  * and table count — kept fresh by the realtime gateway. From here the desk
  * holds full authority over a session (cancel tables, remove players,
  * open the desk) — everything except deleting the session itself, which
- * belongs to the cloud.
+ * belongs to the cloud. Open desk lands straight in registration: the
+ * structure comes from the game structure defaults, not from a form.
  */
-export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tournament" }: Props) {
+export default function SessionsHub({ venue, onOpenLocal, onOpen, opening = false, mode = "tournament" }: Props) {
   const [sessions, setSessions] = useState<UpcomingSession[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -136,8 +140,8 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
           <h3><CalendarDays size={18} /> {mode === "events" ? "Events" : "Sessions"} — {venue.name}</h3>
           <p>
             {mode === "events"
-              ? "Special Events and Main Event flights, live from the NPL cloud. Pick how each one runs when you open the desk."
-              : "Live from the NPL cloud. Open the desk on tonight's game."}
+              ? "Special Events and Main Event flights, live from the NPL cloud. Pick how each one runs when you open the desk — it opens straight into registration."
+              : "Live from the NPL cloud. Open the desk on tonight's game — straight into registration, on the game structure defaults."}
           </p>
         </div>
       </header>
@@ -216,9 +220,10 @@ export default function SessionsHub({ venue, onOpenLocal, onPrepare, mode = "tou
                     <button
                       type="button"
                       className="host-hub__open"
-                      onClick={() => onPrepare(session.session_id)}
+                      disabled={opening}
+                      onClick={() => onOpen(session.session_id)}
                     >
-                      <Play size={14} /> Prepare &amp; open
+                      <Play size={14} /> {opening ? "Opening…" : "Open desk"}
                     </button>
                   )}
                 </div>

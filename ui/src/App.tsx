@@ -13,6 +13,7 @@ const MembershipWorkspace = lazy(() => import("./membership/MembershipWorkspace"
 const PlayersWorkspace = lazy(() => import("./players/PlayersWorkspace"))
 const RegistrationsWorkspace = lazy(() => import("./registrations/RegistrationsWorkspace"))
 const FeedbackWorkspace = lazy(() => import("./feedback/FeedbackWorkspace"))
+const GameStructureWorkspace = lazy(() => import("./structure/GameStructureWorkspace"))
 const ChatPane = lazy(() => import("./notifications/ChatPane"))
 import { deskApi, type ActiveSession, type CloudQueueStatus, type UpcomingSession, type Venue } from "./desk/deskApi"
 import { useBackendLink, type BackendLinkStatus } from "./realtime/backendLink"
@@ -52,6 +53,7 @@ import {
   Save,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Spade,
   Square,
   Table2,
@@ -129,6 +131,14 @@ type StaffIdentity = {
   name: string
   role: string
   initials: string
+  // The cloud's role key (super_admin / admin / td) — what gates the
+  // Game Structure tab. Older stored sessions carry neither.
+  role_key?: string
+  super_admin?: boolean
+  // A super admin's own sign-in, kept for the Game Structure tab's saves
+  // (the cloud accepts those only from the person). Null for everyone else.
+  admin_token?: string | null
+  admin_token_expires_at?: string | null
 }
 
 type NavId =
@@ -143,12 +153,11 @@ type NavId =
   | "cashier"
   | "export"
   | "feedback"
-
-
+  | "structure"
 
 const navigation: Array<{
   label: string
-  items: Array<{ id: NavId; label: string; icon: LucideIcon; badge?: number }>
+  items: Array<{ id: NavId; label: string; icon: LucideIcon; badge?: number; superAdminOnly?: boolean }>
 }> = [
   {
     label: "Operations",
@@ -177,6 +186,13 @@ const navigation: Array<{
     label: "Support",
     items: [{ id: "feedback", label: "Feedback & Reports", icon: MessageSquareWarning }],
   },
+  {
+    // Head office only: the base setup every desk opens its games from.
+    // Hidden from admins and tournament directors, and the cloud refuses
+    // their saves regardless of what the sidebar shows.
+    label: "Administration",
+    items: [{ id: "structure", label: "Game Structure", icon: SlidersHorizontal, superAdminOnly: true }],
+  },
 ]
 
 // Old pinned shortcuts (?tab=host / ?tab=tables) keep opening the same desks
@@ -196,7 +212,7 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
   tournament: {
     eyebrow: "Venue command",
     title: "Tournament",
-    description: "Set the structure, prices and cut-offs, then run the desk.",
+    description: "Open tonight's game straight into registration — structure, prices and cut-offs come from the game structure defaults.",
   },
   cashgame: {
     eyebrow: "Cash game floor",
@@ -242,6 +258,11 @@ const moduleTitles: Record<NavId, { eyebrow: string; title: string; description:
     eyebrow: "Support",
     title: "Feedback & Reports",
     description: "Tell NPL what broke or what would help — reports go straight to head office with this desk's diagnostics attached.",
+  },
+  structure: {
+    eyebrow: "Administration",
+    title: "Game Structure",
+    description: "The base setup every venue desk opens its games from — saved straight to the NPL cloud.",
   },
 }
 
@@ -389,6 +410,9 @@ function readStoredConsoleSession(): StaffIdentity | null {
     if (!parsed || typeof parsed !== "object") return null
     const record = parsed as { staff?: StaffIdentity; signed_in_at?: string }
     if (!record.staff || typeof record.staff.name !== "string" || typeof record.signed_in_at !== "string") return null
+    // A session stored before roles reached the console carries no role
+    // key — one fresh sign-in puts it (and a super admin's token) in place.
+    if (typeof record.staff.role_key !== "string") return null
     const signedInAt = new Date(record.signed_in_at).getTime()
     if (!Number.isFinite(signedInAt) || Date.now() - signedInAt > CONSOLE_SHIFT_HOURS * 60 * 60 * 1000) return null
     return record.staff
@@ -827,15 +851,31 @@ export default function App() {
   // Persisted with a timestamp so a reload at the desk doesn't sign the
   // operator out mid-shift, but a new day starts locked.
   const [activeStaff, setActiveStaff] = useState<StaffIdentity | null>(readStoredConsoleSession)
+  const isSuperAdmin = activeStaff?.super_admin === true || activeStaff?.role_key === "super_admin"
 
-  const handleConsoleSignIn = (staff: StaffIdentity) => {
+  const storeConsoleIdentity = useCallback((staff: StaffIdentity) => {
     setActiveStaff(staff)
     window.localStorage.setItem(
       "npl.activeStaff",
       JSON.stringify({ staff, signed_in_at: new Date().toISOString() }),
     )
+  }, [])
+
+  const handleConsoleSignIn = (staff: StaffIdentity) => {
+    storeConsoleIdentity(staff)
     setNotice(`${staff.name} signed in at this console.`)
   }
+
+  // The game structure defaults a desk opens on: refreshed from the cloud
+  // at every sign-in, so a night opens on the super admin's latest save.
+  // Best effort — offline, the mirrored copy stands.
+  useEffect(() => {
+    if (!activeStaff) return
+    void deskApi.pullGameStructure().catch(() => undefined)
+  }, [activeStaff?.id])
+
+  // A tab only a super admin holds cannot be reached by URL either.
+  const visibleSection: NavId = activeSection === "structure" && !isSuperAdmin ? "overview" : activeSection
 
   const loadHealth = useCallback(async () => {
     setHealth({ status: "loading" })
@@ -1034,12 +1074,16 @@ export default function App() {
 
         <div className="sidebar-menu-container">
           <nav className="primary-nav" aria-label="Operational system navigation">
-            {navigation.map((group) => (
+            {navigation.map((group) => {
+              const items = group.items.filter((item) => !item.superAdminOnly || isSuperAdmin)
+              if (items.length === 0) return null
+
+              return (
               <div className="nav-group" key={group.label}>
                 <p>{group.label}</p>
-                {group.items.map((item) => {
+                {items.map((item) => {
                   const Icon = item.icon
-                  const active = activeSection === item.id
+                  const active = visibleSection === item.id
                   return (
                     <button
                       className={active ? "nav-item nav-item--active" : "nav-item"}
@@ -1055,7 +1099,8 @@ export default function App() {
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </nav>
         </div>
 
@@ -1180,32 +1225,38 @@ export default function App() {
 
         <div className={notificationOpen ? "app-content app-content--notification-open" : "app-content"}>
           <main className="workspace">
-            {activeSection === "overview" ? (
+            {visibleSection === "overview" ? (
               <OverviewWorkspace venue={activeVenue} onNavigate={chooseSection} onNotice={setNotice} />
             ) : (
               <Suspense fallback={<div className="workspace-tab-loading">Loading…</div>}>
-                {activeSection === "tournament" ? (
+                {visibleSection === "tournament" ? (
                   <HostWorkspace venue={activeVenue} />
-                ) : activeSection === "jackpot" ? (
+                ) : visibleSection === "jackpot" ? (
                   <JackpotWheelWorkspace />
-                ) : activeSection === "membership" ? (
+                ) : visibleSection === "membership" ? (
                   <MembershipWorkspace venue={activeVenue} />
-                ) : activeSection === "players" ? (
+                ) : visibleSection === "players" ? (
                   <PlayersWorkspace venue={activeVenue} />
-                ) : activeSection === "cashgame" ? (
+                ) : visibleSection === "cashgame" ? (
                   <HostWorkspace venue={activeVenue} mode="cash" />
-                ) : activeSection === "events" ? (
+                ) : visibleSection === "events" ? (
                   <EventsWorkspace venue={activeVenue} />
-                ) : activeSection === "cashier" ? (
+                ) : visibleSection === "cashier" ? (
                   <CashierWorkspace />
-                ) : activeSection === "export" ? (
+                ) : visibleSection === "export" ? (
                   <ExportWorkspace venue={activeVenue} />
-                ) : activeSection === "feedback" ? (
+                ) : visibleSection === "feedback" ? (
                   <FeedbackWorkspace
                     venue={activeVenue}
                     staff={activeStaff}
                     health={health.status === "ready" ? health.health : null}
                     network={networkQuality.status === "ready" ? networkQuality.quality : null}
+                  />
+                ) : visibleSection === "structure" ? (
+                  <GameStructureWorkspace
+                    staff={activeStaff}
+                    onNotice={setNotice}
+                    onIdentityRefresh={storeConsoleIdentity}
                   />
                 ) : (
                   <RegistrationsWorkspace venue={activeVenue} />

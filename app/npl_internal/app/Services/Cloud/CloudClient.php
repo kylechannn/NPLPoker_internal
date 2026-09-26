@@ -118,6 +118,36 @@ final class CloudClient
         return $this->unwrap($response, $path);
     }
 
+    /**
+     * A call made AS A PERSON, not as the desk: the signed-in super admin's
+     * own bearer token authenticates the one write the CD-Key lease must
+     * never be able to make — the game structure defaults every venue
+     * opens from. Carries an Idempotency-Key like every other write; the
+     * caller decides about retries.
+     */
+    public function sendAs(string $method, string $path, array $payload, string $bearerToken): array
+    {
+        $this->guard($path);
+
+        $request = $this->base()
+            ->withToken($bearerToken)
+            ->withHeaders(['Idempotency-Key' => (string) Str::uuid()]);
+
+        try {
+            $response = $request->send(strtoupper($method), $this->url($path), ['json' => $payload]);
+        } catch (ConnectionException $e) {
+            $this->link->markOffline();
+
+            throw new CloudException(CloudException::UNREACHABLE, 'Could not reach the NPL cloud: '.$e->getMessage(), null, $e);
+        }
+
+        $this->link->markOnline();
+
+        $this->assertOk($response, $path);
+
+        return $this->unwrap($response, $path);
+    }
+
     public function deleteJson(string $path): array
     {
         $this->guard($path);
