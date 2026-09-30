@@ -353,6 +353,12 @@ final class DeskController
             ->where('session_id', $gameSessionId)
             ->where('table_number', $tableNumber);
         $current = (clone $tableRows)->first();
+        if ($state === 'live' && $current?->table_status === 'unopened') {
+            return response()->json([
+                'ok' => false,
+                'error' => ['code' => 'TABLE_UNOPENED', 'message' => 'A player must choose the game settings and open this table first.'],
+            ], 422);
+        }
         $nowMs = MirrorTableTimer::nowMs();
 
         $timer = match (true) {
@@ -362,9 +368,13 @@ final class DeskController
             default => [],
         };
 
+        // Releasing an admin closure may return an unused public table to
+        // player setup. Only the cloud knows its complete registration
+        // history, so retain the closed paint until that response syncs.
+        $awaitCloud = $state === 'open' && in_array($current?->table_status, ['closed', 'unopened'], true);
         $tableRows->update([
-            'table_status' => $state === 'live' ? 'active' : $state,
-            'table_phase' => $state,
+            'table_status' => $awaitCloud ? $current->table_status : ($state === 'live' ? 'active' : $state),
+            'table_phase' => $awaitCloud ? $current->table_phase : $state,
             'updated_at' => now(),
         ] + $timer);
 
@@ -412,7 +422,7 @@ final class DeskController
             ], 404);
         }
 
-        if ($action === 'start' && in_array($current->table_status, ['closed', 'cancelled'], true)) {
+        if ($action === 'start' && in_array($current->table_status, ['closed', 'cancelled', 'unopened'], true)) {
             return response()->json([
                 'ok' => false,
                 'error' => ['code' => 'TABLE_CLOSED', 'message' => 'This table is closed — open it before starting its timer.'],
@@ -573,7 +583,9 @@ final class DeskController
             'session_id' => $gameSessionId,
             'table_number' => $tableNumber,
             'seat_number' => $seat,
-            'table_status' => 'open',
+            'table_status' => $session->game_type === 'cash' ? 'unopened' : 'open',
+            'table_phase' => $session->game_type === 'cash' ? 'closed' : null,
+            'table_kind' => 'house',
             'max_seats' => $maxSeats,
             'player_npl_id' => null,
             'player_display_name' => null,

@@ -451,6 +451,10 @@ final class TournamentDeskService
             [$tableNumber, $seatNumber] = $this->autoAssignSeat($sessionId, $session, $nplId);
         }
 
+        if ($tableNumber !== null) {
+            $this->assertCashTableAvailable($session, $tableNumber);
+        }
+
         $extras = [];
 
         if ($voucherCodes !== [] || $stackCovered !== null) {
@@ -508,6 +512,12 @@ final class TournamentDeskService
                 ->max('table_number');
         }
         $tableCount = max((int) $highestTable, $cloudTableCount, 1);
+        $cashTables = $session->game_type === 'cash' && $session->game_session_id !== null
+            ? DB::table('mirror_session_tables')->where('session_id', $session->game_session_id)
+                ->where(fn ($q) => $q->whereNull('table_status')->orWhereNotIn('table_status', ['unopened', 'closed', 'cancelled']))
+                ->where(fn ($q) => $q->whereNull('table_kind')->orWhere('table_kind', 'house'))
+                ->distinct()->pluck('table_number')->map(fn ($number): int => (int) $number)->all()
+            : null;
 
         // Their online pick first — the player expects the seat they chose.
         $booking = $this->onlineBooking($session, $nplId);
@@ -516,6 +526,7 @@ final class TournamentDeskService
             && $booking['table_number'] >= 1
             && $booking['seat_number'] <= $perTable
             && ! isset($occupied[$booking['table_number']][$booking['seat_number']])) {
+            $this->assertCashTableAvailable($session, $booking['table_number']);
             return [$booking['table_number'], $booking['seat_number']];
         }
 
@@ -533,6 +544,9 @@ final class TournamentDeskService
         // resort; a brand-new table before a blocked one.
         $candidates = [];
         for ($tableNumber = 1; $tableNumber <= $tableCount + 1; $tableNumber++) {
+            if ($cashTables !== null && ! in_array($tableNumber, $cashTables, true)) {
+                continue;
+            }
             $used = count($occupied[$tableNumber] ?? []);
             if ($used >= $perTable) {
                 continue;
@@ -557,7 +571,23 @@ final class TournamentDeskService
             }
         }
 
+        if ($cashTables !== null) {
+            throw ValidationException::withMessages(['table_number' => ['No open public cash table has a free seat. A player must open a table and choose its game settings first.']]);
+        }
+
         return [null, null];
+    }
+
+    private function assertCashTableAvailable(object $session, int $tableNumber): void
+    {
+        if ($session->game_type !== 'cash' || $session->game_session_id === null) {
+            return;
+        }
+        $table = DB::table('mirror_session_tables')->where('session_id', $session->game_session_id)
+            ->where('table_number', $tableNumber)->first();
+        if ($table === null || in_array($table->table_status, ['unopened', 'closed', 'cancelled'], true)) {
+            throw ValidationException::withMessages(['table_number' => ['This cash table is unavailable. Refresh the desk; unopened tables need player setup and admin-closed tables must be released by staff.']]);
+        }
     }
 
     /**
@@ -1388,6 +1418,9 @@ final class TournamentDeskService
     {
         $nplId = $this->normaliseId($rawId);
         $session = $this->clock->session($sessionId);
+        if ($tableNumber !== null) {
+            $this->assertCashTableAvailable($session, $tableNumber);
+        }
         $perTable = max(1, (int) $session->seats_per_table);
 
         if ($seatNumber !== null && ($seatNumber < 1 || $seatNumber > $perTable)) {

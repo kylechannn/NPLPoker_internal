@@ -256,7 +256,7 @@ export default function SessionsHub({ venue, onOpenLocal, onOpen, opening = fals
                             {table.table_kind === "private" ? <i className="host-table__pill">PRIVATE</i> : null}
                             {table.table_phase ? (
                               <i className={`host-table__phase host-table__phase--${table.table_phase}`}>
-                                {table.table_phase === "scheduled" ? "SET TO START" : table.table_phase.toUpperCase()}
+                                {table.table_status === "unopened" ? "AWAITING PLAYER SETUP" : table.table_status === "closed" ? "CLOSED BY ADMIN" : table.table_phase === "scheduled" ? "SET TO START" : table.table_phase.toUpperCase()}
                               </i>
                             ) : null}
                             <span>{table.players.filter((p) => p.status !== "waitlisted").length} / {table.max_seats}</span>

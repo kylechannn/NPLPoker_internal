@@ -1524,7 +1524,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                 && seating.game_session_id != null
               const showSwitch = mode === "cash" && seating.game_session_id != null && Boolean(table.table_phase)
               const meta = [
-                table.creator_display_name ? `${table.creator_display_name}'s table` : null,
+                table.table_kind === "private" && table.creator_display_name ? `${table.creator_display_name}'s table` : null,
                 table.game_mode,
                 table.blinds_text,
               ].filter(Boolean).join(" · ")
@@ -1583,13 +1583,18 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       ) : null}
                       {showSwitch && table.table_phase ? (
                         <div className="host-table__switch" role="group" aria-label={`Table ${table.table_number} state`}>
-                          <i className={`host-table__phase host-table__phase--${table.table_phase}`}>{PHASE_LABEL[table.table_phase]}</i>
-                          {table.table_phase === "closed" ? (
+                          <i className={`host-table__phase host-table__phase--${table.table_phase}`}>{table.table_status === "unopened" ? "AWAITING PLAYER SETUP" : table.table_status === "closed" ? "CLOSED BY ADMIN" : PHASE_LABEL[table.table_phase]}</i>
+                          {table.table_status === "unopened" ? (
+                            <button type="button" className="host-table__flip host-table__flip--close" disabled={busy}
+                              title="Close this table so players cannot open it" onClick={() => flipTable(table.table_number, "closed")}>
+                              CLOSE
+                            </button>
+                          ) : table.table_phase === "closed" ? (
                             <button
                               type="button"
                               className="host-table__flip host-table__flip--open"
                               disabled={busy}
-                              title="Open this table for registration"
+                              title="Release the admin closure; unused public tables return to player setup"
                               onClick={() => flipTable(table.table_number, "open")}
                             >
                               OPEN

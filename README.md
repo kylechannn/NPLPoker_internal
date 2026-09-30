@@ -102,3 +102,9 @@ with the "Include this install's diagnostics" option on, the OS version,
 resource profile, network grade, venue and operator are attached. Reports are
 read in the website admin console under OS feedback. See
 `docs/FEEDBACK.md`.
+
+## Public cash tables
+
+Cash table slots come from the cloud's default table count and capacity limit. `unopened` means a player must choose game type and blinds using Open Table on web/iOS/Android. The OS displays **AWAITING PLAYER SETUP**, permits staff to close the slot, and prevents timer starts or seating that would bypass setup. `closed` displays **CLOSED BY ADMIN**; members cannot reopen it. The OS OPEN action releases that closure through the cloud queue; the next seating sync decides whether to restore the configured table or return it to player setup.
+
+New cash slots added by the OS also await player setup. Automatic cash seating selects an available public table, honours valid online bookings, and does not create an unconfigured overflow table. Public tables have no gathering quorum or deadline and never become private. Their game details and staff stopwatch continue to sync through the existing seating mirror. Private Create Table and all non-cash event rules remain unchanged. Deploy with the backend public-table migration and matching web/mobile clients.

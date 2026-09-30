@@ -128,6 +128,45 @@ class CashTableTimerTest extends TestCase
         $this->assertSame(MirrorTableTimer::cleared(), MirrorTableTimer::columnsFromCloud(['live_elapsed_ms' => null]));
     }
 
+    public function test_unopened_public_tables_can_be_closed_but_cannot_go_live_before_player_setup(): void
+    {
+        $this->activateLicense();
+        $this->mirrorTable(1, ['table_status' => 'unopened', 'table_phase' => 'closed', 'table_kind' => 'house']);
+        $this->press('start')->assertUnprocessable();
+        $this->postJson('/api/v1/desk/sessions/501/tables/1/state', ['state' => 'live'])->assertUnprocessable();
+        $this->postJson('/api/v1/desk/sessions/501/tables/1/state', ['state' => 'closed'])->assertOk();
+        $this->assertSame('closed', DB::table('mirror_session_tables')->where('session_id', 501)->value('table_status'));
+        $this->postJson('/api/v1/desk/sessions/501/tables/1/state', ['state' => 'open'])->assertOk();
+        // The authoritative sync decides whether the released table still
+        // needs setup. The OS must not invent game settings or paint it live.
+        $this->assertSame('closed', DB::table('mirror_session_tables')->where('session_id', 501)->value('table_status'));
+        $this->assertNull(DB::table('mirror_session_tables')->where('session_id', 501)->value('timer_running'));
+    }
+
+    public function test_cash_buy_in_and_seat_moves_skip_unopened_and_admin_closed_tables(): void
+    {
+        app(CloudLinkState::class)->markOffline();
+        $deskId = $this->linkedCashDesk();
+        $this->mirrorTable(1, ['table_status' => 'unopened', 'table_phase' => 'closed', 'table_kind' => 'house']);
+        $this->mirrorTable(2, ['table_status' => 'closed', 'table_phase' => 'closed', 'table_kind' => 'house']);
+        $this->mirrorTable(3, ['table_status' => 'open', 'table_phase' => 'open', 'table_kind' => 'house']);
+        DB::table('mirror_players')->insert([
+            'cloud_id' => 701, 'npl_id' => 'PUBLIC701', 'display_name' => 'Public member',
+            'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $desk = app(TournamentDeskService::class);
+        $desk->apply($deskId, 'PUBLIC701', 'buy_in');
+        $this->assertSame(3, (int) DB::table('tournament_entries')->where('tournament_session_id', $deskId)->where('player_npl_id', 'PUBLIC701')->value('table_number'));
+        foreach ([1, 2] as $number) {
+            try {
+                $desk->seat($deskId, 'PUBLIC701', $number, 1);
+                $this->fail('Unavailable cash tables must reject seat moves.');
+            } catch (\Illuminate\Validation\ValidationException $error) {
+                $this->assertArrayHasKey('table_number', $error->errors());
+            }
+        }
+    }
+
     public function test_the_seat_map_pull_stores_each_tables_stopwatch(): void
     {
         $this->activateLicense();
