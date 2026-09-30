@@ -18,7 +18,8 @@ import "@fontsource/inter/latin-700.css"
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react"
 import { ScanLine, RefreshCw, ShieldCheck, Undo2 } from "lucide-react"
 import PrizeWheel, { type SpinOutcome } from "./PrizeWheel"
-import { toWheelPrizes, wheelApi, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier } from "./wheelApi"
+import { toWheelPrizes, wheelApi, WheelApiError, type WheelApproval, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier } from "./wheelApi"
+import WheelApprovalGate, { WheelOperatorSignIn, wheelApprovalStorageKey, type WheelOperator } from "./WheelApprovalGate"
 import { hueGradients, type WheelPrize } from "./wheelPrizes"
 import { money } from "../desk/deskApi"
 import "./jackpot-wheel.css"
@@ -100,7 +101,13 @@ function WheelOddsList({ prizes, golden }: { prizes: WheelPrize[], golden: boole
  * the all-golden wheel and the SAME player draws again — that second draw
  * is the prize that pays (and what comes off the jackpot).
  */
-export default function JackpotWheelWorkspace() {
+export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { staff: WheelOperator | null; onIdentityRefresh: (staff: WheelOperator) => void }) {
+  const [reauth, setReauth] = useState(false)
+  const [spinInProgress, setSpinInProgress] = useState(false)
+  const [approval, setApproval] = useState<WheelApproval | null>(null)
+  const [now, setNow] = useState(Date.now())
+  const token = staff?.admin_token ?? ""
+  const venueId = Number(window.localStorage.getItem("npl.activeVenueId")) || null
   const poolCents = useJackpotPool()
   const [segments, setSegments] = useState<WheelSegment[] | null>(null)
   const [goldenSegments, setGoldenSegments] = useState<WheelSegment[]>([])
@@ -123,6 +130,8 @@ export default function JackpotWheelWorkspace() {
   // A spin's reference survives a failed attempt so the retry can never
   // double-award — the cloud treats the same reference as the same spin.
   const referenceRef = useRef<string | null>(null)
+
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -164,7 +173,7 @@ export default function JackpotWheelWorkspace() {
     setScanBusy(true)
     setScanError(null)
     try {
-      const result = await wheelApi.lookup(nplId)
+      const result = await wheelApi.lookup(nplId, token)
 
       // A golden draw won earlier but never taken (crash, closed app)
       // resumes first — it is already paid for, eligibility or not.
@@ -178,6 +187,7 @@ export default function JackpotWheelWorkspace() {
       }
 
       setPlayer(result.player)
+      setApproval(null)
       setEligibility(result.eligibility)
       setActiveWheel(pendingGolden ? "golden" : "normal")
       setGoldenParentRef(pendingGolden ? pendingGolden.parent_reference : null)
@@ -186,6 +196,7 @@ export default function JackpotWheelWorkspace() {
       setSpinError(null)
       referenceRef.current = null
     } catch (error) {
+      if (error instanceof WheelApiError && error.status === 401) setReauth(true)
       setScanError(error instanceof Error ? error.message : "The player could not be found.")
     } finally {
       setScanBusy(false)
@@ -193,6 +204,9 @@ export default function JackpotWheelWorkspace() {
   }
 
   function resetToScan() {
+    if (spinInProgress) return
+    if (outcome && player) sessionStorage.removeItem(wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef))
+    setApproval(null)
     setPlayer(null)
     setEligibility(null)
     setScanError(null)
@@ -206,21 +220,22 @@ export default function JackpotWheelWorkspace() {
   }
 
   async function requestSpin(): Promise<SpinOutcome | null> {
-    if (!player) return null
+    if (!player || spinInProgress) return null
     // One draw per scan — a settled outcome means the wheel is done
     // (the golden follow-up runs on a freshly-mounted, unlocked wheel).
     if (outcome !== null) return null
 
     setSpinError(null)
+    setSpinInProgress(true)
     referenceRef.current ??= `WS-${crypto.randomUUID().replace(/-/g, "").slice(0, 24).toUpperCase()}`
-    const storedVenue = window.localStorage.getItem("npl.activeVenueId")
-    const venueId = storedVenue ? Number(storedVenue) || null : null
 
     try {
       const { spin } = await wheelApi.spin(
         referenceRef.current,
         player.npl_id,
-        venueId,
+        approval?.venue_id ?? venueId,
+        token,
+        approval?.id,
         activeWheel === "golden" && goldenParentRef
           ? { wheel: "golden", parentReference: goldenParentRef }
           : undefined,
@@ -240,6 +255,8 @@ export default function JackpotWheelWorkspace() {
         followUp: spin.follow_up === "golden_wheel" ? "golden_wheel" : null,
       }
     } catch (error) {
+      setSpinInProgress(false)
+      if (error instanceof WheelApiError && error.status === 401) setReauth(true)
       // Keep the reference: pressing SPIN again retries the SAME spin.
       setSpinError(error instanceof Error ? error.message : "The spin could not be completed. Nothing was drawn.")
       return null
@@ -251,7 +268,10 @@ export default function JackpotWheelWorkspace() {
    * wheel instead of finishing — the follow-up draw is the real prize.
    */
   function handleSettled(settled: SpinOutcome) {
+    setSpinInProgress(false)
     if (settled.followUp === "golden_wheel" && settled.reference) {
+      if (player) sessionStorage.removeItem(wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef))
+      setApproval(null)
       setActiveWheel("golden")
       setGoldenParentRef(settled.reference)
       setSpinError(null)
@@ -260,6 +280,15 @@ export default function JackpotWheelWorkspace() {
       return
     }
     setOutcome(settled)
+  }
+
+  if (!spinInProgress && !outcome && staff && (!token || reauth || (staff.admin_token_expires_at && new Date(staff.admin_token_expires_at).getTime() <= now))) {
+    return <WheelOperatorSignIn staff={staff} onSignedIn={(identity) => { onIdentityRefresh(identity); setReauth(false) }} />
+  }
+
+  if (!spinInProgress && player && outcome === null && eligibility?.approval_required !== false && (!approval || (approval.status !== "consumed" && new Date(approval.expires_at).getTime() <= now))) {
+    return <WheelApprovalGate key={wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef)} player={player} wheel={activeWheel} parentReference={goldenParentRef} venueId={venueId} token={token} operatorId={staff?.id ?? ""}
+      onApproved={(approved) => { setApproval(approved); referenceRef.current = approved.reference }} onBack={resetToScan} onAuthExpired={() => setReauth(true)} />
   }
 
   if (!player) {
@@ -275,7 +304,7 @@ export default function JackpotWheelWorkspace() {
           ) : null}
           <h1 id="wheel-scan-heading">Scan the player to spin</h1>
           <p className="wheel-scan-card__lead">
-            Scan their club card or enter the NPL ID — same as registration. The wheel opens once the player is identified.
+            Scan their club card or enter the NPL ID. TDs and Admins then submit a hand photo for Super Admin approval.
           </p>
 
           <form className="wheel-scan-card__form" onSubmit={(event) => void submitScan(event)}>
@@ -290,7 +319,7 @@ export default function JackpotWheelWorkspace() {
             />
             <button type="submit" disabled={scanBusy || !scanValue.trim()}>
               {scanBusy ? <RefreshCw size={17} className="wheel-scan-card__spin" /> : <ScanLine size={17} />}
-              {scanBusy ? "Finding…" : "Open the wheel"}
+              {scanBusy ? "Finding…" : "Continue"}
             </button>
           </form>
 
@@ -333,7 +362,7 @@ export default function JackpotWheelWorkspace() {
       aria-label={`${isGolden ? "Golden Wheel" : "Jackpot Wheel"} — ${player.display_name}`}
     >
       {outcome === null && !isGolden ? (
-        <button type="button" className="wheel-fullscreen__leave" onClick={resetToScan}>
+        <button type="button" className="wheel-fullscreen__leave" onClick={resetToScan} disabled={spinInProgress}>
           <Undo2 size={15} /> Change player
         </button>
       ) : null}

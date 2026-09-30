@@ -134,7 +134,7 @@ final class CloudClient
             ->withHeaders(['Idempotency-Key' => (string) Str::uuid()]);
 
         try {
-            $response = $request->send(strtoupper($method), $this->url($path), ['json' => $payload]);
+            $response = $request->send(strtoupper($method), $this->url($path), [strtoupper($method) === 'GET' ? 'query' : 'json' => $payload]);
         } catch (ConnectionException $e) {
             $this->link->markOffline();
 
@@ -145,6 +145,23 @@ final class CloudClient
 
         $this->assertOk($response, $path);
 
+        return $this->unwrap($response, $path);
+    }
+
+    /** A private hand photo, sent with both the desk licence and operator identity. */
+    public function postFileAs(string $path, array $payload, \Illuminate\Http\UploadedFile $photo, string $bearerToken): array
+    {
+        $this->guard($path);
+        try {
+            $response = $this->base()->withToken($bearerToken)
+                ->attach('photo', file_get_contents($photo->getRealPath()), 'hand.'.$photo->extension())
+                ->post($this->url($path), $payload);
+        } catch (ConnectionException $e) {
+            $this->link->markOffline();
+            throw new CloudException(CloudException::UNREACHABLE, 'Could not reach the NPL cloud.', null, $e);
+        }
+        $this->link->markOnline();
+        $this->assertOk($response, $path);
         return $this->unwrap($response, $path);
     }
 

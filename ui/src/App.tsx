@@ -135,8 +135,7 @@ type StaffIdentity = {
   // Game Structure tab. Older stored sessions carry neither.
   role_key?: string
   super_admin?: boolean
-  // A super admin's own sign-in, kept for the Game Structure tab's saves
-  // (the cloud accepts those only from the person). Null for everyone else.
+  // Person-scoped sign-in for wheel verification and authorised cloud writes.
   admin_token?: string | null
   admin_token_expires_at?: string | null
 }
@@ -1232,7 +1231,7 @@ export default function App() {
                 {visibleSection === "tournament" ? (
                   <HostWorkspace venue={activeVenue} />
                 ) : visibleSection === "jackpot" ? (
-                  <JackpotWheelWorkspace />
+                  <JackpotWheelWorkspace staff={activeStaff} onIdentityRefresh={storeConsoleIdentity} />
                 ) : visibleSection === "membership" ? (
                   <MembershipWorkspace venue={activeVenue} />
                 ) : visibleSection === "players" ? (

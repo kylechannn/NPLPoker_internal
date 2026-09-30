@@ -85,6 +85,8 @@ Route::prefix('v1/wheel')->controller(\App\Http\Controllers\Api\WheelController:
     Route::get('pool', 'pool');
     Route::post('lookup', 'lookup');
     Route::post('spin', 'spin');
+    Route::post('approvals', 'requestApproval');
+    Route::get('approvals/{id}', 'approval')->whereNumber('id');
 });
 
 // Finished-game reports, read back FROM THE CLOUD (the book of record) —

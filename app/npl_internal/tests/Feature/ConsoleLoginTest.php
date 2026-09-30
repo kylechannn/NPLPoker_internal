@@ -60,7 +60,7 @@ class ConsoleLoginTest extends TestCase
             && $request['password'] === 'Secret123!');
     }
 
-    public function test_a_tournament_directors_token_is_discarded(): void
+    public function test_a_tournament_directors_token_is_kept_for_verified_wheel_requests(): void
     {
         Http::fake([
             '*/api/v1/admin/auth/login' => Http::response([
@@ -86,8 +86,7 @@ class ConsoleLoginTest extends TestCase
             ->assertJsonPath('data.identity.role', 'Tournament Director')
             ->assertJsonPath('data.identity.role_key', 'td')
             ->assertJsonPath('data.identity.super_admin', false)
-            ->assertJsonPath('data.identity.admin_token', null)
-            ->assertJsonPath('data.identity.admin_token_expires_at', null);
+            ->assertJsonPath('data.identity.admin_token', 'jwt-td');
     }
 
     public function test_wrong_website_credentials_read_back_the_clouds_sentence(): void

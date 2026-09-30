@@ -90,6 +90,7 @@ final class WheelController extends Controller
     /** Scan gate: resolve the player who is about to spin. */
     public function lookup(Request $request): JsonResponse
     {
+        abort_unless($request->bearerToken(), 401, 'Sign in again to use the wheel.');
         $validated = $request->validate([
             'npl_id' => ['required', 'string', 'max:32'],
         ]);
@@ -112,12 +113,12 @@ final class WheelController extends Controller
         $eligibility = null;
 
         try {
-            $result = $this->cloud->getJson('/api/v1/internal/wheel/eligibility', [
+            $result = $this->cloud->sendAs('GET', '/api/v1/internal/wheel/eligibility', [
                 'npl_id' => (string) $player->npl_id,
-            ]);
-            $eligibility = (array) ($result['data'] ?? []);
-        } catch (CloudException) {
-            // Leave it unknown.
+            ], $request->bearerToken());
+            $eligibility = $result;
+        } catch (CloudException $e) {
+            return $this->wheelError($e);
         }
 
         return $this->ok([
@@ -138,39 +139,72 @@ final class WheelController extends Controller
      */
     public function spin(Request $request): JsonResponse
     {
+        abort_unless($request->bearerToken(), 401, 'Sign in again to use the wheel.');
         $validated = $request->validate([
             'reference' => ['required', 'string', 'min:8', 'max:64'],
+            'approval_request_id' => ['nullable', 'integer'],
             'npl_id' => ['required', 'string', 'max:32'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
             'game_session_id' => ['sometimes', 'nullable', 'integer'],
             // Golden follow-up draw, funded by the normal spin that landed
             // on the golden segment.
             'wheel' => ['sometimes', 'in:normal,golden'],
-            'parent_reference' => ['required_if:wheel,golden', 'nullable', 'string', 'min:8', 'max:61'],
+            'parent_reference' => ['required_if:wheel,golden', 'nullable', 'string', 'min:8', 'max:64'],
         ]);
 
         try {
-            $result = $this->cloud->postJson('/api/v1/internal/wheel/spins', array_filter([
+            $result = $this->cloud->sendAs('POST', '/api/v1/internal/wheel/spins', array_filter([
                 'reference' => $validated['reference'],
                 'npl_id' => trim($validated['npl_id']),
                 'venue_id' => $validated['venue_id'] ?? null,
                 'game_session_id' => $validated['game_session_id'] ?? null,
                 'wheel' => $validated['wheel'] ?? null,
                 'parent_reference' => $validated['parent_reference'] ?? null,
-            ], fn ($value): bool => $value !== null), $validated['reference']);
+                'approval_request_id' => $validated['approval_request_id'] ?? null,
+            ], fn ($value): bool => $value !== null), $request->bearerToken());
         } catch (CloudException $e) {
-            return response()->json([
-                'ok' => false,
-                'error' => [
-                    'code' => $e->errorCode,
-                    'message' => $e->errorCode === CloudException::UNREACHABLE
-                        ? 'The NPL cloud could not be reached — the wheel needs a connection to award real prizes. Nothing was drawn.'
-                        : $e->getMessage(),
-                ],
-            ], 502);
+            return $this->wheelError($e);
         }
 
         return $this->ok(['spin' => $result]);
+    }
+
+    public function requestApproval(Request $request): JsonResponse
+    {
+        abort_unless($request->bearerToken(), 401, 'Sign in again to request a spin.');
+        $input = $request->validate([
+            'reference' => ['required', 'string', 'min:8', 'max:64'],
+            'npl_id' => ['required', 'string', 'max:32'],
+            'venue_id' => ['nullable', 'integer'], 'game_session_id' => ['nullable', 'integer'],
+            'wheel' => ['required', 'in:normal,golden'],
+            'parent_reference' => ['required_if:wheel,golden', 'nullable', 'string', 'max:64'],
+            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:6144'],
+        ]);
+        unset($input['photo']);
+        try {
+            return $this->ok($this->cloud->postFileAs('/api/v1/internal/wheel/approvals', array_filter($input, fn ($v) => $v !== null), $request->file('photo'), $request->bearerToken()));
+        } catch (CloudException $e) {
+            return $this->wheelError($e);
+        }
+    }
+
+    public function approval(Request $request, int $id): JsonResponse
+    {
+        abort_unless($request->bearerToken(), 401, 'Sign in again to view the request.');
+        try {
+            return $this->ok($this->cloud->sendAs('GET', '/api/v1/internal/wheel/approvals/'.$id, [], $request->bearerToken()));
+        } catch (CloudException $e) {
+            return $this->wheelError($e);
+        }
+    }
+
+    private function wheelError(CloudException $e): JsonResponse
+    {
+        $message = $e->errorCode === CloudException::UNREACHABLE
+            ? 'The cloud could not be reached. Check the connection and retry the same request.'
+            : preg_replace('/^.*failed \(\d+\): /', '', $e->getMessage());
+        return response()->json(['ok' => false, 'error' => ['code' => $e->errorCode, 'message' => $message]],
+            in_array($e->status, [401, 403, 404, 409, 422], true) ? $e->status : 502);
     }
 
     /**

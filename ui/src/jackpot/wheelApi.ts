@@ -32,6 +32,7 @@ export type WheelPlayer = {
 
 /** The cloud's spin gate. Null when the cloud could not be asked. */
 export type WheelEligibility = {
+  approval_required?: boolean
   mode: "operator" | "jackpot_entry"
   eligible: boolean
   spins_available: number | null
@@ -74,12 +75,22 @@ export function toWheelPrizes(segments: WheelSegment[]): WheelPrize[] {
   }))
 }
 
+export type WheelApproval = {
+  id: number; reference: string; status: "pending" | "approved" | "rejected" | "expired" | "consumed"
+  expires_at: string; review_note: string | null; reviewed_by: string | null; venue_id: number | null
+}
+
+export class WheelApiError extends Error {
+  constructor(message: string, public status: number) { super(message) }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: {
       Accept: "application/json",
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
     },
   })
 
@@ -89,7 +100,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok || body?.ok === false) {
     const validation = body?.errors ? Object.values(body.errors).flat()[0] : null
-    throw new Error(body?.error?.message || validation || body?.message || "The local wheel service failed.")
+    throw new WheelApiError(body?.error?.message || validation || body?.message || "The local wheel service failed.", response.status)
   }
 
   return (body?.data ?? body) as T
@@ -104,19 +115,25 @@ export const wheelApi = {
   pool: (fresh = false) =>
     request<{ pool: { amount_cents: number | null } | null }>(`/api/v1/wheel/pool${fresh ? "?fresh=1" : ""}`),
 
-  lookup: (nplId: string) =>
+  lookup: (nplId: string, token: string) =>
     request<{ player: WheelPlayer, eligibility: WheelEligibility }>("/api/v1/wheel/lookup", {
       method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ npl_id: nplId }),
     }),
 
-  spin: (reference: string, nplId: string, venueId: number | null, chain?: { wheel: WheelTier, parentReference: string }) =>
+  approval: (id: number, token: string) => request<WheelApproval>(`/api/v1/wheel/approvals/${id}`, { headers: { Authorization: `Bearer ${token}` } }),
+  requestApproval: (form: FormData, token: string) => request<WheelApproval>("/api/v1/wheel/approvals", { method: "POST", body: form, headers: { Authorization: `Bearer ${token}` } }),
+
+  spin: (reference: string, nplId: string, venueId: number | null, token: string, approvalId?: number, chain?: { wheel: WheelTier, parentReference: string }) =>
     request<{ spin: SpinResult }>("/api/v1/wheel/spin", {
       method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         reference,
         npl_id: nplId,
         venue_id: venueId,
+        approval_request_id: approvalId,
         ...(chain ? { wheel: chain.wheel, parent_reference: chain.parentReference } : {}),
       }),
     }),

@@ -559,7 +559,7 @@
 .npl-wheel-modal {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 80;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -1347,3 +1347,15 @@
     display: none;
   }
 }
+.wheel-approval { max-width: 620px; display: grid; gap: 18px; text-align: left; }
+.wheel-approval h1, .wheel-approval p { margin: 0; }
+.wheel-approval p { line-height: 1.6; }
+.wheel-approval label { display: grid; gap: 8px; }
+.wheel-approval button, .wheel-approval__upload { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #35bdd866; background: #103448; color: #eaf8ff; border-radius: 10px; padding: 12px 18px; cursor: pointer; font: inherit; }
+.wheel-approval button:disabled { opacity: .5; cursor: default; }
+.wheel-approval input[type=password] { padding: 12px; border-radius: 8px; background: #07141d; color: white; border: 1px solid #688493; }
+.wheel-approval__actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.wheel-approval .wheel-approval__upload { position: relative; overflow: hidden; }
+.wheel-approval__upload input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.wheel-approval__photo { width: 100%; max-height: 360px; object-fit: contain; border-radius: 12px; background: #050a12; }
+.wheel-approval .wheel-approval__back { background: transparent; border-color: #65758266; }
