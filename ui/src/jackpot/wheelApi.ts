@@ -76,9 +76,12 @@ export function toWheelPrizes(segments: WheelSegment[]): WheelPrize[] {
 }
 
 export type WheelApproval = {
-  id: number; reference: string; status: "pending" | "approved" | "rejected" | "expired" | "consumed"
+  id: number; reference: string; status: "awaiting_photo" | "pending" | "approved" | "rejected" | "expired" | "consumed"
   expires_at: string; review_note: string | null; reviewed_by: string | null; venue_id: number | null
+  game_session_id: number | null; tournament_uid: string | null; session_name: string | null
 }
+
+export type WheelSession = { tournament_uid: string; game_session_id: number | null; name: string | null }
 
 export class WheelApiError extends Error {
   constructor(message: string, public status: number) { super(message) }
@@ -116,16 +119,16 @@ export const wheelApi = {
     request<{ pool: { amount_cents: number | null } | null }>(`/api/v1/wheel/pool${fresh ? "?fresh=1" : ""}`),
 
   lookup: (nplId: string, token: string) =>
-    request<{ player: WheelPlayer, eligibility: WheelEligibility }>("/api/v1/wheel/lookup", {
+    request<{ player: WheelPlayer, eligibility: WheelEligibility, session: WheelSession | null }>("/api/v1/wheel/lookup", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ npl_id: nplId }),
     }),
 
   approval: (id: number, token: string) => request<WheelApproval>(`/api/v1/wheel/approvals/${id}`, { headers: { Authorization: `Bearer ${token}` } }),
-  requestApproval: (form: FormData, token: string) => request<WheelApproval>("/api/v1/wheel/approvals", { method: "POST", body: form, headers: { Authorization: `Bearer ${token}` } }),
+  requestApproval: (input: { reference: string; npl_id: string; wheel: WheelTier; parent_reference: string | null; tournament_uid: string }, token: string) => request<WheelApproval>("/api/v1/wheel/approvals", { method: "POST", body: JSON.stringify(input), headers: { Authorization: `Bearer ${token}` } }),
 
-  spin: (reference: string, nplId: string, venueId: number | null, token: string, approvalId?: number, chain?: { wheel: WheelTier, parentReference: string }) =>
+  spin: (reference: string, nplId: string, venueId: number | null, token: string, approvalId?: number, chain?: { wheel: WheelTier, parentReference: string }, gameSessionId?: number | null) =>
     request<{ spin: SpinResult }>("/api/v1/wheel/spin", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -134,6 +137,7 @@ export const wheelApi = {
         npl_id: nplId,
         venue_id: venueId,
         approval_request_id: approvalId,
+        game_session_id: gameSessionId,
         ...(chain ? { wheel: chain.wheel, parent_reference: chain.parentReference } : {}),
       }),
     }),

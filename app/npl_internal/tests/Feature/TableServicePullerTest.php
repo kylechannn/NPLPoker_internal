@@ -24,6 +24,7 @@ class TableServicePullerTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Http::preventStrayRequests();
 
         // A real licence lease so LicenseKeyProvider (and the broadcaster's
         // activation guard) run their genuine paths.
@@ -113,15 +114,15 @@ class TableServicePullerTest extends TestCase
 
     public function test_a_resolved_phone_rebuy_lands_in_the_ledger_once_and_is_acked(): void
     {
+        $this->fakeCloud([
+            ['id' => 77, 'npl_id' => 'NPL5001', 'kind' => 'rebuy', 'table_number' => 3],
+        ]);
+
         $id = $this->tournament();
         $this->mirrorPlayer('NPL5001', 'Alex Chen');
 
         app(TournamentDeskService::class)->apply($id, 'NPL5001', 'buy_in', ['first_buy_in' => true]);
         app(TournamentClockService::class)->start($id);
-
-        $this->fakeCloud([
-            ['id' => 77, 'npl_id' => 'NPL5001', 'kind' => 'rebuy', 'table_number' => 3],
-        ]);
 
         $result = $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->json('data');
 
@@ -144,16 +145,16 @@ class TableServicePullerTest extends TestCase
 
     public function test_a_cap_refusal_is_acked_as_a_permanent_failure(): void
     {
+        $this->fakeCloud([
+            ['id' => 88, 'npl_id' => 'NPL5002', 'kind' => 'rebuy', 'table_number' => 1],
+        ]);
+
         $id = $this->tournament(['max_rebuys_per_player' => 1]);
         $this->mirrorPlayer('NPL5002', 'Sam Fold');
 
         app(TournamentDeskService::class)->apply($id, 'NPL5002', 'buy_in', ['first_buy_in' => true]);
         app(TournamentClockService::class)->start($id);
         app(TournamentDeskService::class)->apply($id, 'NPL5002', 'rebuy', []);
-
-        $this->fakeCloud([
-            ['id' => 88, 'npl_id' => 'NPL5002', 'kind' => 'rebuy', 'table_number' => 1],
-        ]);
 
         $result = $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->json('data');
 
@@ -167,11 +168,11 @@ class TableServicePullerTest extends TestCase
 
     public function test_the_desk_panel_sees_the_pending_queue_in_the_same_pull(): void
     {
-        $id = $this->tournament();
-
         $this->fakeCloud([], [
             ['id' => 5, 'npl_id' => 'NPL9001', 'kind' => 'assistance', 'note' => 'Chip change', 'table_number' => 2],
         ]);
+
+        $id = $this->tournament();
 
         $result = $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->json('data');
 
@@ -182,15 +183,15 @@ class TableServicePullerTest extends TestCase
 
     public function test_the_desk_handles_a_money_request_itself_ledger_first_then_the_cloud(): void
     {
+        $this->fakeCloud([], [
+            ['id' => 91, 'npl_id' => 'NPL5003', 'kind' => 'rebuy', 'table_number' => 1],
+        ]);
+
         $id = $this->tournament();
         $this->mirrorPlayer('NPL5003', 'Riva Splash');
 
         app(TournamentDeskService::class)->apply($id, 'NPL5003', 'buy_in', ['first_buy_in' => true]);
         app(TournamentClockService::class)->start($id);
-
-        $this->fakeCloud([], [
-            ['id' => 91, 'npl_id' => 'NPL5003', 'kind' => 'rebuy', 'table_number' => 1],
-        ]);
 
         $this->postJson("/api/v1/desk/{$id}/service-handle", ['request_id' => 91])
             ->assertOk()
@@ -209,11 +210,11 @@ class TableServicePullerTest extends TestCase
 
     public function test_the_desk_resolves_assistance_without_touching_the_ledger(): void
     {
-        $id = $this->tournament();
-
         $this->fakeCloud([], [
             ['id' => 92, 'npl_id' => 'NPL9002', 'kind' => 'assistance', 'table_number' => 4],
         ]);
+
+        $id = $this->tournament();
 
         $this->postJson("/api/v1/desk/{$id}/service-handle", ['request_id' => 92])->assertOk();
 

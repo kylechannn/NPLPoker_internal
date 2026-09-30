@@ -2677,3 +2677,12 @@
   text-transform: uppercase;
   color: #93c5fd;
 }
+.host-cash-setup { display: grid; gap: 16px; }
+.host-cash-setup label { display: grid; gap: 6px; }
+.host-cash-setup select,
+.host-cash-setup textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid #3d424d;
+  border-radius: 6px; background: #171a20; color: #f0f2f5; font: inherit;
+}
+.host-cash-setup p { line-height: 1.5; }
+.host-cash-setup [role="alert"] { color: #ffaba5; }

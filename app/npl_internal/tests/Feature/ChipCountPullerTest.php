@@ -25,6 +25,7 @@ class ChipCountPullerTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Http::preventStrayRequests();
 
         $this->dataDir = sys_get_temp_dir().'/npl-internal-test-'.uniqid();
         mkdir($this->dataDir, 0o777, true);
@@ -128,16 +129,16 @@ class ChipCountPullerTest extends TestCase
 
     public function test_pulled_counts_land_on_the_seats_and_in_the_rail(): void
     {
+        $this->fakeCloudCounts([
+            ['npl_id' => 'npl6001', 'chips' => 125500, 'recorded_by' => 'Floor Admin', 'updated_at' => now()->toIso8601String()],
+        ]);
+
         $id = $this->tournament();
         $this->mirrorPlayer('NPL6001', 'Alex Chen');
         $this->mirrorPlayer('NPL6002', 'Sam Fold');
         $desk = app(TournamentDeskService::class);
         $desk->apply($id, 'NPL6001', 'buy_in', ['first_buy_in' => true]);
         $desk->apply($id, 'NPL6002', 'buy_in', ['first_buy_in' => true]);
-
-        $this->fakeCloudCounts([
-            ['npl_id' => 'npl6001', 'chips' => 125500, 'recorded_by' => 'Floor Admin', 'updated_at' => now()->toIso8601String()],
-        ]);
 
         $sync = $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->json('data');
         $this->assertSame(1, $sync['chip_counts']['counted']);
@@ -164,10 +165,6 @@ class ChipCountPullerTest extends TestCase
 
     public function test_a_cloud_clear_empties_the_desk_but_a_failed_pull_keeps_it(): void
     {
-        $id = $this->tournament();
-        $this->mirrorPlayer('NPL6001', 'Alex Chen');
-        app(TournamentDeskService::class)->apply($id, 'NPL6001', 'buy_in', ['first_buy_in' => true]);
-
         // One mutable fake for the whole scenario — stacked Http::fake()
         // calls keep the first matching stub, so re-faking mid-test lies.
         $counts = [
@@ -201,6 +198,10 @@ class ChipCountPullerTest extends TestCase
 
             return Http::response(['ok' => true, 'data' => ['tournament' => [], 'broadcast' => false]]);
         });
+
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL6001', 'Alex Chen');
+        app(TournamentDeskService::class)->apply($id, 'NPL6001', 'buy_in', ['first_buy_in' => true]);
 
         $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk();
         $this->assertSame(1, DB::table('live_chip_counts')->count());

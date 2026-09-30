@@ -4,13 +4,24 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Cloud\CloudCallQueue;
+use App\Services\Cloud\CloudClient;
+use App\Services\Cloud\CloudException;
+use App\Services\Cloud\LicenseKeyProvider;
+use App\Services\Sync\SyncService;
 use App\Services\Tournament\BlindStructureGenerator;
+use App\Services\Tournament\ChipCountPuller;
+use App\Services\Tournament\TableServicePuller;
+use App\Services\Tournament\TournamentBroadcaster;
 use App\Services\Tournament\TournamentDeskService;
 use App\Support\MirrorTableTimer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The operator's desk: scanning players in, taking money, and moving people
@@ -25,9 +36,9 @@ final class DeskController
     public function __construct(
         private readonly TournamentDeskService $desk,
         private readonly BlindStructureGenerator $structures,
-        private readonly \App\Services\Cloud\CloudClient $cloud,
-        private readonly \App\Services\Sync\SyncService $sync,
-        private readonly \App\Services\Cloud\CloudCallQueue $queue,
+        private readonly CloudClient $cloud,
+        private readonly SyncService $sync,
+        private readonly CloudCallQueue $queue,
     ) {}
 
     /** Venues this install can host for — drives the header picker. */
@@ -93,12 +104,12 @@ final class DeskController
     {
         try {
             $result = $this->cloud->getJson(sprintf('/api/v1/internal/sessions/%d/registrations', $gameSessionId));
-        } catch (\App\Services\Cloud\CloudException $e) {
+        } catch (CloudException $e) {
             return response()->json([
                 'ok' => false,
                 'error' => [
                     'code' => $e->errorCode,
-                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                    'message' => $e->errorCode === CloudException::UNREACHABLE
                         ? 'The NPL cloud could not be reached — the registration record needs a connection.'
                         : $e->getMessage(),
                 ],
@@ -110,7 +121,7 @@ final class DeskController
         // Overlay the operator's own queued-but-unsent changes so the
         // record NEVER shows a player they just removed (or a promotion
         // they just made) as pending network work.
-        $pendingJobs = \Illuminate\Support\Facades\DB::table('cloud_call_queue')
+        $pendingJobs = DB::table('cloud_call_queue')
             ->where('group_key', 'session:'.$gameSessionId)
             ->whereIn('status', ['pending', 'sending'])
             ->get(['method', 'path']);
@@ -157,12 +168,12 @@ final class DeskController
                 'venue_id' => $validated['venue_id'] ?? null,
                 'after' => $validated['after'] ?? null,
             ], fn ($v) => $v !== null));
-        } catch (\App\Services\Cloud\CloudException $e) {
+        } catch (CloudException $e) {
             return response()->json([
                 'ok' => false,
                 'error' => [
                     'code' => $e->errorCode,
-                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                    'message' => $e->errorCode === CloudException::UNREACHABLE
                         ? 'The NPL cloud could not be reached — chat needs a connection.'
                         : $e->getMessage(),
                 ],
@@ -286,7 +297,7 @@ final class DeskController
      */
     public function cancelCloudTable(int $gameSessionId, int $tableNumber): JsonResponse
     {
-        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+        DB::table('mirror_session_tables')
             ->where('session_id', $gameSessionId)
             ->where('table_number', $tableNumber)
             ->delete();
@@ -310,7 +321,7 @@ final class DeskController
      */
     public function stopCloudTableCountdown(int $gameSessionId, int $tableNumber): JsonResponse
     {
-        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+        DB::table('mirror_session_tables')
             ->where('session_id', $gameSessionId)
             ->where('table_number', $tableNumber)
             ->update(['activation_deadline_at' => null, 'updated_at' => now()]);
@@ -349,15 +360,24 @@ final class DeskController
         // The table's stopwatch follows the cloud's rule: going live starts
         // it, open / closed reset it, and a table already counting (or
         // paused with time banked) keeps what the director set.
-        $tableRows = \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+        $tableRows = DB::table('mirror_session_tables')
             ->where('session_id', $gameSessionId)
             ->where('table_number', $tableNumber);
         $current = (clone $tableRows)->first();
-        if ($state === 'live' && $current?->table_status === 'unopened') {
-            return response()->json([
-                'ok' => false,
-                'error' => ['code' => 'TABLE_UNOPENED', 'message' => 'A player must choose the game settings and open this table first.'],
-            ], 422);
+        if ($state !== 'closed' && ($current?->setup_required || $current?->table_status === 'unopened')) {
+            $setup = $request->validate([
+                'game_mode' => ['required', 'string', 'max:60'],
+                'blinds_text' => ['required', 'string', 'max:60'],
+                'rules_text' => ['sometimes', 'nullable', 'string', 'max:500'],
+                'allow_strangers' => ['prohibited'],
+            ]);
+
+            return $this->cloudDeskCall(sprintf('/api/v1/internal/sessions/%d/tables/%d/state', $gameSessionId, $tableNumber), $gameSessionId, 'post', ['state' => $state] + $setup);
+        }
+        // Restoring a cancelled row needs the server's current capacity check;
+        // never repaint it as accepted while the venue may already be full.
+        if ($current?->table_status === 'cancelled') {
+            return $this->cloudDeskCall(sprintf('/api/v1/internal/sessions/%d/tables/%d/state', $gameSessionId, $tableNumber), $gameSessionId, 'post', ['state' => $state]);
         }
         $nowMs = MirrorTableTimer::nowMs();
 
@@ -410,7 +430,7 @@ final class DeskController
             ], 422);
         }
 
-        $tableRows = \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+        $tableRows = DB::table('mirror_session_tables')
             ->where('session_id', $gameSessionId)
             ->where('table_number', $tableNumber);
         $current = (clone $tableRows)->first();
@@ -476,7 +496,7 @@ final class DeskController
     {
         // The seat empties on every desk screen NOW; the cloud removal
         // (inbox notice, wait-list resolution) rides the queue.
-        \Illuminate\Support\Facades\DB::table('mirror_session_tables')
+        DB::table('mirror_session_tables')
             ->where('session_id', $gameSessionId)
             ->whereRaw('UPPER(player_npl_id) = ?', [mb_strtoupper(trim($nplId))])
             ->delete();
@@ -517,18 +537,18 @@ final class DeskController
         return $this->ok(['result' => ['queued' => true]]);
     }
 
-    private function cloudDeskCall(string $path, ?int $gameSessionId = null, string $method = 'delete'): JsonResponse
+    private function cloudDeskCall(string $path, ?int $gameSessionId = null, string $method = 'delete', array $payload = []): JsonResponse
     {
         try {
             $result = $method === 'post'
-                ? $this->cloud->postJson($path, [])
+                ? $this->cloud->postJson($path, $payload)
                 : $this->cloud->deleteJson($path);
-        } catch (\App\Services\Cloud\CloudException $e) {
+        } catch (CloudException $e) {
             return response()->json([
                 'ok' => false,
                 'error' => [
                     'code' => $e->errorCode,
-                    'message' => $e->errorCode === \App\Services\Cloud\CloudException::UNREACHABLE
+                    'message' => $e->errorCode === CloudException::UNREACHABLE
                         ? 'The NPL cloud could not be reached — this change needs a connection. Try again when the link is green.'
                         : $e->getMessage(),
                 ],
@@ -564,7 +584,7 @@ final class DeskController
         if ($session->game_session_id === null) {
             // Unlinked ad-hoc tournament: tables are pure head-count math,
             // there is nothing to create anywhere.
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'table' => ['This tournament is not linked to an online session — tables grow automatically with the field.'],
             ]);
         }
@@ -584,6 +604,7 @@ final class DeskController
             'table_number' => $tableNumber,
             'seat_number' => $seat,
             'table_status' => $session->game_type === 'cash' ? 'unopened' : 'open',
+            'setup_required' => $session->game_type === 'cash',
             'table_phase' => $session->game_type === 'cash' ? 'closed' : null,
             'table_kind' => 'house',
             'max_seats' => $maxSeats,
@@ -600,7 +621,7 @@ final class DeskController
         ], [
             'group' => 'session:'.$gameSessionId,
             'label' => sprintf('Open table %d — session #%d', $tableNumber, $gameSessionId),
-            'idempotency_key' => substr('table:'.$gameSessionId.':'.\Illuminate\Support\Str::uuid(), 0, 64),
+            'idempotency_key' => substr('table:'.$gameSessionId.':'.Str::uuid(), 0, 64),
         ]);
 
         return $this->ok([
@@ -725,11 +746,11 @@ final class DeskController
      */
     public function serviceSync(
         int $id,
-        \App\Services\Tournament\TableServicePuller $puller,
-        \App\Services\Tournament\ChipCountPuller $chips,
-        \App\Services\Cloud\CloudClient $cloud,
-        \App\Services\Cloud\LicenseKeyProvider $license,
-        \App\Services\Tournament\TournamentBroadcaster $broadcaster,
+        TableServicePuller $puller,
+        ChipCountPuller $chips,
+        CloudClient $cloud,
+        LicenseKeyProvider $license,
+        TournamentBroadcaster $broadcaster,
     ): JsonResponse {
         $empty = ['applied' => [], 'failed' => [], 'pending' => [], 'recent' => []];
 
@@ -741,7 +762,7 @@ final class DeskController
             $pulse = $cloud->getJson('/api/v1/internal/desk-pulse', [
                 'uid' => $broadcaster->uid($id),
             ])['data'] ?? [];
-        } catch (\App\Services\Cloud\CloudException $e) {
+        } catch (CloudException $e) {
             // Version skew (OS updated before the cloud, or a rollback):
             // the combined endpoint is missing, but the two standalone
             // reads still exist — fall back so the table-service loop
@@ -753,11 +774,11 @@ final class DeskController
                 return $this->ok($result);
             }
 
-            \Illuminate\Support\Facades\Log::info('desk pulse skipped', ['session' => $id, 'error' => $e->getMessage()]);
+            Log::info('desk pulse skipped', ['session' => $id, 'error' => $e->getMessage()]);
 
             return $this->ok($empty + ['chip_counts' => $chips->localSummary($id)]);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::info('desk pulse skipped', ['session' => $id, 'error' => $e->getMessage()]);
+            Log::info('desk pulse skipped', ['session' => $id, 'error' => $e->getMessage()]);
 
             return $this->ok($empty + ['chip_counts' => $chips->localSummary($id)]);
         }
@@ -772,7 +793,7 @@ final class DeskController
      * The desk handles a phone request itself — money kinds go into the
      * ledger here first, then the cloud learns "resolved, already applied".
      */
-    public function serviceHandle(Request $request, int $id, \App\Services\Tournament\TableServicePuller $puller): JsonResponse
+    public function serviceHandle(Request $request, int $id, TableServicePuller $puller): JsonResponse
     {
         $validated = $request->validate([
             'request_id' => ['required', 'integer', 'min:1'],

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { AlertTriangle, Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay, Pause, Play, QrCode, RotateCcw, ScanLine, Ticket, Undo2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
+import { CASH_TABLE_BLINDS, CASH_TABLE_GAME_TYPES } from "./cashTableSetup"
 import { notify } from "../notifications/store"
 import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
 // The scan-time staff-comments overlay styles live in players.css — the
@@ -255,6 +256,8 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [tableCard, setTableCard] = useState<{ x: number, y: number, table: DeskTable } | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [removeCandidate, setRemoveCandidate] = useState<SeatedPlayer | null>(null)
+  const [cashSetup, setCashSetup] = useState<{ tableNumber: number, gameMode: string, blinds: string, rules: string } | null>(null)
+  const [cashSetupError, setCashSetupError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
@@ -816,6 +819,12 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   function flipTable(tableNumber: number, state: "open" | "closed" | "live") {
     const gameSessionId = seating?.game_session_id
     if (gameSessionId == null) return
+    const table = seating?.tables.find((item) => item.table_number === tableNumber)
+    if (state === "open" && (table?.setup_required || table?.table_status === "unopened")) {
+      setCashSetup({ tableNumber, gameMode: "", blinds: "", rules: "" })
+      setCashSetupError(null)
+      return
+    }
     void seatAction(
       async () => {
         await deskApi.setTableState(gameSessionId, tableNumber, state)
@@ -827,6 +836,24 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
           ? `Table ${tableNumber} is live.`
           : `Table ${tableNumber} is open for registration.`,
     )
+  }
+
+  async function openCashTable() {
+    const gameSessionId = seating?.game_session_id
+    if (!cashSetup || gameSessionId == null || busy) return
+    setBusy(true)
+    setCashSetupError(null)
+    try {
+      await deskApi.setTableState(gameSessionId, cashSetup.tableNumber, "open", {
+        game_mode: cashSetup.gameMode, blinds_text: cashSetup.blinds, rules_text: cashSetup.rules,
+      })
+      applySeatingDirect(await deskApi.seating(sessionId))
+      setFlash(`Table ${cashSetup.tableNumber} is open for registration.`)
+      setCashSetup(null)
+      focusScan()
+    } catch (e) {
+      setCashSetupError(e instanceof Error ? e.message : "This table could not be opened.")
+    } finally { setBusy(false) }
   }
 
   // One-second tick, only while a table stopwatch is actually running.
@@ -1583,18 +1610,24 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       ) : null}
                       {showSwitch && table.table_phase ? (
                         <div className="host-table__switch" role="group" aria-label={`Table ${table.table_number} state`}>
-                          <i className={`host-table__phase host-table__phase--${table.table_phase}`}>{table.table_status === "unopened" ? "AWAITING PLAYER SETUP" : table.table_status === "closed" ? "CLOSED BY ADMIN" : PHASE_LABEL[table.table_phase]}</i>
+                          <i className={`host-table__phase host-table__phase--${table.table_phase}`}>{table.table_status === "unopened" ? "AWAITING SETUP" : table.table_status === "closed" ? "CLOSED BY ADMIN" : PHASE_LABEL[table.table_phase]}</i>
                           {table.table_status === "unopened" ? (
+                            <>
+                            <button type="button" className="host-table__flip host-table__flip--open" disabled={busy}
+                              title="Choose this public table's game settings and open it" onClick={() => flipTable(table.table_number, "open")}>
+                              OPEN
+                            </button>
                             <button type="button" className="host-table__flip host-table__flip--close" disabled={busy}
                               title="Close this table so players cannot open it" onClick={() => flipTable(table.table_number, "closed")}>
                               CLOSE
                             </button>
+                            </>
                           ) : table.table_phase === "closed" ? (
                             <button
                               type="button"
                               className="host-table__flip host-table__flip--open"
                               disabled={busy}
-                              title="Release the admin closure; unused public tables return to player setup"
+                              title={table.setup_required ? "Choose game settings and open this public table" : "Reopen this table with its existing settings"}
                               onClick={() => flipTable(table.table_number, "open")}
                             >
                               OPEN
@@ -1920,6 +1953,36 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   : "Countdown stopped — the table stays"}
             </dd>
           </dl>
+        </div>
+      ) : null}
+
+      {cashSetup ? (
+        <div className="host-scan-modal" role="presentation" onMouseDown={() => { if (!busy) setCashSetup(null) }}>
+          <form className="host-scan-modal__panel host-cash-setup" role="dialog" aria-modal="true" aria-labelledby="cash-setup-title"
+            onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void openCashTable() }}>
+            <h3 id="cash-setup-title">Open table {cashSetup.tableNumber}</h3>
+            <p>Choose the game and blinds. This public table opens immediately with no minimum players. Everyone can join and invite friends.</p>
+            {cashSetupError ? <p role="alert">{cashSetupError}</p> : null}
+            <label>Game type
+              <select autoFocus required disabled={busy} value={cashSetup.gameMode} onChange={(event) => setCashSetup({ ...cashSetup, gameMode: event.target.value })}>
+                <option value="">Choose game type</option>
+                {CASH_TABLE_GAME_TYPES.map((game) => <option key={game} value={game}>{game}</option>)}
+              </select>
+            </label>
+            <label>Blinds and buy-in
+              <select required disabled={busy} value={cashSetup.blinds} onChange={(event) => setCashSetup({ ...cashSetup, blinds: event.target.value })}>
+                <option value="">Choose blinds</option>
+                {CASH_TABLE_BLINDS.map((blinds) => <option key={blinds} value={blinds}>{blinds}</option>)}
+              </select>
+            </label>
+            <label>Table rules (optional)
+              <textarea disabled={busy} maxLength={500} rows={3} value={cashSetup.rules} onChange={(event) => setCashSetup({ ...cashSetup, rules: event.target.value })} />
+            </label>
+            <footer className="host-scan-modal__footer">
+              <button type="button" className="host-scan-modal__cancel" disabled={busy} onClick={() => { setCashSetup(null); focusScan() }}>Cancel</button>
+              <button type="submit" className="host-scan-modal__submit" disabled={busy || !cashSetup.gameMode || !cashSetup.blinds}>{busy ? "Opening…" : "Open table"}</button>
+            </footer>
+          </form>
         </div>
       ) : null}
 

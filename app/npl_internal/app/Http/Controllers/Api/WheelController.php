@@ -7,8 +7,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
+use App\Services\Players\PlayerResolver;
+use App\Services\Tournament\TournamentBroadcaster;
+use App\Services\Tournament\TournamentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -64,10 +68,10 @@ final class WheelController extends Controller
         // A realtime jackpot signal names a move the minute-cache would
         // hide — fresh=1 re-reads the cloud right now.
         if ($request->boolean('fresh')) {
-            \Illuminate\Support\Facades\Cache::forget('jackpot.pool');
+            Cache::forget('jackpot.pool');
         }
 
-        $cached = \Illuminate\Support\Facades\Cache::remember('jackpot.pool', 60, function (): ?array {
+        $cached = Cache::remember('jackpot.pool', 60, function (): ?array {
             try {
                 // Through CloudClient — the raw Http call skipped the CA
                 // bundle and failed TLS on venue machines (no pool shown).
@@ -97,7 +101,7 @@ final class WheelController extends Controller
 
         // Card number or NPL ID, mirror-first with live cloud fallback —
         // the same resolution as the tournament desk.
-        $player = app(\App\Services\Players\PlayerResolver::class)->resolve((string) $validated['npl_id']);
+        $player = app(PlayerResolver::class)->resolve((string) $validated['npl_id']);
 
         if (! $player || $player->status !== 'active') {
             return response()->json([
@@ -121,6 +125,8 @@ final class WheelController extends Controller
             return $this->wheelError($e);
         }
 
+        $active = app(TournamentService::class)->activeSession();
+
         return $this->ok([
             'player' => [
                 'npl_id' => $player->npl_id,
@@ -129,6 +135,11 @@ final class WheelController extends Controller
                 'state_code' => $player->state_code,
             ],
             'eligibility' => $eligibility,
+            'session' => $active ? [
+                'tournament_uid' => app(TournamentBroadcaster::class)->uid((int) $active->id),
+                'game_session_id' => $active->game_session_id,
+                'name' => $active->name,
+            ] : null,
         ]);
     }
 
@@ -175,14 +186,18 @@ final class WheelController extends Controller
         $input = $request->validate([
             'reference' => ['required', 'string', 'min:8', 'max:64'],
             'npl_id' => ['required', 'string', 'max:32'],
-            'venue_id' => ['nullable', 'integer'], 'game_session_id' => ['nullable', 'integer'],
+            'tournament_uid' => ['required', 'string', 'max:80'],
             'wheel' => ['required', 'in:normal,golden'],
             'parent_reference' => ['required_if:wheel,golden', 'nullable', 'string', 'max:64'],
-            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:6144'],
+            'photo' => ['prohibited'],
         ]);
-        unset($input['photo']);
+        $active = app(TournamentService::class)->activeSession();
+        abort_unless($active, 422, 'Open a session on the OS and bind the staff phone using its Admin QR first.');
+        $broadcaster = app(TournamentBroadcaster::class);
+        abort_unless($input['tournament_uid'] === $broadcaster->uid((int) $active->id), 409, 'The active session changed. Scan the player again.');
+        $broadcaster->publish((int) $active->id);
         try {
-            return $this->ok($this->cloud->postFileAs('/api/v1/internal/wheel/approvals', array_filter($input, fn ($v) => $v !== null), $request->file('photo'), $request->bearerToken()));
+            return $this->ok($this->cloud->sendAs('POST', '/api/v1/internal/wheel/approvals', array_filter($input, fn ($v) => $v !== null), $request->bearerToken()));
         } catch (CloudException $e) {
             return $this->wheelError($e);
         }
@@ -203,6 +218,7 @@ final class WheelController extends Controller
         $message = $e->errorCode === CloudException::UNREACHABLE
             ? 'The cloud could not be reached. Check the connection and retry the same request.'
             : preg_replace('/^.*failed \(\d+\): /', '', $e->getMessage());
+
         return response()->json(['ok' => false, 'error' => ['code' => $e->errorCode, 'message' => $message]],
             in_array($e->status, [401, 403, 404, 409, 422], true) ? $e->status : 502);
     }

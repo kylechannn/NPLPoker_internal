@@ -33,7 +33,6 @@ use Throwable;
  */
 final class SyncService
 {
-
     /**
      * ETags fetched this run, held back until each entity's staging swap
      * commits — never persisted on a failed apply.
@@ -178,7 +177,7 @@ final class SyncService
     }
 
     /**
-     * @return list<array<string, mixed>>|null  null when the cloud says 304
+     * @return list<array<string, mixed>>|null null when the cloud says 304
      */
     private function fetchEntityRows(string $entity, array $definition, ?string $etag): ?array
     {
@@ -310,6 +309,7 @@ final class SyncService
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
                         'creator_display_name' => $this->str($table['creator']['display_name'] ?? null, 120),
                         'game_mode' => $this->str($table['game_mode'] ?? null, 60),
+                        'setup_required' => isset($table['setup_required']) ? (bool) $table['setup_required'] : null,
                         'blinds_text' => $this->str($table['blinds_text'] ?? null, 60),
                         'rules_text' => $this->str($table['rules_text'] ?? null, 500),
                         'allow_strangers' => isset($table['allow_strangers']) ? (bool) $table['allow_strangers'] : null,
@@ -345,6 +345,7 @@ final class SyncService
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
                         'creator_display_name' => $this->str($table['creator']['display_name'] ?? null, 120),
                         'game_mode' => $this->str($table['game_mode'] ?? null, 60),
+                        'setup_required' => isset($table['setup_required']) ? (bool) $table['setup_required'] : null,
                         'blinds_text' => $this->str($table['blinds_text'] ?? null, 60),
                         'rules_text' => $this->str($table['rules_text'] ?? null, 500),
                         'allow_strangers' => isset($table['allow_strangers']) ? (bool) $table['allow_strangers'] : null,
@@ -481,6 +482,7 @@ final class SyncService
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
                         'creator_display_name' => $this->str($table['creator']['display_name'] ?? null, 120),
                         'game_mode' => $this->str($table['game_mode'] ?? null, 60),
+                        'setup_required' => isset($table['setup_required']) ? (bool) $table['setup_required'] : null,
                         'blinds_text' => $this->str($table['blinds_text'] ?? null, 60),
                         'rules_text' => $this->str($table['rules_text'] ?? null, 500),
                         'allow_strangers' => isset($table['allow_strangers']) ? (bool) $table['allow_strangers'] : null,
@@ -516,6 +518,7 @@ final class SyncService
                         'creator_npl_id' => $this->str($table['creator']['npl_id'] ?? null, 32),
                         'creator_display_name' => $this->str($table['creator']['display_name'] ?? null, 120),
                         'game_mode' => $this->str($table['game_mode'] ?? null, 60),
+                        'setup_required' => isset($table['setup_required']) ? (bool) $table['setup_required'] : null,
                         'blinds_text' => $this->str($table['blinds_text'] ?? null, 60),
                         'rules_text' => $this->str($table['rules_text'] ?? null, 500),
                         'allow_strangers' => isset($table['allow_strangers']) ? (bool) $table['allow_strangers'] : null,

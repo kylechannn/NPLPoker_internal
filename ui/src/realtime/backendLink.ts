@@ -280,6 +280,14 @@ export function useBackendLink(venueId: number | null) {
           return
         }
 
+        if (message?.event === "wheel.approval.updated") {
+          try {
+            const data = typeof message.data === "string" ? JSON.parse(message.data) : message.data
+            window.dispatchEvent(new CustomEvent("npl:wheel-approval-updated", { detail: data }))
+          } catch { /* The authenticated poll will recover a malformed signal. */ }
+          return
+        }
+
         if (message?.event === "session.touched") {
           const data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as
             | { game_session_id?: number, kind?: string }

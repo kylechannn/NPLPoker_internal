@@ -11,6 +11,9 @@ use App\Support\MirrorTableTimer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 /**
@@ -99,7 +102,7 @@ class CashTableTimerTest extends TestCase
         return collect(app(TournamentDeskService::class)->seating($desk)['tables'])->firstWhere('table_number', $tableNumber);
     }
 
-    private function press(string $action, int $tableNumber = 1): \Illuminate\Testing\TestResponse
+    private function press(string $action, int $tableNumber = 1): TestResponse
     {
         return $this->postJson("/api/v1/desk/sessions/501/tables/{$tableNumber}/timer", ['action' => $action]);
     }
@@ -128,19 +131,61 @@ class CashTableTimerTest extends TestCase
         $this->assertSame(MirrorTableTimer::cleared(), MirrorTableTimer::columnsFromCloud(['live_elapsed_ms' => null]));
     }
 
-    public function test_unopened_public_tables_can_be_closed_but_cannot_go_live_before_player_setup(): void
+    public function test_unopened_public_tables_need_game_settings_to_open_and_can_be_admin_closed(): void
     {
         $this->activateLicense();
-        $this->mirrorTable(1, ['table_status' => 'unopened', 'table_phase' => 'closed', 'table_kind' => 'house']);
+        $this->mirrorTable(1, ['table_status' => 'unopened', 'setup_required' => true, 'table_phase' => 'closed', 'table_kind' => 'house']);
         $this->press('start')->assertUnprocessable();
         $this->postJson('/api/v1/desk/sessions/501/tables/1/state', ['state' => 'live'])->assertUnprocessable();
         $this->postJson('/api/v1/desk/sessions/501/tables/1/state', ['state' => 'closed'])->assertOk();
         $this->assertSame('closed', DB::table('mirror_session_tables')->where('session_id', 501)->value('table_status'));
-        $this->postJson('/api/v1/desk/sessions/501/tables/1/state', ['state' => 'open'])->assertOk();
+        $this->postJson('/api/v1/desk/sessions/501/tables/1/state', ['state' => 'open'])->assertUnprocessable();
         // The authoritative sync decides whether the released table still
         // needs setup. The OS must not invent game settings or paint it live.
         $this->assertSame('closed', DB::table('mirror_session_tables')->where('session_id', 501)->value('table_status'));
         $this->assertNull(DB::table('mirror_session_tables')->where('session_id', 501)->value('timer_running'));
+    }
+
+    public function test_staff_selected_public_table_settings_reach_cloud_and_authoritative_seating(): void
+    {
+        $this->activateLicense();
+        $desk = $this->linkedCashDesk();
+        $this->mirrorTable(1, ['table_status' => 'closed', 'setup_required' => true, 'table_phase' => 'closed', 'table_kind' => 'house']);
+        $input = ['state' => 'open', 'game_mode' => 'PLO4 (Pot Limit Omaha)', 'blinds_text' => '$1/$2 Min $100 Max $500', 'rules_text' => 'No straddles.'];
+        Http::fake([
+            '*/tables/1/state' => Http::response(['ok' => true, 'data' => ['state' => 'open', 'phase' => 'open']], 200),
+            '*/seating' => Http::response(['ok' => true, 'data' => ['tables' => [[
+                'table_number' => 1, 'status' => 'open', 'phase' => 'open', 'kind' => 'house', 'setup_required' => false,
+                'game_mode' => $input['game_mode'], 'blinds_text' => $input['blinds_text'], 'rules_text' => $input['rules_text'],
+                'allow_strangers' => true, 'max_seats' => 8, 'seats' => [['seat_number' => 1, 'player' => null]], 'waitlist' => [],
+            ]]]], 200),
+            '*' => Http::response(['ok' => true, 'data' => []], 200),
+        ]);
+        $this->postJson('/api/v1/desk/sessions/501/tables/1/state', $input)->assertOk()->assertJsonPath('data.result.phase', 'open');
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/tables/1/state') && $request->data() === $input);
+        $table = $this->deskTable($desk, 1);
+        $this->assertFalse($table['setup_required']);
+        $this->assertTrue($table['allow_strangers']);
+        $this->assertSame($input['game_mode'], $table['game_mode']);
+        $this->assertSame($input['blinds_text'], $table['blinds_text']);
+        $this->assertSame('open', $table['table_status']);
+        $this->assertSame(0, $table['occupied']);
+        $this->assertSame(
+            Schema::getColumnListing('mirror_session_tables'),
+            Schema::getColumnListing('mirror_session_tables_staging'),
+        );
+    }
+
+    public function test_staff_setup_waits_for_online_confirmation_and_does_not_open_on_failure(): void
+    {
+        $this->activateLicense();
+        app(CloudLinkState::class)->markOffline();
+        $this->mirrorTable(1, ['table_status' => 'unopened', 'setup_required' => true, 'table_phase' => 'closed']);
+        $this->postJson('/api/v1/desk/sessions/501/tables/1/state', [
+            'state' => 'open', 'game_mode' => 'PLO4 (Pot Limit Omaha)', 'blinds_text' => '$1/$2 Min $100 Max $500',
+        ])->assertStatus(502);
+        $this->assertSame('unopened', DB::table('mirror_session_tables')->where('session_id', 501)->value('table_status'));
+        $this->assertTrue((bool) DB::table('mirror_session_tables')->where('session_id', 501)->value('setup_required'));
     }
 
     public function test_cash_buy_in_and_seat_moves_skip_unopened_and_admin_closed_tables(): void
@@ -161,7 +206,7 @@ class CashTableTimerTest extends TestCase
             try {
                 $desk->seat($deskId, 'PUBLIC701', $number, 1);
                 $this->fail('Unavailable cash tables must reject seat moves.');
-            } catch (\Illuminate\Validation\ValidationException $error) {
+            } catch (ValidationException $error) {
                 $this->assertArrayHasKey('table_number', $error->errors());
             }
         }

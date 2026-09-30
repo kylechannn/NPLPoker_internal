@@ -90,6 +90,7 @@ export type TableMirrorMeta = {
   creator_npl_id?: string | null
   creator_display_name?: string | null
   game_mode?: string | null
+  setup_required?: boolean | null
   blinds_text?: string | null
   rules_text?: string | null
   allow_strangers?: boolean | null
@@ -769,10 +770,10 @@ export const deskApi = {
    * live on its own — independent of the session clock and of every
    * other table.
    */
-  setTableState: (gameSessionId: number, tableNumber: number, state: 'open' | 'closed' | 'live') =>
+  setTableState: (gameSessionId: number, tableNumber: number, state: 'open' | 'closed' | 'live', setup?: { game_mode: string, blinds_text: string, rules_text?: string }) =>
     request<{ result: Record<string, unknown> }>(
       `/api/v1/desk/sessions/${gameSessionId}/tables/${tableNumber}/state`,
-      { method: 'POST', body: JSON.stringify({ state }) },
+      { method: 'POST', body: JSON.stringify({ state, ...setup }) },
     ),
 
   /**

@@ -18,7 +18,7 @@ import "@fontsource/inter/latin-700.css"
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react"
 import { ScanLine, RefreshCw, ShieldCheck, Undo2 } from "lucide-react"
 import PrizeWheel, { type SpinOutcome } from "./PrizeWheel"
-import { toWheelPrizes, wheelApi, WheelApiError, type WheelApproval, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier } from "./wheelApi"
+import { toWheelPrizes, wheelApi, WheelApiError, type WheelApproval, type WheelEligibility, type WheelPlayer, type WheelSegment, type WheelTier, type WheelSession } from "./wheelApi"
 import WheelApprovalGate, { WheelOperatorSignIn, wheelApprovalStorageKey, type WheelOperator } from "./WheelApprovalGate"
 import { hueGradients, type WheelPrize } from "./wheelPrizes"
 import { money } from "../desk/deskApi"
@@ -105,6 +105,7 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
   const [reauth, setReauth] = useState(false)
   const [spinInProgress, setSpinInProgress] = useState(false)
   const [approval, setApproval] = useState<WheelApproval | null>(null)
+  const [wheelSession, setWheelSession] = useState<WheelSession | null>(null)
   const [now, setNow] = useState(Date.now())
   const token = staff?.admin_token ?? ""
   const venueId = Number(window.localStorage.getItem("npl.activeVenueId")) || null
@@ -178,15 +179,21 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
       // A golden draw won earlier but never taken (crash, closed app)
       // resumes first — it is already paid for, eligibility or not.
       const pendingGolden = result.eligibility?.pending_golden?.[0] ?? null
+      const session = result.session ?? null
+      let recoverable: WheelApproval | null = null
+      try {
+        recoverable = JSON.parse(sessionStorage.getItem(wheelApprovalStorageKey(staff?.id ?? "", result.player.npl_id, venueId, "normal", null, session?.tournament_uid ?? null)) ?? "null") as WheelApproval | null
+      } catch { /* No saved request. */ }
 
       // The cloud gate speaks before the wheel opens: an ineligible player
       // stays on the scan page with the reason on screen.
-      if (!pendingGolden && result.eligibility && !result.eligibility.eligible) {
+      if (!pendingGolden && !recoverable && result.eligibility && !result.eligibility.eligible) {
         setScanError(result.eligibility.reason ?? "This player cannot spin right now.")
         return
       }
 
       setPlayer(result.player)
+      setWheelSession(session)
       setApproval(null)
       setEligibility(result.eligibility)
       setActiveWheel(pendingGolden ? "golden" : "normal")
@@ -205,7 +212,10 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
 
   function resetToScan() {
     if (spinInProgress) return
-    if (outcome && player) sessionStorage.removeItem(wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef))
+    if (outcome && player) {
+      const key = wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef, wheelSession?.tournament_uid ?? null)
+      sessionStorage.removeItem(key); sessionStorage.removeItem(`${key}:reference`)
+    }
     setApproval(null)
     setPlayer(null)
     setEligibility(null)
@@ -239,6 +249,7 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
         activeWheel === "golden" && goldenParentRef
           ? { wheel: "golden", parentReference: goldenParentRef }
           : undefined,
+        approval?.game_session_id,
       )
       referenceRef.current = null
 
@@ -270,7 +281,10 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
   function handleSettled(settled: SpinOutcome) {
     setSpinInProgress(false)
     if (settled.followUp === "golden_wheel" && settled.reference) {
-      if (player) sessionStorage.removeItem(wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef))
+      if (player) {
+        const key = wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef, wheelSession?.tournament_uid ?? null)
+        sessionStorage.removeItem(key); sessionStorage.removeItem(`${key}:reference`)
+      }
       setApproval(null)
       setActiveWheel("golden")
       setGoldenParentRef(settled.reference)
@@ -287,7 +301,7 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
   }
 
   if (!spinInProgress && player && outcome === null && eligibility?.approval_required !== false && (!approval || (approval.status !== "consumed" && new Date(approval.expires_at).getTime() <= now))) {
-    return <WheelApprovalGate key={wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef)} player={player} wheel={activeWheel} parentReference={goldenParentRef} venueId={venueId} token={token} operatorId={staff?.id ?? ""}
+    return <WheelApprovalGate key={wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef, wheelSession?.tournament_uid ?? null)} player={player} wheel={activeWheel} parentReference={goldenParentRef} venueId={venueId} session={wheelSession} token={token} operatorId={staff?.id ?? ""}
       onApproved={(approved) => { setApproval(approved); referenceRef.current = approved.reference }} onBack={resetToScan} onAuthExpired={() => setReauth(true)} />
   }
 
@@ -304,7 +318,7 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
           ) : null}
           <h1 id="wheel-scan-heading">Scan the player to spin</h1>
           <p className="wheel-scan-card__lead">
-            Scan their club card or enter the NPL ID. TDs and Admins then submit a hand photo for Super Admin approval.
+            Scan their club card or enter the NPL ID. TDs and Admins then take a hand photo on a phone bound to this session and submit it for Super Admin approval.
           </p>
 
           <form className="wheel-scan-card__form" onSubmit={(event) => void submitScan(event)}>

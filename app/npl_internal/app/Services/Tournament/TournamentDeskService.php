@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Tournament;
 
+use App\Services\Players\PlayerResolver;
+use App\Services\Printing\ReceiptService;
 use App\Services\Sync\OutboxService;
 use App\Support\MirrorTableTimer;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,7 +38,7 @@ final class TournamentDeskService
         private readonly TournamentService $tournaments,
         private readonly TournamentBroadcaster $broadcaster,
         private readonly OutboxService $outbox,
-        private readonly \App\Services\Printing\ReceiptService $receipts,
+        private readonly ReceiptService $receipts,
     ) {}
 
     /**
@@ -339,7 +342,7 @@ final class TournamentDeskService
             && $playerIsRegistered
             && (bool) ($options['first_buy_in'] ?? false)
             && $entry->created_at !== null
-            && \Illuminate\Support\Carbon::parse($entry->created_at)->gt(now()->subMinutes(5))) {
+            && Carbon::parse($entry->created_at)->gt(now()->subMinutes(5))) {
             $playerIsRegistered = false;
         }
 
@@ -527,6 +530,7 @@ final class TournamentDeskService
             && $booking['seat_number'] <= $perTable
             && ! isset($occupied[$booking['table_number']][$booking['seat_number']])) {
             $this->assertCashTableAvailable($session, $booking['table_number']);
+
             return [$booking['table_number'], $booking['seat_number']];
         }
 
@@ -629,7 +633,7 @@ final class TournamentDeskService
     /** Shared card-or-NPL-ID resolution — see PlayerResolver. */
     private function resolvePlayer(string $id): ?object
     {
-        return app(\App\Services\Players\PlayerResolver::class)->resolve($id);
+        return app(PlayerResolver::class)->resolve($id);
     }
 
     /**
@@ -819,7 +823,7 @@ final class TournamentDeskService
             'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
             'game_type' => ($session->game_type ?? 'tournament') === 'cash' ? 'cash' : 'tournament',
             'name' => (string) $session->name,
-            'started_at' => $session->started_at !== null ? \Illuminate\Support\Carbon::parse($session->started_at)->toIso8601String() : null,
+            'started_at' => $session->started_at !== null ? Carbon::parse($session->started_at)->toIso8601String() : null,
             'finished_at' => now()->toIso8601String(),
             'summary' => [
                 'entries' => (int) $counts['buy_in'],
@@ -1537,7 +1541,7 @@ final class TournamentDeskService
                 ->orderBy('seat_number')
                 ->get([
                     'table_number', 'seat_number', 'table_kind', 'creator_npl_id', 'creator_display_name',
-                    'game_mode', 'blinds_text', 'rules_text', 'allow_strangers',
+                    'game_mode', 'blinds_text', 'rules_text', 'allow_strangers', 'setup_required',
                     'activation_deadline_at', 'activated_at', 'table_status', 'table_phase',
                     'timer_running', 'timer_elapsed_ms', 'timer_synced_ms',
                     'player_npl_id', 'player_display_name', 'registration_status', 'pre_registered',
@@ -1614,6 +1618,7 @@ final class TournamentDeskService
                 'creator_npl_id' => optional($meta)->creator_npl_id,
                 'creator_display_name' => optional($meta)->creator_display_name,
                 'game_mode' => optional($meta)->game_mode,
+                'setup_required' => optional($meta)->setup_required === null ? null : (bool) $meta->setup_required,
                 'blinds_text' => optional($meta)->blinds_text,
                 'rules_text' => optional($meta)->rules_text,
                 'allow_strangers' => optional($meta)->allow_strangers === null
