@@ -2008,20 +2008,20 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
           </label>
 
           <label className="receipt-panel__field">
-            <span>Header — the venue&rsquo;s own words, printed on top</span>
+            <span>Extra header — below the logo and game details</span>
             <textarea
               rows={2}
-              placeholder={"NPL POKER SYDNEY\nOfficial receipt"}
+              placeholder="Optional venue message"
               value={settings.header_text ?? ""}
               onChange={(event) => setSettings({ ...settings, header_text: event.target.value || null })}
             />
           </label>
 
           <label className="receipt-panel__field">
-            <span>Footer — printed underneath</span>
+            <span>Extra footer — below the printed date and website</span>
             <textarea
               rows={2}
-              placeholder="Thank you & good luck!"
+              placeholder="Optional footer message"
               value={settings.footer_text ?? ""}
               onChange={(event) => setSettings({ ...settings, footer_text: event.target.value || null })}
             />
@@ -2037,8 +2037,9 @@ function ReceiptSettingsPanel({ onNotice }: { onNotice: (message: string) => voi
           </div>
 
           <p className="receipt-panel__hint">
-            The player&rsquo;s table and seat always print. Sales handled on an admin phone also land in
-            the notification feed, so the desk sees them the moment the receipt cuts.
+            Receipts include the NPL logo, game date, venue, guarantee, large table and seat numbers,
+            player name, amount paid and chips. Voucher discounts are kept on the receipt, including
+            fully covered $0.00 entries. The test receipt uses the same layout with sample details.
           </p>
         </div>
       )}

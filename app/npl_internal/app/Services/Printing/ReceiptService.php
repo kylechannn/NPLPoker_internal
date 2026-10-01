@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Printing;
 
+use Carbon\CarbonImmutable;
+use DateTimeZone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -45,7 +48,7 @@ final class ReceiptService
             'enabled' => $row !== null ? (bool) $row->enabled : true,
             'printer_name' => $row->printer_name ?? null,
             'header_text' => $row->header_text ?? null,
-            'footer_text' => $row->footer_text ?? "Thank you & good luck!",
+            'footer_text' => $row->footer_text ?? null,
         ];
     }
 
@@ -106,22 +109,21 @@ final class ReceiptService
     public function printTest(): string
     {
         $settings = $this->settings();
-        $lines = array_merge(
-            $this->customLines($settings['header_text']),
-            [
-                ['text' => 'NPL POKER', 'center' => true, 'bold' => true],
-                ['text' => 'Receipt printer test', 'center' => true],
-                ['text' => str_repeat('-', self::RECEIPT_COLUMNS)],
-                ['text' => 'BUY-IN', 'center' => true, 'bold' => true, 'big' => true],
-                ['text' => 'Player: Test Player (NPL0000)'],
-                ['text' => 'Table 3 - Seat 5', 'bold' => true],
-                ['text' => 'Amount: $100.00'],
-                ['text' => 'Chips: 20,000'],
-                ['text' => now()->format('D j M Y g:ia').' - Venue desk'],
-                ['text' => str_repeat('-', self::RECEIPT_COLUMNS)],
-            ],
-            $this->customLines($settings['footer_text'], center: true),
-        );
+        $printedAt = CarbonImmutable::now('Australia/Sydney');
+        $lines = $this->layout([
+            'date' => $printedAt->format('d/m/Y g:i A'),
+            'venue' => 'Sample Venue',
+            'name' => 'TEST RECEIPT',
+            'guarantee' => '$2,000',
+            'table' => 1,
+            'seat' => 1,
+            'player' => 'Test Player',
+            'kind' => 'BUY-IN',
+            'price_cents' => 0,
+            'chips' => 20000,
+            'payment_lines' => [],
+            'printed_at' => $printedAt,
+        ], $settings);
 
         return $this->send($settings['printer_name'], $lines) ? 'printed' : 'failed';
     }
@@ -134,37 +136,25 @@ final class ReceiptService
             ->where('player_npl_id', $nplId)
             ->first();
 
-        $latestAction = DB::table('tournament_actions')
+        $actionQuery = DB::table('tournament_actions')
             ->where('tournament_session_id', $sessionId)
             ->where('player_npl_id', $nplId)
-            ->where('action', $action)
-            ->orderByDesc('id')
-            ->first();
+            ->where('action', $action);
+
+        // Buy-ins have one entry per player and legacy rows do not store the
+        // key. Rebuys/add-ons can overlap: print THIS keyed sale, not whichever
+        // one happened to finish last while the cloud broadcast was running.
+        if ($action !== 'buy_in' && ! empty($options['idempotency_key'])) {
+            $actionQuery->where('idempotency_key', $options['idempotency_key']);
+        }
+        $latestAction = $actionQuery->orderByDesc('id')->first();
+        if ($latestAction === null) {
+            throw new RuntimeException('The recorded sale could not be found for this receipt.');
+        }
 
         $priceCents = (int) ($latestAction->price_cents ?? 0);
         $chips = (int) ($latestAction->chips ?? 0);
         $displayName = trim((string) ($entry->player_name ?? '')) ?: $nplId;
-
-        // Phone-resolved rows arrive with the table-service idempotency
-        // key — that is what tells the receipt who handled the sale.
-        $viaPhone = str_starts_with((string) ($options['idempotency_key'] ?? ''), 'tsr:');
-
-        $lines = $this->customLines($settings['header_text']);
-
-        if (trim((string) ($session->name ?? '')) !== '') {
-            $lines[] = ['text' => (string) $session->name, 'center' => true, 'bold' => true];
-        }
-        if (trim((string) ($session->venue_name ?? '')) !== '') {
-            $lines[] = ['text' => (string) $session->venue_name, 'center' => true];
-        }
-
-        $lines[] = ['text' => str_repeat('-', self::RECEIPT_COLUMNS)];
-        $lines[] = ['text' => self::KIND_LABELS[$action], 'center' => true, 'bold' => true, 'big' => true];
-        $lines[] = ['text' => sprintf('Player: %s (%s)', $displayName, $nplId)];
-
-        if ($entry !== null && $entry->table_number !== null && $entry->seat_number !== null) {
-            $lines[] = ['text' => sprintf('Table %d - Seat %d', (int) $entry->table_number, (int) $entry->seat_number), 'bold' => true];
-        }
 
         // Voucher-covered entries: the stored price is only the deficit, so
         // the tickets that paid the rest must appear on the paper too.
@@ -173,27 +163,114 @@ final class ReceiptService
         $ticketCodes = array_values(array_filter(array_map('strval', (array) ($meta['voucher_codes'] ?? []))));
         $coveredCents = (int) ($meta['voucher_covered_cents'] ?? 0);
 
+        $paymentLines = [];
         if ($ticketCodes !== []) {
-            $lines[] = ['text' => sprintf(
+            $paymentLines[] = ['text' => sprintf(
                 'Tickets: %s ($%s covered)',
                 implode(', ', $ticketCodes),
                 number_format($coveredCents / 100, 2),
             )];
         } elseif ($coveredCents > 0 && isset($meta['voucher_code'])) {
-            $lines[] = ['text' => sprintf('Voucher: %s ($%s covered)', (string) $meta['voucher_code'], number_format($coveredCents / 100, 2))];
+            $paymentLines[] = ['text' => sprintf('Voucher: %s ($%s covered)', (string) $meta['voucher_code'], number_format($coveredCents / 100, 2))];
         }
 
-        if ($priceCents > 0) {
-            $lines[] = ['text' => 'Amount: $'.number_format($priceCents / 100, 2)];
-        }
-        if ($chips > 0) {
-            $lines[] = ['text' => 'Chips: '.number_format($chips)];
+        $mirror = ($session->game_session_id ?? null) !== null
+            ? DB::table('mirror_game_sessions')->where('session_id', $session->game_session_id)->first()
+            : null;
+        $payload = $this->decodePayload($mirror->payload ?? null);
+        $venueId = $session->venue_id ?? $mirror->venue_id ?? null;
+        $venue = $venueId !== null ? DB::table('mirror_venues')->where('cloud_id', $venueId)->first() : null;
+        $venuePayload = $this->decodePayload($venue->payload ?? null);
+        $timezone = $this->receiptTimezone($payload, $venuePayload);
+        $printedAt = CarbonImmutable::now($timezone);
+
+        $scheduledDate = trim((string) ($mirror->session_date ?? ''));
+        $scheduledTime = trim((string) ($mirror->start_time ?? ''));
+        if ($scheduledDate !== '') {
+            // Cloud date/time columns are venue wall time, not UTC instants.
+            $date = CarbonImmutable::parse($scheduledDate, $timezone)->format('d/m/Y');
+            if ($scheduledTime !== '') {
+                $date .= ' '.CarbonImmutable::parse($scheduledDate.' '.$scheduledTime, $timezone)->format('g:i A');
+            }
+        } elseif (($session->started_at ?? null) !== null) {
+            $date = 'Started '.CarbonImmutable::parse($session->started_at, config('app.timezone'))
+                ->setTimezone($timezone)->format('d/m/Y g:i A');
+        } else {
+            $date = 'Date '.$printedAt->format('d/m/Y');
         }
 
-        $lines[] = ['text' => now()->format('D j M Y g:ia').' - '.($viaPhone ? 'Admin phone' : 'Venue desk')];
-        $lines[] = ['text' => str_repeat('-', self::RECEIPT_COLUMNS)];
+        return $this->layout([
+            'date' => $date,
+            'venue' => trim((string) ($session->venue_name ?? '')) ?: (trim((string) ($mirror->venue_name ?? '')) ?: 'Venue not specified'),
+            'name' => trim((string) ($session->name ?? '')) ?: (string) ($mirror->title ?? ''),
+            // The backend already formats this and applies per-session
+            // overrides. Do not derive a guarantee from buy-ins or payouts.
+            'guarantee' => trim((string) ($payload['guarantee'] ?? '')) ?: 'Not specified',
+            'table' => $entry->table_number ?? null,
+            'seat' => $entry->seat_number ?? null,
+            'player' => $displayName,
+            'kind' => self::KIND_LABELS[$action],
+            'price_cents' => $priceCents,
+            'chips' => $chips,
+            'payment_lines' => $paymentLines,
+            'printed_at' => $printedAt,
+        ], $settings);
+    }
 
-        return array_merge($lines, $this->customLines($settings['footer_text'], center: true));
+    /** Both real sales and the test button use the same paper layout. */
+    private function layout(array $receipt, array $settings): array
+    {
+        $center = ['center' => true];
+        $strong = $center + ['bold' => true];
+        $large = $strong + ['big' => true];
+        $divider = ['text' => str_repeat('-', self::RECEIPT_COLUMNS), 'divider' => true];
+        $lines = [
+            ['text' => 'NPL', 'logo' => true] + $center,
+            ['text' => $receipt['date']] + $center,
+            ['text' => $receipt['venue']] + $center,
+            ['text' => $receipt['name']] + $strong,
+            ['text' => 'Guaranteed: '.$receipt['guarantee']] + $strong,
+            ...$this->customLines($settings['header_text']),
+            $divider,
+            ['text' => 'TABLE '.($receipt['table'] ?? 'UNASSIGNED')] + $large,
+            ['text' => 'SEAT '.($receipt['seat'] ?? 'UNASSIGNED')] + $large,
+            ['text' => $receipt['player']] + $large,
+            $divider,
+            ['text' => $receipt['kind']] + $center,
+            ['text' => '$'.number_format($receipt['price_cents'] / 100, 2)] + $large,
+            ['text' => 'Chips: '.number_format($receipt['chips'])] + $strong,
+            ...$receipt['payment_lines'],
+            ['text' => ''],
+            ['text' => 'Printed '.$receipt['printed_at']->format('d M Y g:i A T')] + $center,
+            ['text' => 'npl.com.au'] + $center,
+            ...$this->customLines($settings['footer_text']),
+        ];
+
+        return $lines;
+    }
+
+    private function decodePayload(?string $raw): array
+    {
+        $payload = json_decode($raw ?? '', true);
+
+        return is_array($payload) ? $payload : [];
+    }
+
+    private function receiptTimezone(array $sessionPayload, array $venuePayload): string
+    {
+        foreach ([$sessionPayload['timezone'] ?? null, $venuePayload['location_data']['timezone'] ?? null] as $candidate) {
+            if (! is_string($candidate) || trim($candidate) === '') {
+                continue;
+            }
+            try {
+                return (new DateTimeZone($candidate))->getName();
+            } catch (Throwable) {
+                // An incomplete or invalid mirror must not stop the sale.
+            }
+        }
+
+        // Same fallback used by the cloud session generator and presenter.
+        return 'Australia/Sydney';
     }
 
     /**

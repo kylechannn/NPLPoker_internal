@@ -18,7 +18,7 @@ import (
 // datatype, which is how thermal receipt printers expect to be spoken
 // to: no driver rendering, no print dialog, no popups. Non-thermal
 // queues instead go through printDocument below, which renders the same
-// receipt as a text page via GDI so the driver understands it.
+// receipt as text and graphics via GDI so the driver understands it.
 var (
 	winspoolDLL            = syscall.NewLazyDLL("winspool.drv")
 	procOpenPrinterW       = winspoolDLL.NewProc("OpenPrinterW")
@@ -27,6 +27,7 @@ var (
 	procEndDocPrinter      = winspoolDLL.NewProc("EndDocPrinter")
 	procStartPagePrinter   = winspoolDLL.NewProc("StartPagePrinter")
 	procEndPagePrinter     = winspoolDLL.NewProc("EndPagePrinter")
+	procAbortPrinter       = winspoolDLL.NewProc("AbortPrinter")
 	procWritePrinter       = winspoolDLL.NewProc("WritePrinter")
 	procGetDefaultPrinterW = winspoolDLL.NewProc("GetDefaultPrinterW")
 	procEnumPrintersW      = winspoolDLL.NewProc("EnumPrintersW")
@@ -45,6 +46,9 @@ var (
 	procDeleteObject          = gdi32DLL.NewProc("DeleteObject")
 	procGetDeviceCaps         = gdi32DLL.NewProc("GetDeviceCaps")
 	procGetTextExtentPoint32W = gdi32DLL.NewProc("GetTextExtentPoint32W")
+	procStretchDIBits         = gdi32DLL.NewProc("StretchDIBits")
+	procPatBlt                = gdi32DLL.NewProc("PatBlt")
+	procAbortDoc              = gdi32DLL.NewProc("AbortDoc")
 )
 
 // DOC_INFO_1W
@@ -157,13 +161,17 @@ func printRaw(printerName string, data []byte) error {
 	if ret == 0 {
 		return fmt.Errorf("start the receipt document: %w", callErr)
 	}
-	defer procEndDocPrinter.Call(uintptr(handle)) //nolint:errcheck
+	completed := false
+	defer func() {
+		if !completed {
+			procAbortPrinter.Call(uintptr(handle)) //nolint:errcheck
+		}
+	}()
 
 	ret, _, callErr = procStartPagePrinter.Call(uintptr(handle))
 	if ret == 0 {
 		return fmt.Errorf("start the receipt page: %w", callErr)
 	}
-	defer procEndPagePrinter.Call(uintptr(handle)) //nolint:errcheck
 
 	var written uint32
 	ret, _, callErr = procWritePrinter.Call(
@@ -178,6 +186,13 @@ func printRaw(printerName string, data []byte) error {
 	if int(written) != len(data) {
 		return fmt.Errorf("printer %q accepted %d of %d bytes", printerName, written, len(data))
 	}
+	if ret, _, callErr := procEndPagePrinter.Call(uintptr(handle)); ret == 0 {
+		return fmt.Errorf("finish the receipt page on %q: %w", printerName, callErr)
+	}
+	if ret, _, callErr := procEndDocPrinter.Call(uintptr(handle)); ret == 0 {
+		return fmt.Errorf("finish the receipt document on %q: %w", printerName, callErr)
+	}
+	completed = true
 
 	return nil
 }
@@ -257,6 +272,36 @@ type gdiSize struct {
 	cy int32
 }
 
+// BITMAPINFOHEADER, with BI_RGB and a negative height for top-down pixels.
+type receiptBitmapInfo struct {
+	Size          uint32
+	Width         int32
+	Height        int32
+	Planes        uint16
+	BitCount      uint16
+	Compression   uint32
+	SizeImage     uint32
+	XPelsPerMeter int32
+	YPelsPerMeter int32
+	ClrUsed       uint32
+	ClrImportant  uint32
+}
+
+func drawReceiptRaster(hdc uintptr, raster receiptRaster, x, y, width, height int) error {
+	pixels := raster.dibPixels()
+	info := receiptBitmapInfo{
+		Size: uint32(unsafe.Sizeof(receiptBitmapInfo{})), Width: int32(raster.Width),
+		Height: -int32(raster.Height), Planes: 1, BitCount: 24, SizeImage: uint32(len(pixels)),
+	}
+	ret, _, callErr := procStretchDIBits.Call(hdc, uintptr(x), uintptr(y), uintptr(width), uintptr(height),
+		0, 0, uintptr(raster.Width), uintptr(raster.Height), uintptr(unsafe.Pointer(&pixels[0])),
+		uintptr(unsafe.Pointer(&info)), 0, 0x00cc0020) // DIB_RGB_COLORS, SRCCOPY
+	if int32(ret) == 0 || int32(ret) == -1 {
+		return fmt.Errorf("draw the receipt logo: %w", callErr)
+	}
+	return nil
+}
+
 // GetDeviceCaps indexes.
 const (
 	gdiHorzRes    = 8
@@ -275,7 +320,7 @@ func gdiCap(hdc uintptr, index int) int {
 	return int(ret)
 }
 
-// printDocument renders the receipt as a text page through the queue's
+// printDocument renders the receipt as text and graphics through the queue's
 // own driver — the path for every non-thermal printer, where RAW ESC/POS
 // bytes would come out blank. Print-to-file queues (port PORTPROMPT:)
 // are redirected into the app's receipts folder so no save dialog ever
@@ -314,18 +359,21 @@ func printDocument(printerName string, lines []receiptLine) (string, error) {
 	if dpiX <= 0 || dpiY <= 0 || pageWidth <= 0 || pageHeight <= 0 {
 		return "", fmt.Errorf("printer %q reported no printable page", printerName)
 	}
-	marginX := dpiX / 2
-	marginY := dpiY / 2
+	marginX := min(dpiX/2, pageWidth/20)
+	marginY := min(dpiY/2, pageHeight/20)
+	// Keep a 72mm receipt column on office/PDF pages, and fit a narrow
+	// driver's actual printable width instead of overflowing that page.
+	contentWidth := min(pageWidth-2*marginX, dpiX*720/254)
+	contentLeft := (pageWidth - contentWidth) / 2
 
-	// Receipts are monospace so the divider rules line up, like the slip.
-	face, _ := syscall.UTF16PtrFromString("Consolas")
+	face, _ := syscall.UTF16PtrFromString("Arial")
 	makeFont := func(points, weight int) uintptr {
 		font, _, _ := procCreateFontW.Call(
 			uintptr(-(points*dpiY)/72), 0, 0, 0, uintptr(weight),
 			0, 0, 0,
 			1, // DEFAULT_CHARSET
 			0, 0, 0,
-			0x31, // FIXED_PITCH | FF_MODERN
+			0x22, // VARIABLE_PITCH | FF_SWISS
 			uintptr(unsafe.Pointer(face)),
 		)
 
@@ -344,6 +392,8 @@ func printDocument(printerName string, lines []receiptLine) (string, error) {
 	if fontBase == 0 || fontBold == 0 || fontBig == 0 {
 		return "", fmt.Errorf("printer %q: the receipt font could not be created", printerName)
 	}
+	previousFont, _, _ := procSelectObject.Call(hdc, fontBase)
+	defer procSelectObject.Call(hdc, previousFont) //nolint:errcheck
 
 	docName, _ := syscall.UTF16PtrFromString("NPL receipt")
 	document := gdiDocInfo{cbSize: int32(unsafe.Sizeof(gdiDocInfo{})), lpszDocName: docName}
@@ -355,15 +405,57 @@ func printDocument(printerName string, lines []receiptLine) (string, error) {
 	if int32(jobID) <= 0 {
 		return "", fmt.Errorf("start the receipt document on %q: %w", printerName, callErr)
 	}
+	finished := false
+	defer func() {
+		if !finished {
+			procAbortDoc.Call(hdc) //nolint:errcheck
+		}
+	}()
 
 	if ret, _, callErr := procStartPage.Call(hdc); int32(ret) <= 0 {
-		procEndDoc.Call(hdc) //nolint:errcheck
-
 		return "", fmt.Errorf("start the receipt page on %q: %w", printerName, callErr)
 	}
 
 	y := marginY
+	ensureSpace := func(height int) error {
+		if y+height <= pageHeight-marginY || y == marginY {
+			return nil
+		}
+		if ret, _, callErr := procEndPage.Call(hdc); int32(ret) <= 0 {
+			return fmt.Errorf("finish a receipt page on %q: %w", printerName, callErr)
+		}
+		if ret, _, callErr := procStartPage.Call(hdc); int32(ret) <= 0 {
+			return fmt.Errorf("start a follow-on receipt page on %q: %w", printerName, callErr)
+		}
+		y = marginY
+		return nil
+	}
 	for _, line := range lines {
+		if line.Logo {
+			logo := receiptLogoRaster(448)
+			width := contentWidth * 448 / 576
+			height := width * logo.Height * dpiY / (logo.Width * dpiX)
+			if err := ensureSpace(height + dpiY/12); err != nil {
+				return "", err
+			}
+			if err := drawReceiptRaster(hdc, logo, contentLeft+(contentWidth-width)/2, y, width, height); err != nil {
+				return "", err
+			}
+			y += height + dpiY/12
+			continue
+		}
+		if line.Divider {
+			height := max(1, dpiY/100)
+			padding := max(1, dpiY/16)
+			if err := ensureSpace(height + 2*padding); err != nil {
+				return "", err
+			}
+			if ret, _, callErr := procPatBlt.Call(hdc, uintptr(contentLeft), uintptr(y+padding), uintptr(contentWidth), uintptr(height), 0x00000042); ret == 0 {
+				return "", fmt.Errorf("draw the receipt divider: %w", callErr)
+			}
+			y += height + 2*padding
+			continue
+		}
 		font := fontBase
 		switch {
 		case line.Big:
@@ -373,55 +465,44 @@ func printDocument(printerName string, lines []receiptLine) (string, error) {
 		}
 		procSelectObject.Call(hdc, font) //nolint:errcheck
 
-		// Blank custom lines still take vertical space, like a paper feed.
-		text := line.Text
-		measured := text
-		if strings.TrimSpace(measured) == "" {
-			measured = "X"
+		measure := func(text string) gdiSize {
+			textUTF, _ := syscall.UTF16FromString(text)
+			var size gdiSize
+			procGetTextExtentPoint32W.Call(hdc, //nolint:errcheck
+				uintptr(unsafe.Pointer(&textUTF[0])), uintptr(len(textUTF)-1), uintptr(unsafe.Pointer(&size)))
+			return size
 		}
-		measureUTF, err := syscall.UTF16FromString(measured)
-		if err != nil {
-			continue
-		}
-		var size gdiSize
-		procGetTextExtentPoint32W.Call(hdc, //nolint:errcheck
-			uintptr(unsafe.Pointer(&measureUTF[0])), uintptr(len(measureUTF)-1), uintptr(unsafe.Pointer(&size)))
-		lineHeight := int(size.cy)
+		lineHeight := int(measure("X").cy)
 		if lineHeight <= 0 {
 			lineHeight = dpiY / 6
 		}
 
-		if y+lineHeight > pageHeight-marginY {
-			procEndPage.Call(hdc) //nolint:errcheck
-			if ret, _, callErr := procStartPage.Call(hdc); int32(ret) <= 0 {
-				procEndDoc.Call(hdc) //nolint:errcheck
-
-				return "", fmt.Errorf("start a follow-on receipt page on %q: %w", printerName, callErr)
+		for _, text := range receiptWrapMeasured(line.Text, contentWidth, func(text string) int { return int(measure(text).cx) }) {
+			if err := ensureSpace(lineHeight * 5 / 4); err != nil {
+				return "", err
 			}
-			y = marginY
-		}
-
-		if strings.TrimSpace(text) != "" {
-			textUTF, err := syscall.UTF16FromString(text)
-			if err == nil {
-				x := marginX
+			if strings.TrimSpace(text) != "" {
+				textUTF, _ := syscall.UTF16FromString(text)
+				x := contentLeft
 				if line.Center {
-					if width := int(size.cx); width < pageWidth-2*marginX {
-						x = marginX + (pageWidth-2*marginX-width)/2
-					}
+					x += max(0, (contentWidth-int(measure(text).cx))/2)
 				}
-				procTextOutW.Call(hdc, uintptr(x), uintptr(y), //nolint:errcheck
-					uintptr(unsafe.Pointer(&textUTF[0])), uintptr(len(textUTF)-1))
+				if ret, _, callErr := procTextOutW.Call(hdc, uintptr(x), uintptr(y),
+					uintptr(unsafe.Pointer(&textUTF[0])), uintptr(len(textUTF)-1)); ret == 0 {
+					return "", fmt.Errorf("draw the receipt text: %w", callErr)
+				}
 			}
+			y += lineHeight * 5 / 4
 		}
-
-		y += lineHeight * 5 / 4
 	}
 
-	procEndPage.Call(hdc) //nolint:errcheck
+	if ret, _, callErr := procEndPage.Call(hdc); int32(ret) <= 0 {
+		return "", fmt.Errorf("finish the receipt page on %q: %w", printerName, callErr)
+	}
 	if ret, _, callErr := procEndDoc.Call(hdc); int32(ret) <= 0 {
 		return "", fmt.Errorf("finish the receipt document on %q: %w", printerName, callErr)
 	}
+	finished = true
 
 	return outputFile, nil
 }

@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -67,12 +68,22 @@ func TestPrintDocumentRendersARealPDFOnThisMachine(t *testing.T) {
 	}
 
 	output, err := printDocument("Microsoft Print to PDF", []receiptLine{
-		{Text: "NPL POKER", Center: true, Bold: true},
-		{Text: "------------------------------------------------"},
-		{Text: "BUY-IN", Center: true, Bold: true, Big: true},
-		{Text: "Player: Test Player (NPL0000)"},
-		{Text: "Table 3 - Seat 5", Bold: true},
-		{Text: "Amount: $100.00"},
+		{Logo: true},
+		{Text: "24/09/2026 6:30 PM", Center: true},
+		{Text: "Kings Head Tavern", Center: true},
+		{Text: "Kings Head Tavern", Center: true, Bold: true},
+		{Text: "Guaranteed: $2,000", Center: true, Bold: true},
+		{Divider: true},
+		{Text: "TABLE 1", Center: true, Bold: true, Big: true},
+		{Text: "SEAT 1", Center: true, Bold: true, Big: true},
+		{Text: "GianCarlo Pesce", Center: true, Bold: true, Big: true},
+		{Divider: true},
+		{Text: "BUY-IN", Center: true},
+		{Text: "$0.00", Center: true, Bold: true, Big: true},
+		{Text: "Chips: 20,000", Center: true, Bold: true},
+		{Text: ""},
+		{Text: "Printed 24 Sep 2026 12:12 PM AEST", Center: true},
+		{Text: "npl.com.au", Center: true},
 	})
 	if err != nil {
 		t.Fatalf("printDocument failed: %v", err)
@@ -101,6 +112,19 @@ func TestPrintDocumentRendersARealPDFOnThisMachine(t *testing.T) {
 	}
 	if len(rendered) < 1000 {
 		t.Fatalf("the rendered PDF is suspiciously small (%d bytes) — likely a blank page", len(rendered))
+	}
+	if !bytes.Contains(rendered, []byte("/Subtype /Image")) {
+		t.Fatal("the receipt logo was not embedded in the document output")
+	}
+	// Optional local review artifact, still using only the PDF virtual queue.
+	if preview := os.Getenv("NPL_RECEIPT_PREVIEW_PATH"); preview != "" {
+		if !filepath.IsAbs(preview) {
+			t.Fatal("NPL_RECEIPT_PREVIEW_PATH must be absolute")
+		}
+		if err := os.WriteFile(preview, rendered, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("saved review preview: %s", preview)
 	}
 	t.Logf("rendered receipt PDF: %s (%d bytes)", output, len(rendered))
 }
