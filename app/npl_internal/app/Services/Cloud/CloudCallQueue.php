@@ -57,7 +57,7 @@ final class CloudCallQueue
     }
 
     /**
-     * @param array{group?: ?string, label?: string, idempotency_key?: ?string, tolerate_missing?: bool, coalesce?: bool} $options
+     * @param array{group?: ?string, label?: string, idempotency_key?: ?string, tolerate_missing?: bool, coalesce?: bool, defer_drain?: bool} $options
      */
     public function enqueue(string $method, string $path, ?array $payload = null, array $options = []): int
     {
@@ -99,7 +99,9 @@ final class CloudCallQueue
                         ->where('status', 'sent')
                         ->delete();
 
-                    $this->drainSoon();
+                    if (! ($options['defer_drain'] ?? false)) {
+                        $this->drainSoon();
+                    }
 
                     return (int) $existing->id;
                 }
@@ -120,7 +122,9 @@ final class CloudCallQueue
             'updated_at' => now(),
         ]);
 
-        $this->drainSoon();
+        if (! ($options['defer_drain'] ?? false)) {
+            $this->drainSoon();
+        }
 
         return $id;
     }

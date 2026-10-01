@@ -6,6 +6,8 @@ use App\Services\Cloud\CloudCallQueue;
 use App\Services\Cloud\CloudLinkState;
 use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Tournament\TournamentBroadcaster;
+use App\Services\Tournament\TournamentClockService;
+use App\Services\Tournament\TournamentDeskService;
 use App\Services\Tournament\TournamentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -100,6 +102,129 @@ class QueueEverywhereTest extends TestCase
         $this->assertNotSame($firstKey, DB::table('cloud_call_queue')->where('id', $second)->value('idempotency_key'), 'A new latest-wins payload is a new operation.');
     }
 
+    public function test_finishing_offline_keeps_the_final_clock_state_and_retries_the_same_operation(): void
+    {
+        $this->activateLicense();
+        app(CloudLinkState::class)->markOffline();
+        $keys = [];
+        $uid = null;
+        Http::fake(function ($request) use (&$keys, &$uid) {
+            $this->assertSame($uid, $request['tournament_uid']);
+            $this->assertSame('finished', $request['status']);
+            $keys[] = $request->header('Idempotency-Key')[0];
+
+            return count($keys) === 1 ? Http::response(['ok' => false], 503)
+                : Http::response(['ok' => true, 'data' => []]);
+        });
+        $id = $this->tournament();
+        DB::table('tournament_sessions')->where('id', $id)->update(['game_type' => 'cash']);
+        app(TournamentClockService::class)->start($id);
+        app(TournamentBroadcaster::class)->publish($id);
+        $uid = app(TournamentBroadcaster::class)->uid($id);
+
+        $result = app(TournamentDeskService::class)->finishWithResults($id, []);
+        $this->assertTrue($result['finished']);
+        Http::assertNothingSent();
+        $row = DB::table('cloud_call_queue')->where('group_key', 'clock:'.$id)->sole();
+        $payload = json_decode($row->payload, true);
+        $this->assertSame('finished', $payload['status']);
+        $this->assertSame($uid, $payload['tournament_uid']);
+        $this->assertNotNull($payload['finished_at']);
+
+        app(CloudLinkState::class)->markOnline();
+        app(CloudCallQueue::class)->drain();
+        $this->assertDatabaseHas('cloud_call_queue', ['id' => $row->id, 'status' => 'pending']);
+        DB::table('cloud_call_queue')->where('id', $row->id)->update(['available_at' => now()->subSecond()]);
+        app(CloudCallQueue::class)->drain();
+        $this->assertCount(2, $keys);
+        $this->assertSame($keys[0], $keys[1]);
+        $this->assertDatabaseHas('cloud_call_queue', ['id' => $row->id, 'status' => 'sent']);
+    }
+
+    public function test_discarding_an_empty_draft_durably_closes_its_phone_binding_without_reporting_play(): void
+    {
+        $this->activateLicense();
+        app(CloudLinkState::class)->markOffline();
+        Http::fake(['*' => Http::response(['ok' => true, 'data' => []])]);
+        $id = $this->tournament();
+        $uid = app(TournamentBroadcaster::class)->uid($id);
+        $this->deleteJson('/api/v1/tournaments/'.$id)->assertOk();
+
+        $row = DB::table('cloud_call_queue')->where('group_key', 'clock:'.$id)->sole();
+        $this->assertSame('/api/v1/internal/tournament/close', $row->path);
+        $this->assertSame(['tournament_uid' => $uid, 'game_session_id' => null], json_decode($row->payload, true));
+        $this->assertSame('pending', $row->status);
+        $this->assertDatabaseMissing('tournament_sessions', ['id' => $id]);
+        $this->assertSame(0, DB::table('sync_outbox')->count());
+        Http::assertNothingSent();
+
+        app(CloudLinkState::class)->markOnline();
+        app(CloudCallQueue::class)->drain();
+        $this->assertDatabaseHas('cloud_call_queue', ['id' => $row->id, 'status' => 'sent']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/internal/tournament/close') && $request['tournament_uid'] === $uid);
+    }
+
+    public function test_erasing_and_retiring_empty_drafts_close_their_qr_without_creating_clock_reports(): void
+    {
+        $this->activateLicense();
+        app(CloudLinkState::class)->markOffline();
+        Http::fake();
+        $erased = $this->tournament();
+        app(TournamentDeskService::class)->eraseSession($erased);
+        $this->assertDatabaseMissing('tournament_sessions', ['id' => $erased]);
+        $this->assertDatabaseHas('cloud_call_queue', ['group_key' => 'clock:'.$erased, 'path' => '/api/v1/internal/tournament/close', 'status' => 'pending']);
+
+        $retired = $this->tournament();
+        DB::table('tournament_sessions')->where('id', $retired)->update(['created_at' => now()->subHours(13)]);
+        $this->assertSame(1, app(TournamentDeskService::class)->forceFinishStale());
+        $this->assertDatabaseHas('tournament_sessions', ['id' => $retired, 'status' => 'finished']);
+        $this->assertDatabaseHas('cloud_call_queue', ['group_key' => 'clock:'.$retired, 'path' => '/api/v1/internal/tournament/close', 'status' => 'pending']);
+        $this->assertSame(0, DB::table('cloud_call_queue')->where('path', '/api/v1/internal/tournament/state')->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_failed_draft_deletion_rolls_back_its_terminal_notice_before_any_cloud_send(): void
+    {
+        $this->activateLicense();
+        Http::fake(['*' => Http::response(['ok' => true, 'data' => []])]);
+        $id = $this->tournament();
+        DB::unprepared("CREATE TRIGGER fail_draft_delete BEFORE DELETE ON tournament_sessions BEGIN SELECT RAISE(ABORT, 'test deletion failed'); END;");
+
+        try {
+            app(TournamentService::class)->discardDraft($id);
+            $this->fail('The failed local deletion must not close the cloud session.');
+        } catch (\Illuminate\Database\QueryException $error) {
+            $this->assertStringContainsString('test deletion failed', $error->getMessage());
+        }
+
+        $this->assertDatabaseHas('tournament_sessions', ['id' => $id, 'status' => 'draft']);
+        $this->assertSame(0, DB::table('cloud_call_queue')->where('group_key', 'clock:'.$id)->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_erasing_a_running_session_sends_the_final_clock_before_its_terminal_close(): void
+    {
+        $this->activateLicense();
+        app(CloudLinkState::class)->markOffline();
+        $sent = [];
+        Http::fake(function ($request) use (&$sent) {
+            $sent[] = ['path' => parse_url($request->url(), PHP_URL_PATH), 'status' => $request['status'] ?? null];
+
+            return Http::response(['ok' => true, 'data' => []]);
+        });
+        $id = $this->tournament();
+        app(TournamentClockService::class)->start($id);
+        app(TournamentBroadcaster::class)->publish($id);
+        app(TournamentDeskService::class)->eraseSession($id);
+
+        app(CloudLinkState::class)->markOnline();
+        app(CloudCallQueue::class)->drain();
+        $this->assertSame([
+            ['path' => '/api/v1/internal/tournament/state', 'status' => 'finished'],
+            ['path' => '/api/v1/internal/tournament/close', 'status' => null],
+        ], $sent);
+    }
+
     public function test_a_legacy_queued_write_retries_the_same_persisted_operation_id(): void
     {
         $queue = app(CloudCallQueue::class);
@@ -111,6 +236,7 @@ class QueueEverywhereTest extends TestCase
         $keys = [];
         Http::fake(function ($request) use (&$keys) {
             $keys[] = $request->header('Idempotency-Key')[0] ?? null;
+
             return count($keys) === 1 ? Http::response(['ok' => false], 503)
                 : Http::response(['ok' => true, 'data' => []]);
         });

@@ -108,6 +108,28 @@ final class TournamentBroadcaster
         }
     }
 
+    /** Retire even an empty draft QR without claiming that a game was played.
+     * The durable close follows any queued clock state in the same FIFO group.
+     * Call before deleting the local row, while its stable UID still exists. */
+    public function close(int $sessionId): void
+    {
+        if (! $this->license->isActivated()) {
+            return;
+        }
+
+        $session = $this->clock->session($sessionId);
+        $this->queue->enqueue('post', '/api/v1/internal/tournament/close', [
+            'tournament_uid' => $this->uid($sessionId),
+            'game_session_id' => $session->game_session_id,
+        ], [
+            'group' => 'clock:'.$sessionId,
+            'label' => 'Close staff session — '.(string) $session->name,
+            // The caller may delete the draft inside a transaction. Its
+            // terminal call must not escape before that deletion commits.
+            'defer_drain' => true,
+        ]);
+    }
+
     /**
      * The cloud-facing identity of a local session. Public because the
      * Admin QR must encode EXACTLY the uid the broadcasts use — composing

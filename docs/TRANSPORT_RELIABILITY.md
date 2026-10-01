@@ -226,3 +226,31 @@ JavaScript tests, TypeScript/Vite production build and the Edge integration
 harness passed. Temporary browser entry files were removed after verification.
 The subsequent Cash backlog index was verified with the focused diagnostics and
 migration regression suite, including repeated up/down and partial recovery.
+
+## Staff session termination
+
+Normal **Finish** already queues the final `status=finished` clock report in the
+durable `clock:{local session ID}` group. An offline finish replaces the earlier
+pending clock picture; after reconnection, a failed HTTP attempt retries with
+the same idempotency key. The backend uses the terminal report to release the
+staff phone binding and sends the existing staff realtime signal.
+
+A phone can also bind the QR of an empty draft. Discarding, replacing, erasing or
+automatically retiring that draft now queues
+`POST /api/v1/internal/tournament/close` with its stable `tournament_uid` and
+optional `game_session_id` before the local row disappears. This close-only
+operation retires the QR without creating a played-game clock row. A played
+session's final clock remains ahead of the close in the same FIFO group.
+
+The close uses the queue's optional `defer_drain` flag: the resident sweeper sends
+it after commit, including when the caller runs in a console process. Discard's
+close insert and deletion share one database transaction, so a failed local
+deletion cannot release a still-existing draft's phone binding. Offline close
+jobs remain durable after local deletion.
+
+Deploy the backend's `/internal/tournament/close` endpoint and staff lifecycle
+migration before releasing this OS version; an older backend would reject the
+new endpoint. No new local migration is needed. On a real venue, verify offline
+Finish and draft discard, restore the connection, then confirm the staff phone
+returns to the scan screen without refreshing. Backend terminal-UID guards
+prevent a delayed old clock report from reopening the ended binding.

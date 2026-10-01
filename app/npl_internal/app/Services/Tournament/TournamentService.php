@@ -77,6 +77,9 @@ final class TournamentService
         }
 
         DB::transaction(function () use ($sessionId): void {
+            // A phone can bind this draft's QR before the first buy-in. Keep
+            // its terminal notice durable even if the desk is offline.
+            app(TournamentBroadcaster::class)->close($sessionId);
             DB::table('tournament_levels')->where('tournament_session_id', $sessionId)->delete();
             DB::table('tournament_sessions')->where('id', $sessionId)->delete();
         });

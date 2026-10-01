@@ -980,10 +980,9 @@ final class TournamentDeskService
     }
 
     /**
-     * Send the cloud one final state so its live row shows finished — but
-     * only when this session could have broadcast at all. A blank draft
-     * never published, and publishing for it here would CREATE a cloud row,
-     * which the results pages would read as evidence the game was played.
+     * Finish an existing played clock and always retire the staff QR. A
+     * blank draft uses only the close endpoint: publishing a full clock
+     * for it would create false evidence that the game was played.
      */
     private function closeCloudMirror(object $session): void
     {
@@ -993,6 +992,10 @@ final class TournamentDeskService
         if ($couldHaveBroadcast) {
             $this->broadcaster->publish((int) $session->id);
         }
+
+        // Draft QR bindings exist even without a live cloud clock row. The
+        // close-only endpoint releases them without creating played results.
+        $this->broadcaster->close((int) $session->id);
     }
 
     /**
