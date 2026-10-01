@@ -1,4 +1,4 @@
-# Phase 1: reliable desk updates
+# Reliable and efficient desk updates
 
 The desk receives invalidation signals and reads authoritative data over HTTP. A
 WebSocket frame is neither a database snapshot nor an acknowledgement of a sale
@@ -13,7 +13,7 @@ is confirmed. Connection-details fetch and venue subscription have 15-second
 deadlines; close/error uses the existing 2–30 second reconnect backoff. Stale
 socket callbacks cannot update a replacement connection.
 
-`session.touched` emits a scoped `npl:session-touched` event immediately. The
+`session.touched` emits a scoped `npl:session-touched` event before mirror HTTP. The
 current HostDesk starts Cash move/service reconciliation without waiting for its
 timers. The gateway also pulls the session/seating mirror; only a successful pull
 emits `npl:sessions-updated` with `{venueId, sessionIds}`. That event refreshes the
@@ -90,5 +90,58 @@ Production validation still needs a licensed desk and real cloud broadcaster:
 register on a phone and observe OS/other clients; disconnect/reconnect the desk;
 accept a Cash transfer while dropping its ACK response and confirm one physical
 move with no duplicate charge; verify the preserved pending journal recovers.
-This phase does not change full-list/delta APIs, transport payload size, gameplay
-rules or the five/fifteen-second operational fallbacks.
+The five/fifteen-second operational fallbacks and gameplay rules remain unchanged.
+
+## Phase 2: batching and conditional reads
+
+Session signals share a fixed 120 ms batching window. Repeated durable `event_id`
+values are ignored within the current socket (bounded to the last 256 IDs).
+Different sessions are grouped into batches of at most 20; larger bursts drain
+additional targeted batches rather than becoming an unrelated venue-wide pull.
+This is a fixed window, so ongoing traffic cannot postpone a refresh indefinitely.
+Failed targets still retry after five seconds. Venue changes cancel scheduled
+batches and fence old completions.
+
+Each batch wakes Cash/service consumers once before fetching the mirror. Its
+successful `npl:sessions-updated` event carries `commandsNotified: true`: HostDesk
+refreshes its local seating but does not repeat the Cash/service requests already
+started by that batch. Legacy/manual events without that flag still reconcile.
+Reconnect, focus, visibility/online return and the existing healthy/disconnected
+safety pulls remain. No polling interval was reduced or removed.
+
+Targeted pulls use licensed `GET /api/v1/internal/sessions/snapshots?ids[]=...`.
+One response contains each requested session's public-compatible metadata and
+licensed seating, replacing the global metadata-list read plus one seating read
+per target. All IDs and statuses are checked before any mirror write; a partial,
+refused or malformed response retains the previous mirror and retries. Metadata
+404 can remove old metadata while seating 200 preserves the staff seat map.
+Only explicit seating 404 clears those seat rows. An endpoint-level 404 falls
+back to the older global-list/individual-seating path for rolling deployment.
+Other HTTP errors never trigger that fallback. Full venue reconciliation and
+the established slow-entity delta/manual update paths remain available.
+
+`ConditionalCloudRead` opts in with `X-NPL-Conditional: 1` and `If-None-Match` for
+the batch, licensed seating, Cash move feed and combined desk pulse. Cached
+representations are scoped by opaque licence/device identity, cloud base, exact
+path/query and application language, and expire after one hour. A 304 reuses a
+complete successful body, not an "already applied" marker: a failed local apply
+can replay, and pending physical Cash ACKs still retry. A 304 without a cached
+body retries unconditionally once. Errors are never replaced with cached success;
+a changed licence rejects the in-flight answer.
+
+The original local receive-time anchor travels with cached timer payloads.
+Replaying a 304 cannot restart or freeze a running table stopwatch. The server
+retains timing/deadline fields in its validator; actively changing clocks may
+therefore continue returning 200. Conditional reads save response bytes when
+unchanged; they do not claim to avoid the server's authorization/current-state
+queries. Cached bodies are still applied idempotently to local mirrors.
+
+Verification for phase 2: 14 transport tests, all 196 bundled PHP tests (998
+assertions), and TypeScript/Vite production build passed. A real HostDesk/gateway
+headless Edge harness with mocked HTTP/WebSocket measured 20 socket events as
+one mirror pull, one Cash pull and one service pull; a duplicate event added no
+requests. It also verified unrelated-session filtering, single-flight requests,
+stale session/venue fencing, malformed-event recovery and unchanged exact Wheel
+approval forwarding. These are test request counts, not measured production
+latency. Release the matching cloud endpoint/conditional middleware and rebuild
+the OS; confirm real venue request counts and lost-frame/ACK recovery on rollout.

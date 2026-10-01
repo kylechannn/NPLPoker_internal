@@ -61,13 +61,19 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
  * venue pull.
  */
 const sessionPuller = createSessionPuller(async update => {
+  // One command wake-up per coalesced batch, before the mirror's HTTP await.
+  window.dispatchEvent(new CustomEvent("npl:session-touched", { detail: update }))
   await fetchJson("/api/v1/sync/pull-sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ venue_id: update.venueId, ...(update.sessionIds === null ? {} : { session_ids: update.sessionIds }) }),
   })
-}, update => window.dispatchEvent(new CustomEvent("npl:sessions-updated", { detail: update })), retry => {
+}, update => window.dispatchEvent(new CustomEvent("npl:sessions-updated", { detail: { ...update, commandsNotified: true } })), retry => {
   const timer = window.setTimeout(retry, 5_000)
+  return () => window.clearTimeout(timer)
+}, flush => {
+  // Fixed window (not a sliding debounce): a busy venue cannot postpone a pull.
+  const timer = window.setTimeout(flush, 120)
   return () => window.clearTimeout(timer)
 })
 
@@ -165,6 +171,7 @@ export function useBackendLink(venueId: number | null) {
       // A socket that sits in CONNECTING must not hang the light forever —
       // force it closed so the close code surfaces and the retry runs.
       let venueSubscribed = false
+      const deliveredSessionEvents = new Set<string>()
       const connectDeadline = window.setTimeout(() => {
         if (current(socket) && !venueSubscribed) {
           setLastError("The venue subscription was not confirmed within 15s. Reconnecting to recover live updates.")
@@ -266,10 +273,17 @@ export function useBackendLink(venueId: number | null) {
         }
 
         if (message?.event === (details.event ?? "session.touched")) {
-          let data: { game_session_id?: number, kind?: string } | undefined
+          let data: { game_session_id?: number, kind?: string, event_id?: string } | undefined
           try {
             data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as typeof data
           } catch { /* Unknown target: reconcile the venue instead of dropping the signal. */ }
+          // Durable delivery is at least once. A failed HTTP pull has its own
+          // retained-target retry, so replayed frames need not repeat the work.
+          if (typeof data?.event_id === "string") {
+            if (deliveredSessionEvents.has(data.event_id)) return
+            deliveredSessionEvents.add(data.event_id)
+            if (deliveredSessionEvents.size > 256) deliveredSessionEvents.delete(deliveredSessionEvents.values().next().value!)
+          }
           const kind = data?.kind ?? "update"
           const labels: Record<string, string> = {
             register: "Online registration received",
@@ -289,9 +303,6 @@ export function useBackendLink(venueId: number | null) {
           // The signal names its session — pull just that one. A signal
           // without an id falls back to the full venue pull.
           const sessionId = typeof data?.game_session_id === "number" && Number.isSafeInteger(data.game_session_id) && data.game_session_id > 0 ? data.game_session_id : undefined
-          window.dispatchEvent(new CustomEvent("npl:session-touched", {
-            detail: { venueId, sessionIds: sessionId === undefined ? null : [sessionId] },
-          }))
           void sessionPuller.request(
             sessionId,
           ).catch(() => {})

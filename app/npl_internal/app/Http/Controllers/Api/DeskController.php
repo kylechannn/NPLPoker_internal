@@ -772,7 +772,7 @@ final class DeskController
         }
 
         try {
-            $pulse = $cloud->getJson('/api/v1/internal/desk-pulse', [
+            $pulse = app(\App\Services\Cloud\ConditionalCloudRead::class)->get('/api/v1/internal/desk-pulse', [
                 'uid' => $broadcaster->uid($id),
             ])['data'] ?? [];
         } catch (CloudException $e) {

@@ -79,6 +79,14 @@ final class SyncController
         $sessionIds = array_values(array_unique(array_map('intval', $validated['session_ids'] ?? [])));
 
         try {
+            if ($sessionIds !== []) {
+                $result = $this->sync->refreshSessionSnapshots(
+                    isset($validated['venue_id']) ? (int) $validated['venue_id'] : null,
+                    $sessionIds,
+                );
+
+                return response()->json(['ok' => true, 'data' => $result]);
+            }
             $sessions = $this->sync->syncEntity('game_sessions');
             // Targeted when the caller knows which session moved; otherwise
             // the venue-scoped full refresh — it covers the venue's WHOLE

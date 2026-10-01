@@ -105,6 +105,32 @@ class CashTableMoveTest extends TestCase
         $this->assertDatabaseHas('tournament_entries', ['player_npl_id' => 'CASH1', 'table_number' => 1, 'seat_number' => 2]);
     }
 
+    public function test_a_304_feed_still_retries_a_lost_cash_ack_without_moving_or_charging_twice(): void
+    {
+        $acks = 0;
+        $reads = 0;
+        $this->cloudResponse = function ($request) use (&$acks, &$reads) {
+            if (str_contains($request->url(), '/cash-table-moves/51/ack')) {
+                return ++$acks === 1 ? Http::response(['ok' => false], 503)
+                    : Http::response(['ok' => true, 'data' => ['move' => ['id' => 51, 'status' => 'applied', 'version' => 1]]]);
+            }
+            if (str_contains($request->url(), '/cash-table-moves')) {
+                if (++$reads > 1) {
+                    $this->assertSame('W/"moves"', $request->header('If-None-Match')[0] ?? null);
+                    return Http::response('', 304);
+                }
+                return Http::response(['ok' => true, 'data' => ['data' => [$this->move()]]], 200, ['ETag' => 'W/"moves"']);
+            }
+            return Http::response(['ok' => true, 'data' => []]);
+        };
+        $this->assertSame([51], app(CashTableMovePuller::class)->sync($this->sessionId)['pending']);
+        $this->assertCount(1, app(CashTableMovePuller::class)->sync($this->sessionId)['applied']);
+        $this->assertSame(2, $acks);
+        $this->assertDatabaseHas('cash_table_moves', ['id' => 51, 'status' => 'completed']);
+        $this->assertDatabaseHas('tournament_entries', ['player_npl_id' => 'CASH1', 'table_number' => 2, 'seat_number' => 3]);
+        $this->assertDatabaseCount('tournament_actions', 1);
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('invalidAcknowledgements')]
     public function test_unconfirmed_ack_stays_pending_and_retries_without_another_move(array $answer): void
     {
@@ -150,6 +176,26 @@ class CashTableMoveTest extends TestCase
         app(CashTableMovePuller::class)->sync($this->sessionId);
         $this->assertDatabaseCount('cash_table_moves', 0);
         $this->assertDatabaseHas('tournament_entries', ['player_npl_id' => 'CASH1', 'table_number' => 1, 'seat_number' => 2]);
+    }
+
+    public function test_replacing_the_licence_never_reuses_a_previous_devices_conditional_cache(): void
+    {
+        $reads = 0;
+        $this->cloudResponse = function ($request) use (&$reads) {
+            if (str_contains($request->url(), '/cash-table-moves')) {
+                $reads++;
+                $this->assertFalse($request->hasHeader('If-None-Match'));
+                return Http::response(['ok' => true, 'data' => ['data' => []]], 200, ['ETag' => 'W/"private-feed"']);
+            }
+            return Http::response(['ok' => true, 'data' => []]);
+        };
+        app(CashTableMovePuller::class)->sync($this->sessionId);
+        file_put_contents($this->dataDir.'/license.json', json_encode([
+            'key' => 'DIFFERENT-LICENSE', 'device_id' => 'OTHER-DESK',
+            'lease' => ['lease_until' => now()->addDays(7)->toIso8601String()],
+        ]));
+        app(CashTableMovePuller::class)->sync($this->sessionId);
+        $this->assertSame(2, $reads);
     }
 
     public function test_a_session_relink_during_feed_fetch_cannot_apply_the_old_feed(): void

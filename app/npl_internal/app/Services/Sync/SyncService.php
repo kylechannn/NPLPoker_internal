@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Sync;
 
 use App\Services\Cloud\CloudClient;
+use App\Services\Cloud\ConditionalCloudRead;
+use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Cloud\CloudException;
 use App\Services\Media\MediaCacheService;
 use App\Support\MirrorTableTimer;
@@ -213,35 +215,7 @@ final class SyncService
                 'updated_at' => $now,
             ], $records),
 
-            'game_sessions' => array_map(fn (array $row): array => [
-                'session_id' => (int) ($row['session_id'] ?? $row['id'] ?? 0),
-                'source_type' => $this->str($row['source_type'] ?? null, 20),
-                'source_id' => isset($row['source_id']) ? (int) $row['source_id'] : null,
-                'category' => $this->str($row['category'] ?? null, 20),
-                'venue_id' => isset($row['venue_id']) ? (int) $row['venue_id'] : null,
-                'venue_name' => $this->str($row['venue_name'] ?? null, 160),
-                'title' => $this->str($row['title'] ?? null, 200),
-                'session_date' => $this->str($row['session_date'] ?? null, 10),
-                'start_time' => $this->str($row['start_time'] ?? null, 8),
-                'status' => $this->str($row['status'] ?? null, 20),
-                'max_players' => isset($row['max_players']) ? (int) $row['max_players'] : null,
-                'registrations_count' => (int) ($row['registrations_count'] ?? 0),
-                'is_open_for_registration' => (bool) ($row['is_open_for_registration'] ?? false),
-                // The game's payout ladder, shown by the room clock.
-                'prize_breakdown' => isset($row['prize_breakdown']) && is_array($row['prize_breakdown'])
-                    ? json_encode($row['prize_breakdown'])
-                    : null,
-                // This session's own winner-voucher ladder — configured
-                // per session on the admin console, not per venue.
-                'winner_vouchers' => isset($row['winner_vouchers']) && is_array($row['winner_vouchers'])
-                    ? json_encode($row['winner_vouchers'])
-                    : null,
-                'image_url' => $this->str($row['image_url'] ?? $row['hero_image_url'] ?? null, 500),
-                'media_key' => isset($row['image_url']) ? $this->media->keyFor((string) $row['image_url']) : null,
-                'payload' => json_encode($row),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ], $records),
+            'game_sessions' => array_map(fn (array $row): array => $this->sessionRow($row), $records),
 
             default => throw new \InvalidArgumentException("No row mapper for [{$entity}]."),
         };
@@ -426,7 +400,62 @@ final class SyncService
         return $rows->count();
     }
 
-    public function refreshSeatingFor(?int $venueId = null, ?array $sessionIds = null): array
+    /** One licensed read for a coalesced group; old clouds retain their existing path. */
+    public function refreshSessionSnapshots(?int $venueId, array $sessionIds): array
+    {
+        $identity = app(LicenseKeyProvider::class)->identity();
+        try {
+            $response = app(ConditionalCloudRead::class)->get('/api/v1/internal/sessions/snapshots', ['ids' => $sessionIds]);
+        } catch (CloudException $error) {
+            if ($error->status !== 404) {
+                throw $error;
+            }
+            return [
+                'game_sessions' => $this->syncEntity('game_sessions'),
+                'seating' => $this->refreshSeatingFor($venueId, $sessionIds),
+            ];
+        }
+        $rows = $response['data']['data'] ?? null;
+        if (! is_array($rows)) {
+            throw new CloudException(CloudException::BAD_RESPONSE, 'The session snapshot response is incomplete.');
+        }
+        $snapshots = [];
+        foreach ($rows as $row) {
+            $id = (int) ($row['game_session_id'] ?? 0);
+            if (! in_array($id, $sessionIds, true) || isset($snapshots[$id])
+                || ! in_array($row['metadata_status'] ?? null, [200, 404], true)
+                || ! in_array($row['seating_status'] ?? null, [200, 404], true)
+                || ($row['metadata_status'] === 200 && (! is_array($row['session'] ?? null)
+                    || (int) ($row['session']['session_id'] ?? $row['session']['id'] ?? 0) !== $id))
+                || ($row['seating_status'] === 200 && (! is_array($row['seating']['tables'] ?? null)
+                    || (int) ($row['seating']['session_id'] ?? 0) !== $id))) {
+                throw new CloudException(CloudException::BAD_RESPONSE, 'The session snapshot response does not match the requested sessions.');
+            }
+            if ($row['metadata_status'] === 200 && $venueId !== null && (int) ($row['session']['venue_id'] ?? 0) !== $venueId) {
+                throw new CloudException(CloudException::BAD_RESPONSE, 'The session snapshot belongs to a different venue.');
+            }
+            $snapshots[$id] = $row;
+        }
+        if (count($snapshots) !== count($sessionIds) || app(LicenseKeyProvider::class)->identity() !== $identity) {
+            throw new CloudException(CloudException::BAD_RESPONSE, 'The session snapshot is incomplete or the desk licence changed.');
+        }
+
+        return DB::transaction(function () use ($snapshots, $sessionIds, $venueId, $response): array {
+            foreach ($snapshots as $id => $row) {
+                if ($row['metadata_status'] === 200) {
+                    DB::table('mirror_game_sessions')->updateOrInsert(['session_id' => $id], $this->sessionRow($row['session']));
+                } else {
+                    DB::table('mirror_game_sessions')->where('session_id', $id)->delete();
+                }
+            }
+            return [
+                'game_sessions' => ['status' => 'scoped', 'rows' => count($snapshots), 'not_modified' => $response['not_modified']],
+                'seating' => $this->refreshSeatingFor($venueId, $sessionIds, $snapshots, $response['received_at_ms']),
+            ];
+        });
+    }
+
+    public function refreshSeatingFor(?int $venueId = null, ?array $sessionIds = null, ?array $snapshots = null, ?int $receivedAtMs = null): array
     {
         $ids = $sessionIds !== null
             ? collect($sessionIds)->map(fn ($id): int => (int) $id)->values()
@@ -444,13 +473,22 @@ final class SyncService
 
         $now = now();
         $rowsBySession = [];
+        $identity = app(LicenseKeyProvider::class)->identity();
 
         foreach ($ids as $sessionId) {
             try {
                 // The LICENSED seating pull — identical shape to the public map but
                 // never anonymised: staff always see the real room, whatever
                 // privacy the players chose for the public surfaces.
-                $result = $this->cloud->getJson("/api/v1/internal/sessions/{$sessionId}/seating");
+                if ($snapshots !== null) {
+                    if ($snapshots[$sessionId]['seating_status'] === 404) {
+                        $rowsBySession[$sessionId] = [];
+                        continue;
+                    }
+                    $result = ['data' => $snapshots[$sessionId]['seating'], 'received_at_ms' => $receivedAtMs];
+                } else {
+                    $result = app(ConditionalCloudRead::class)->get("/api/v1/internal/sessions/{$sessionId}/seating");
+                }
             } catch (CloudException $e) {
                 if ($e->isRetryable() || ! in_array($e->status, [404, 410], true)) {
                     throw $e;
@@ -464,9 +502,12 @@ final class SyncService
             }
 
             $seating = $result['data'];
+            if (! is_array($seating['tables'] ?? null)) {
+                throw new CloudException(CloudException::BAD_RESPONSE, 'The seating response has no table snapshot.');
+            }
             // The instant this report landed, on THIS machine's clock — the base
             // every table stopwatch in it counts on from.
-            $timerNowMs = MirrorTableTimer::nowMs();
+            $timerNowMs = $result['received_at_ms'] ?? MirrorTableTimer::nowMs();
             $rows = [];
 
             foreach ((array) ($seating['tables'] ?? []) as $table) {
@@ -555,6 +596,9 @@ final class SyncService
         }
 
         $written = 0;
+        if (app(LicenseKeyProvider::class)->identity() !== $identity) {
+            throw new CloudException(CloudException::BAD_RESPONSE, 'The desk licence changed during seating synchronization.');
+        }
 
         DB::transaction(function () use ($rowsBySession, &$written): void {
             foreach ($rowsBySession as $sessionId => $rows) {
@@ -576,6 +620,41 @@ final class SyncService
         ]);
 
         return ['sessions' => count($rowsBySession), 'rows' => $written];
+    }
+
+    private function sessionRow(array $row): array
+    {
+        $now = now();
+
+        return [
+            'session_id' => (int) ($row['session_id'] ?? $row['id'] ?? 0),
+            'source_type' => $this->str($row['source_type'] ?? null, 20),
+            'source_id' => isset($row['source_id']) ? (int) $row['source_id'] : null,
+            'category' => $this->str($row['category'] ?? null, 20),
+            'venue_id' => isset($row['venue_id']) ? (int) $row['venue_id'] : null,
+            'venue_name' => $this->str($row['venue_name'] ?? null, 160),
+            'title' => $this->str($row['title'] ?? null, 200),
+            'session_date' => $this->str($row['session_date'] ?? null, 10),
+            'start_time' => $this->str($row['start_time'] ?? null, 8),
+            'status' => $this->str($row['status'] ?? null, 20),
+            'max_players' => isset($row['max_players']) ? (int) $row['max_players'] : null,
+            'registrations_count' => (int) ($row['registrations_count'] ?? 0),
+            'is_open_for_registration' => (bool) ($row['is_open_for_registration'] ?? false),
+            // The game's payout ladder, shown by the room clock.
+            'prize_breakdown' => isset($row['prize_breakdown']) && is_array($row['prize_breakdown'])
+                ? json_encode($row['prize_breakdown'])
+                : null,
+            // This session's own winner-voucher ladder — configured
+            // per session on the admin console, not per venue.
+            'winner_vouchers' => isset($row['winner_vouchers']) && is_array($row['winner_vouchers'])
+                ? json_encode($row['winner_vouchers'])
+                : null,
+            'image_url' => $this->str($row['image_url'] ?? $row['hero_image_url'] ?? null, 500),
+            'media_key' => isset($row['image_url']) ? $this->media->keyFor((string) $row['image_url']) : null,
+            'payload' => json_encode($row),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
     }
 
     private function extractRecords(array $data): array

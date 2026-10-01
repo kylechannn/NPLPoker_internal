@@ -4,7 +4,7 @@ import { QRCodeSVG } from "qrcode.react"
 import { CASH_TABLE_BLINDS, CASH_TABLE_GAME_TYPES } from "./cashTableSetup"
 import { notify } from "../notifications/store"
 import { useReconciler } from "../realtime/useReconciler"
-import { sessionUpdateMatches } from "../realtime/sessionUpdates"
+import { sessionCommandsNeedRefresh, sessionUpdateMatches } from "../realtime/sessionUpdates"
 import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
 // The scan-time staff-comments overlay styles live in players.css — the
 // desk chunk must carry them itself (the first scan of a flagged player
@@ -454,7 +454,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     const handle = window.setInterval(() => void pullCashMoves(), 5000)
     const resume = () => { if (!document.hidden) void pullCashMoves() }
     const updated = (event: Event) => {
-      if (sessionUpdateMatches(event, cloudSessionRef.current)) void pullCashMoves()
+      if (sessionCommandsNeedRefresh(event) && sessionUpdateMatches(event, cloudSessionRef.current)) void pullCashMoves()
     }
     window.addEventListener("npl:sessions-updated", updated)
     window.addEventListener("online", resume)
@@ -513,7 +513,7 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     void pullService()
     const handle = window.setInterval(() => void pullService(), 15000)
     const updated = (event: Event) => {
-      if (sessionUpdateMatches(event, cloudSessionRef.current)) void pullService()
+      if (sessionCommandsNeedRefresh(event) && sessionUpdateMatches(event, cloudSessionRef.current)) void pullService()
     }
     window.addEventListener("npl:sessions-updated", updated)
     window.addEventListener("npl:session-touched", updated)

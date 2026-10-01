@@ -47,7 +47,7 @@ final class CloudClient
      *
      * @return array{status: int, data: array, etag: ?string, not_modified: bool}
      */
-    public function getJson(string $path, array $query = [], ?string $etag = null): array
+    public function getJson(string $path, array $query = [], ?string $etag = null, bool $conditional = false): array
     {
         $this->guard($path);
 
@@ -59,6 +59,9 @@ final class CloudClient
 
         if ($etag !== null && $etag !== '') {
             $request = $request->withHeaders(['If-None-Match' => $etag]);
+        }
+        if ($conditional) {
+            $request = $request->withHeaders(['X-NPL-Conditional' => '1']);
         }
 
         try {

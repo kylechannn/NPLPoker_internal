@@ -16,7 +16,7 @@ for (const name of ['reconciler', 'sessionPuller', 'sessionUpdates']) {
 }
 const { createReconciler } = await import(pathToFileURL(join(directory, 'reconciler.mjs')))
 const { createSessionPuller } = await import(pathToFileURL(join(directory, 'sessionPuller.mjs')))
-const { sessionUpdateMatches } = await import(pathToFileURL(join(directory, 'sessionUpdates.mjs')))
+const { sessionUpdateMatches, sessionCommandsNeedRefresh } = await import(pathToFileURL(join(directory, 'sessionUpdates.mjs')))
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 
 test('burst during an HTTP call waits for one trailing reconciliation without overlap', async () => {
@@ -88,4 +88,54 @@ test('HostDesk matches cloud session IDs and accepts legacy/full catch-up events
   assert.equal(sessionUpdateMatches({detail:{sessionIds:[102]}},101), false)
   assert.equal(sessionUpdateMatches({detail:{sessionIds:null}},101), true)
   assert.equal(sessionUpdateMatches({},101), true)
+})
+
+test('one fixed batching window combines twenty phone signals into one request', async () => {
+  let flush; const requests = []
+  const puller = createSessionPuller(async update => requests.push(update), () => {}, undefined,
+    callback => { flush = callback; return () => { flush = undefined } })
+  puller.setVenue(7)
+  const pending = Array.from({length:20}, (_, i) => puller.request(101+i))
+  assert.equal(requests.length, 0)
+  flush(); await Promise.all(pending)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].sessionIds.length, 20)
+})
+
+test('a large burst drains batches of twenty and never requests a full venue', async () => {
+  let flush; const requests = []
+  const puller = createSessionPuller(async update => requests.push(update), () => {}, undefined,
+    callback => { flush = callback; return () => { flush = undefined } })
+  puller.setVenue(7)
+  const pending = Array.from({length:43}, (_, i) => puller.request(101+i))
+  flush(); await Promise.all(pending)
+  assert.deepEqual(requests.map(row => row.sessionIds.length), [20,20,3])
+  assert.equal(new Set(requests.flatMap(row => row.sessionIds)).size,43)
+})
+
+test('signals arriving during HTTP keep one trailing batch without an empty full pull', async () => {
+  let flush; const requests = []; const gate = deferred()
+  const puller = createSessionPuller(async update => { requests.push(update); if(requests.length===1) await gate.promise }, () => {}, undefined,
+    callback => { flush = callback; return () => { flush = undefined } })
+  puller.setVenue(7)
+  const first = puller.request(101); flush()
+  const second = puller.request(102)
+  gate.resolve(); await first
+  assert.equal(requests.length,1)
+  flush(); await second
+  assert.deepEqual(requests.map(row=>row.sessionIds),[[101],[102]])
+})
+
+test('venue switch cancels a scheduled batch before it can send old targets', async () => {
+  let flush; const requests = []
+  const puller = createSessionPuller(async update => requests.push(update), () => {}, undefined,
+    callback => { flush = callback; return () => { flush = undefined } })
+  puller.setVenue(7); const pending=puller.request(101); puller.setVenue(8); await pending
+  assert.equal(flush,undefined); assert.deepEqual(requests,[])
+})
+
+test('mirror completion skips duplicate commands but legacy catch-up still reconciles', () => {
+  assert.equal(sessionCommandsNeedRefresh({detail:{commandsNotified:true}}),false)
+  assert.equal(sessionCommandsNeedRefresh({detail:{sessionIds:[101]}}),true)
+  assert.equal(sessionCommandsNeedRefresh({}),true)
 })

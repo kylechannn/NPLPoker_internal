@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Tournament;
 
 use App\Services\Cloud\CloudClient;
+use App\Services\Cloud\ConditionalCloudRead;
 use App\Services\Cloud\LicenseKeyProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -34,7 +35,8 @@ final class CashTableMovePuller
         try {
             $path = '/api/v1/internal/desk-sessions/'.$session->game_session_id.'/cash-table-moves';
             $uid = $this->broadcaster->uid($sessionId);
-            $feed = $this->cloud->getJson($path, ['tournament_uid' => $uid])['data'] ?? [];
+            // 304 reuses the complete feed. It never bypasses pending local ACKs.
+            $feed = app(ConditionalCloudRead::class)->get($path, ['tournament_uid' => $uid])['data'];
             $this->assertOwner($sessionId, (int) $session->game_session_id, $identity);
             $rows = $feed['data'] ?? [];
             $result = $empty;
