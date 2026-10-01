@@ -416,6 +416,7 @@ final class CloudClient
         $status = $response->status();
 
         $code = match (true) {
+            $status === 403 && $response->json('error.code') === 'EMAIL_VERIFICATION_REQUIRED' => 'EMAIL_VERIFICATION_REQUIRED',
             $status === 401 || $status === 403 => CloudException::UNAUTHORISED,
             // 426 Upgrade Required: this build is below the cloud's minimum
             // and every internal endpoint will refuse until it is updated.

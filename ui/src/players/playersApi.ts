@@ -10,6 +10,8 @@ export type RosterPlayer = {
   state_code: string | null
   avatar_media_key: string | null
   status: string
+  email_verification_required?: boolean
+  can_use_vouchers?: boolean
   club_member_code: string | null
 }
 
@@ -48,6 +50,8 @@ export type DeskVoucher = {
   starts_at: string | null
   expires_at: string | null
   status: string
+  email_verification_required?: boolean
+  can_use_voucher?: boolean
   last_redemption: { handled_by: string | null, source: string | null, redeemed_at: string | null } | null
 }
 
@@ -73,6 +77,8 @@ export type ActivityResult = {
 }
 
 export type RegisteredPlayer = {
+  email_verification_required?: boolean
+  can_use_vouchers?: boolean
   id: number
   npl_id: string
   public_player_code: string
@@ -148,14 +154,14 @@ export const playersApi = {
     request<{ result: ActivityResult }>(`/api/v1/players/activity?npl_id=${encodeURIComponent(nplId)}`)
       .then((data) => data.result),
 
-  markVoucherUsed: (voucherId: number, nplId: string, handledBy: string | null) =>
+  markVoucherUsed: (voucherId: number, nplId: string, handledBy: string | null, reference: string) =>
     request<{ result: { voucher: DeskVoucher } }>(`/api/v1/players/vouchers/${voucherId}/mark-used`, {
       method: 'POST',
       body: JSON.stringify({
         npl_id: nplId,
         handled_by: handledBy,
         // Idempotent by reference: a double-click can never consume twice.
-        reference: `DM-${crypto.randomUUID().replace(/-/g, '').slice(0, 24).toUpperCase()}`,
+        reference,
       }),
     }),
 
@@ -166,7 +172,7 @@ export const playersApi = {
     }),
 
   register: (form: Record<string, string | null>) =>
-    request<{ result: { player: RegisteredPlayer } }>('/api/v1/players/register', {
+    request<{ result: { player: RegisteredPlayer; verification_email_sent?: boolean } }>('/api/v1/players/register', {
       method: 'POST',
       body: JSON.stringify(form),
     }),

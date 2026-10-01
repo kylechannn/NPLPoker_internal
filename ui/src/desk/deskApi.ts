@@ -613,6 +613,8 @@ export const deskApi = {
   voucherEntitlement: (nplId: string, venueId: number | null, gameSessionId: number | null = null) =>
     request<{
       entitled: boolean
+      restriction_code?: string | null
+      email_verification_required?: boolean
       voucher: DeskVoucher | null
       already_covered?: OnlineCoverage | null
       special_tickets?: DeskVoucher[] | null

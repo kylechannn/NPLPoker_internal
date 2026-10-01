@@ -253,6 +253,8 @@ final class WheelController extends Controller
 
         return $this->ok([
             'entitled' => (bool) ($data['entitled'] ?? false),
+            'restriction_code' => $data['restriction_code'] ?? null,
+            'email_verification_required' => (bool) ($data['email_verification_required'] ?? false),
             'voucher' => $data['voucher'] ?? null,
             // The player's ONLINE registration already consumed a voucher —
             // the desk must price the entry as paid, not charge again.
@@ -305,7 +307,7 @@ final class WheelController extends Controller
                         ? 'The NPL cloud could not be reached — the voucher was NOT used. Charge the normal fee or retry.'
                         : $e->getMessage(),
                 ],
-            ], 502);
+            ], $e->errorCode === 'EMAIL_VERIFICATION_REQUIRED' ? 403 : 502);
         }
 
         return $this->ok([

@@ -4,7 +4,7 @@ import {
   Pencil, Search, Ticket, Trash2, UserPlus, Users,
 } from "lucide-react"
 import type { Venue } from "../desk/deskApi"
-import { playersApi, type ActivityResult, type CommentsResult, type DeskVoucher, type RosterPlayer } from "./playersApi"
+import { playersApi, type ActivityResult, type CommentsResult, type DeskVoucher, type RosterPlayer, type RegisteredPlayer } from "./playersApi"
 import { notify } from "../notifications/store"
 import "./players.css"
 // Cross-chunk styles the six dialogs render (modal shell, regs table,
@@ -20,8 +20,7 @@ type Action = "edit" | "password" | "comments" | "vouchers" | "activity"
 /**
  * Players: search the synced roster and act on a player — edit details,
  * set a password, read/leave staff comments, check and mark vouchers —
- * or register a brand-new member with the same email-code chain the
- * website uses. Every action lands on the cloud directly.
+ * or create an account immediately, with email verification completed later.
  */
 export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
   const [query, setQuery] = useState("")
@@ -93,6 +92,7 @@ export default function PlayersWorkspace({ venue }: { venue: Venue | null }) {
                     {player.npl_id}
                     {player.public_player_code ? ` · ${player.public_player_code}` : ""}
                     {player.state_code ? ` · ${player.state_code}` : ""}
+                    {player.email_verification_required ? " · Email verification pending" : ""}
                   </small>
                 </span>
                 {player.club_member_code ? (
@@ -207,7 +207,7 @@ function EditModal({ player, onClose, onSaved }: { player: RosterPlayer, onClose
     <div className="membership-modal" role="dialog" aria-modal="true" aria-label={`Edit ${player.display_name}`}>
       <form className="membership-modal__card membership-modal__card--wide" onSubmit={submit}>
         <h4><Pencil size={15} /> Edit — {player.display_name} <small className="players__modalsub">{player.npl_id}</small></h4>
-        <p>Only the fields you fill in change. Email changes here need no verification code — the desk vouches for the person in front of it.</p>
+        <p>Only the fields you fill in change. New members verify their current email before using vouchers. Editing an email does not verify it.</p>
         <div className="membership-modal__grid">
           <label>
             <span>First name</span>
@@ -517,14 +517,19 @@ function VouchersModal({ player, onClose }: { player: RosterPlayer, onClose: () 
 
   useEffect(() => { load() }, [load])
 
+  const redemptionReferences = useRef(new Map<number, string>())
+
   function markUsed(voucher: DeskVoucher) {
     if (busy) return
     setBusy(true)
     setError(null)
     window.localStorage.setItem(AUTHOR_KEY, handledBy.trim())
-    playersApi.markVoucherUsed(voucher.id, player.npl_id, handledBy.trim() || null)
+    const reference = redemptionReferences.current.get(voucher.id) ?? `DM-${crypto.randomUUID().replace(/-/g, '').slice(0, 24).toUpperCase()}`
+    redemptionReferences.current.set(voucher.id, reference)
+    playersApi.markVoucherUsed(voucher.id, player.npl_id, handledBy.trim() || null, reference)
       .then(() => {
         notify("system", "Voucher marked used", `${voucher.code} — ${player.display_name}${handledBy.trim() ? `, handled by ${handledBy.trim()}` : ""}.`, "success")
+        redemptionReferences.current.delete(voucher.id)
         setMarking(null)
         load()
       })
@@ -576,7 +581,8 @@ function VouchersModal({ player, onClose }: { player: RosterPlayer, onClose: () 
                         </small>
                       ) : null}
                     </div>
-                    {voucher.status === "active" ? (
+                    {voucher.email_verification_required ? <small>Email verification required before use. Ask the player to verify in their account.</small> : null}
+                    {voucher.status === "active" && voucher.can_use_voucher !== false && !voucher.email_verification_required ? (
                       marking?.id === voucher.id ? (
                         <span className="players__voucherconfirm">
                           <button type="button" disabled={busy} onClick={() => markUsed(voucher)}>
@@ -613,7 +619,6 @@ function RegisterWizard({ onClose, onRegistered }: {
   onClose: () => void
   onRegistered: (nplId: string) => void
 }) {
-  const [step, setStep] = useState<1 | 2>(1)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [email, setEmail] = useState("")
@@ -628,7 +633,6 @@ function RegisterWizard({ onClose, onRegistered }: {
     username: "",
     password: "",
     password_confirmation: "",
-    verification_code: "",
   })
   // The picker's legal window mirrors the cloud rule: 18+ and no
   // century-old typos. ISO strings compare correctly as strings.
@@ -640,21 +644,12 @@ function RegisterWizard({ onClose, onRegistered }: {
     earliest.setFullYear(earliest.getFullYear() - 120)
     return { max: fmt(latest), min: fmt(earliest) }
   })
-  const [done, setDone] = useState<{ npl_id: string, public_player_code: string, display_name: string } | null>(null)
+  const [done, setDone] = useState<RegisteredPlayer | null>(null)
+
+  const [verificationEmailSent, setVerificationEmailSent] = useState(true)
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((current) => ({ ...current, [key]: value }))
-  }
-
-  function sendCode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!email.trim() || busy) return
-    setBusy(true)
-    setError(null)
-    playersApi.registerCode(email.trim().toLowerCase())
-      .then(() => setStep(2))
-      .catch((e) => setError(e instanceof Error ? e.message : "The code could not be sent."))
-      .finally(() => setBusy(false))
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -669,6 +664,7 @@ function RegisterWizard({ onClose, onRegistered }: {
     })
       .then((result) => {
         const player = result.result.player
+        setVerificationEmailSent(result.result.verification_email_sent !== false)
         setDone(player)
         notify("system", "Member registered", `${player.display_name} — ${player.npl_id} · card ${player.public_player_code}`, "success")
       })
@@ -687,50 +683,19 @@ function RegisterWizard({ onClose, onRegistered }: {
               member card <strong>{done.public_player_code}</strong>. They can log in on the website with the
               username and password they just set.
             </p>
+            {done.email_verification_required ? <p role="status">Email verification pending. Game registration remains available. {verificationEmailSent ? "A verification code was emailed; they can finish verification in their account." : "Email delivery failed. They can resend the verification code from their account."}</p> : null}
             <div className="membership-modal__actions">
               <button type="button" className="membership-modal__save" onClick={() => onRegistered(done.npl_id)}>Done</button>
             </div>
           </>
-        ) : step === 1 ? (
-          <form onSubmit={sendCode}>
-            <h4>Register player — step 1 of 2</h4>
-            <p>The player's email gets a 6-digit verification code, exactly like registering on the website. They read it back to you.</p>
-            <div className="membership-modal__grid">
-              <label className="membership-modal__notes">
-                <span>Player's email</span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="player@email.com"
-                  autoFocus
-                  required
-                />
-              </label>
-            </div>
-            {error ? <p className="players__error" role="alert">{error}</p> : null}
-            <div className="membership-modal__actions">
-              <button type="button" onClick={onClose} disabled={busy}>Cancel</button>
-              <button type="submit" className="membership-modal__save" disabled={busy || !email.trim()}>
-                {busy ? <Loader2 size={14} className="host-spin" /> : null} Email the code
-              </button>
-            </div>
-          </form>
         ) : (
           <form onSubmit={submit}>
-            <h4>Register player — step 2 of 2</h4>
-            <p>Code sent to <strong>{email}</strong>. Fill in their details; the player types their own password.</p>
+            <h4>Register player</h4>
+            <p>Create their account now. They can join games immediately and verify their email later to use or gift vouchers.</p>
             <div className="membership-modal__grid">
               <label>
-                <span>Verification code</span>
-                <input
-                  value={form.verification_code}
-                  onChange={(event) => set("verification_code", event.target.value.replace(/\D/g, "").slice(0, 6))}
-                  placeholder="6 digits from their email"
-                  inputMode="numeric"
-                  autoFocus
-                  required
-                />
+                <span>Player's email</span>
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoFocus required />
               </label>
               <label>
                 <span>NPL ID (their choice)</span>
@@ -792,7 +757,6 @@ function RegisterWizard({ onClose, onRegistered }: {
             {error ? <p className="players__error" role="alert">{error}</p> : null}
             <div className="membership-modal__actions">
               <button type="button" onClick={onClose} disabled={busy}>Cancel</button>
-              <button type="button" onClick={() => { setStep(1); setError(null) }} disabled={busy}>Back</button>
               <button type="submit" className="membership-modal__save" disabled={busy}>
                 {busy ? <Loader2 size={14} className="host-spin" /> : null} Register member
               </button>

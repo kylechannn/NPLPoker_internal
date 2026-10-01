@@ -5,16 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\Cloud\CloudCallQueue;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Player operations at the desk: search the synced roster, read and write
  * staff comments (cloud-stored, licence-attributed), and register a brand
- * new member — the same email verification-code chain as the website, run
+ * new member immediately, with email verification completed later, run
  * from the counter. Comments and registration need the link green;
  * searching works offline off the mirror.
  */
@@ -22,7 +24,7 @@ final class PlayersController extends Controller
 {
     public function __construct(
         private readonly CloudClient $cloud,
-        private readonly \App\Services\Cloud\CloudCallQueue $queue,
+        private readonly CloudCallQueue $queue,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -75,6 +77,8 @@ final class PlayersController extends Controller
                 'state_code' => $row->state_code,
                 'avatar_media_key' => $row->avatar_media_key,
                 'status' => $row->status,
+                'email_verification_required' => (bool) ($row->email_verification_required ?? false),
+                'can_use_vouchers' => (bool) ($row->can_use_vouchers ?? true),
                 'club_member_code' => $clubIds !== null ? ($clubIds[strtoupper((string) $row->npl_id)] ?? null) : null,
             ])->values()->all(),
         ]);
@@ -99,7 +103,7 @@ final class PlayersController extends Controller
 
         // Overlay this desk's queued-but-unsent comment work: queued adds
         // appear (negative ids, pending flag), queued deletes disappear.
-        $jobs = \Illuminate\Support\Facades\DB::table('cloud_call_queue')
+        $jobs = DB::table('cloud_call_queue')
             ->whereIn('status', ['pending', 'sending'])
             ->where(fn ($query) => $query
                 ->where('group_key', 'comments:'.mb_strtoupper(trim((string) $validated['npl_id'])))
@@ -196,7 +200,7 @@ final class PlayersController extends Controller
     {
         // A negative id is one of OUR queued adds — cancel it in place.
         if ($cloudId < 0) {
-            \Illuminate\Support\Facades\DB::table('cloud_call_queue')
+            DB::table('cloud_call_queue')
                 ->where('id', -$cloudId)
                 ->whereIn('status', ['pending', 'sending'])
                 ->delete();
@@ -224,7 +228,7 @@ final class PlayersController extends Controller
         $nplId = mb_strtoupper(trim((string) ($payload['npl_id'] ?? '')));
 
         if ($nplId === '') {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'npl_id' => ['A player NPL ID is required.'],
             ]);
         }
@@ -282,36 +286,6 @@ final class PlayersController extends Controller
             'npl_id' => (string) $validated['npl_id'],
         ]));
 
-        // Queued mark-used jobs flip their voucher to used in the list the
-        // operator is looking at, before the cloud has applied them.
-        $queuedIds = \Illuminate\Support\Facades\DB::table('cloud_call_queue')
-            ->whereIn('status', ['pending', 'sending'])
-            ->where('method', 'post')
-            ->where('path', 'like', '/api/v1/internal/players/vouchers/%/mark-used')
-            ->get(['path'])
-            ->map(fn (object $row): ?int => preg_match('#/vouchers/(\d+)/mark-used$#', (string) $row->path, $m) ? (int) $m[1] : null)
-            ->filter()
-            ->flip();
-
-        if ($queuedIds->isNotEmpty()) {
-            $body = $response->getData(true);
-
-            if (isset($body['data']['vouchers']) && is_array($body['data']['vouchers'])) {
-                $body['data']['vouchers'] = array_map(
-                    function (array $voucher) use ($queuedIds): array {
-                        if ($queuedIds->has((int) ($voucher['id'] ?? 0))) {
-                            $voucher['status'] = 'used';
-                        }
-
-                        return $voucher;
-                    },
-                    $body['data']['vouchers'],
-                );
-
-                return response()->json($body, 200);
-            }
-        }
-
         return $response;
     }
 
@@ -332,13 +306,12 @@ final class PlayersController extends Controller
 
     public function markVoucherUsed(Request $request, int $cloudVoucherId): JsonResponse
     {
-        // Reference-idempotent on the cloud — safe to queue; the vouchers
-        // list overlay shows it used immediately.
-        $this->queue->enqueue('post', '/api/v1/internal/players/vouchers/'.$cloudVoucherId.'/mark-used', $request->all(), [
-            'label' => 'Mark voucher #'.$cloudVoucherId.' used',
-        ]);
-
-        return $this->ok(['result' => ['queued' => true]]);
+        // A voucher is only spent once the cloud accepts it. Never queue
+        // a success locally: verification and ownership are authoritative.
+        return $this->cloudCall(fn (): array => $this->cloud->postJson(
+            '/api/v1/internal/players/vouchers/'.$cloudVoucherId.'/mark-used',
+            $request->all(),
+        ));
     }
 
     public function registerCode(Request $request): JsonResponse
@@ -372,6 +345,8 @@ final class PlayersController extends Controller
                     'last_name' => $player['last_name'] ?? null,
                     'state_code' => $player['state_code'] ?? null,
                     'status' => (string) ($player['status'] ?? 'active'),
+                    'email_verification_required' => (bool) ($player['email_verification_required'] ?? false),
+                    'can_use_vouchers' => (bool) ($player['can_use_vouchers'] ?? true),
                     'updated_at' => now(),
                     'created_at' => now(),
                 ],
@@ -394,7 +369,7 @@ final class PlayersController extends Controller
                         ? 'The NPL cloud could not be reached — this needs a connection. Try again when the link is green.'
                         : $e->getMessage(),
                 ],
-            ], 502);
+            ], $e->status !== null && $e->status >= 400 && $e->status < 500 ? $e->status : 502);
         }
 
         return $this->ok(['result' => $result['data'] ?? $result]);

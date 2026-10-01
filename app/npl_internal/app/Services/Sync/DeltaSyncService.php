@@ -229,6 +229,8 @@ final class DeltaSyncService
                     'state_code' => $this->str($row['state_code'] ?? null, 16),
                     'avatar_url' => $this->str($row['avatar_url'] ?? null, 500),
                     'status' => $this->str($row['status'] ?? null, 20),
+                    'email_verification_required' => (bool) ($row['email_verification_required'] ?? false),
+                    'can_use_vouchers' => (bool) ($row['can_use_vouchers'] ?? true),
                     'cloud_updated_at' => $row['updated_at'] ?? null,
                     'created_at' => $now,
                     'updated_at' => $now,

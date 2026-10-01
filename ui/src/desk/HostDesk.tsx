@@ -574,6 +574,11 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
             openActions(result, false)
             return
           }
+          if (check.restriction_code === "EMAIL_VERIFICATION_REQUIRED") {
+            notify("system", "Email verification pending", "This player can register normally. They need to verify their email before using vouchers.", "info")
+            openActions(result, false)
+            return
+          }
           // Championship: stackable special tickets outrank the single
           // entry-voucher question — the operator picks how many ride.
           if (check.special_tickets && check.special_tickets.length > 0) {

@@ -65,6 +65,8 @@ final class PlayerResolver
                 'last_name' => $resolved['last_name'] ?? null,
                 'state_code' => $resolved['state_code'] ?? null,
                 'status' => $resolved['status'] ?? 'active',
+                'email_verification_required' => (bool) ($resolved['email_verification_required'] ?? false),
+                'can_use_vouchers' => (bool) ($resolved['can_use_vouchers'] ?? true),
                 'updated_at' => now(),
                 'created_at' => now(),
             ],
