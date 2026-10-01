@@ -221,6 +221,9 @@ export type WinnerVoucherRow = {
 }
 
 export type OnlineBooking = {
+  registration_id?: number | null
+  cash_seat_state?: string | null
+  cash_version?: number | null
   table_number: number
   seat_number: number | null
   status: string | null
@@ -231,6 +234,7 @@ export type ScanResult = {
   player: { npl_id: string, display_name: string, avatar_url: string | null, state_code: string | null }
   entry: SeatedPlayer | null
   booking: OnlineBooking | null
+  bookings?: OnlineBooking[]
   options: DeskOption[]
   gates: Gates
 }
@@ -263,6 +267,8 @@ export type OnlineCoverage = {
 }
 
 export type OnlineRegistration = {
+  registration_id?: number | null
+  cash_seat_state?: string | null
   npl_id: string
   display_name: string
   status: 'registered' | 'waitlisted'
@@ -700,6 +706,14 @@ export const deskApi = {
     request<{ discarded: boolean }>(`/api/v1/tournaments/${sessionId}`, { method: 'DELETE' }),
 
   /** One pull: apply admin-resolved money kinds + the desk's own queue. */
+  cashMovesSync: (sessionId: number) =>
+    request<{
+      applied: { id: number, npl_id: string, table_number: number }[]
+      failed: { id: number, npl_id: string, table_number: number, reason: string | null }[]
+      pending: number[]
+      reconciled?: { npl_id: string, table_number: number | null, seat_number: number | null }[]
+    }>(`/api/v1/desk/${sessionId}/cash-moves-sync`, { method: 'POST', body: JSON.stringify({}) }),
+
   serviceSync: (sessionId: number) =>
     request<{
       applied: {
@@ -737,17 +751,17 @@ export const deskApi = {
     request<{ result: Record<string, unknown> }>(`/api/v1/desk/sessions/${gameSessionId}/tables/${tableNumber}`, { method: 'DELETE' }),
 
   /** Remove a player's online registration for a cloud session. */
-  removeCloudRegistration: (gameSessionId: number, nplId: string) =>
+  removeCloudRegistration: (gameSessionId: number, nplId: string, registrationId?: number | null, tableNumber?: number | null) =>
     request<{ result: Record<string, unknown> }>(
       `/api/v1/desk/sessions/${gameSessionId}/registrations/${encodeURIComponent(nplId)}`,
-      { method: 'DELETE' },
+      { method: 'DELETE', body: JSON.stringify({ registration_id: registrationId, table_number: tableNumber }) },
     ),
 
   /** Move a wait-listed player into the first free seat, cloud-side. */
-  promoteCloudRegistration: (gameSessionId: number, nplId: string) =>
+  promoteCloudRegistration: (gameSessionId: number, nplId: string, registrationId?: number | null, tableNumber?: number | null) =>
     request<{ result: Record<string, unknown> }>(
       `/api/v1/desk/sessions/${gameSessionId}/registrations/${encodeURIComponent(nplId)}/promote`,
-      { method: 'POST', body: JSON.stringify({}) },
+      { method: 'POST', body: JSON.stringify({ registration_id: registrationId, table_number: tableNumber }) },
     ),
 
   /** Finish the game: record top placements and push standings to the cloud. */

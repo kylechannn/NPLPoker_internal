@@ -165,12 +165,12 @@ final class CloudClient
         return $this->unwrap($response, $path);
     }
 
-    public function deleteJson(string $path): array
+    public function deleteJson(string $path, array $payload = []): array
     {
         $this->guard($path);
 
         try {
-            $response = $this->base()->delete($this->url($path));
+            $response = $this->base()->delete($this->url($path), $payload);
         } catch (ConnectionException $e) {
             $this->link->markOffline();
 

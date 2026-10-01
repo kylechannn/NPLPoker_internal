@@ -124,24 +124,28 @@ final class DeskController
         $pendingJobs = DB::table('cloud_call_queue')
             ->where('group_key', 'session:'.$gameSessionId)
             ->whereIn('status', ['pending', 'sending'])
-            ->get(['method', 'path']);
+            ->get(['method', 'path', 'payload']);
 
         if ($pendingJobs->isNotEmpty() && isset($record['registrations']) && is_array($record['registrations'])) {
             $removed = [];
             $promoted = [];
 
             foreach ($pendingJobs as $job) {
+                $payload = json_decode($job->payload ?? '{}', true) ?? [];
+                $suffix = isset($payload['registration_id']) ? ':'.$payload['registration_id'] : '';
                 if ($job->method === 'delete' && preg_match('#/registrations/([^/]+)$#', (string) $job->path, $m)) {
-                    $removed[strtoupper(rawurldecode($m[1]))] = true;
+                    $removed[strtoupper(rawurldecode($m[1])).$suffix] = true;
                 } elseif ($job->method === 'post' && preg_match('#/registrations/([^/]+)/promote$#', (string) $job->path, $m)) {
-                    $promoted[strtoupper(rawurldecode($m[1]))] = true;
+                    $promoted[strtoupper(rawurldecode($m[1])).$suffix] = true;
                 }
             }
 
             $record['registrations'] = collect($record['registrations'])
-                ->reject(fn (array $row): bool => isset($removed[strtoupper((string) ($row['npl_id'] ?? ''))]))
+                ->reject(fn (array $row): bool => isset($removed[strtoupper((string) ($row['npl_id'] ?? ''))])
+                    || isset($removed[strtoupper((string) ($row['npl_id'] ?? '')).':'.($row['registration_id'] ?? '')]))
                 ->map(function (array $row) use ($promoted): array {
-                    if (isset($promoted[strtoupper((string) ($row['npl_id'] ?? ''))]) && ($row['status'] ?? null) === 'waitlisted') {
+                    if ((isset($promoted[strtoupper((string) ($row['npl_id'] ?? ''))])
+                        || isset($promoted[strtoupper((string) ($row['npl_id'] ?? '')).':'.($row['registration_id'] ?? '')])) && ($row['status'] ?? null) === 'waitlisted') {
                         $row['status'] = 'registered';
                         $row['waitlist_position'] = null;
                     }
@@ -492,20 +496,23 @@ final class DeskController
     }
 
     /** Remove a player's online registration — synchronous, then refresh. */
-    public function removeCloudRegistration(int $gameSessionId, string $nplId): JsonResponse
+    public function removeCloudRegistration(Request $request, int $gameSessionId, string $nplId): JsonResponse
     {
+        $target = $request->validate(['registration_id' => ['sometimes', 'nullable', 'integer', 'min:1'], 'table_number' => ['sometimes', 'nullable', 'integer', 'min:1']]);
         // The seat empties on every desk screen NOW; the cloud removal
         // (inbox notice, wait-list resolution) rides the queue.
         DB::table('mirror_session_tables')
             ->where('session_id', $gameSessionId)
             ->whereRaw('UPPER(player_npl_id) = ?', [mb_strtoupper(trim($nplId))])
+            ->when($target['registration_id'] ?? null, fn ($q, $id) => $q->where('registration_id', $id))
+            ->when($target['table_number'] ?? null, fn ($q, $number) => $q->where('table_number', $number))
             ->delete();
 
         $this->queue->enqueue('delete', sprintf(
             '/api/v1/internal/sessions/%d/registrations/%s',
             $gameSessionId,
             rawurlencode($nplId),
-        ), null, [
+        ), $target, [
             'group' => 'session:'.$gameSessionId,
             'label' => sprintf('Remove %s — session #%d', $nplId, $gameSessionId),
             'tolerate_missing' => true,
@@ -519,16 +526,17 @@ final class DeskController
      * queue → backend: the registration record's overlay shows them seated
      * immediately, and the cloud move rides the queue — offline included.
      */
-    public function promoteCloudRegistration(int $gameSessionId, string $nplId): JsonResponse
+    public function promoteCloudRegistration(Request $request, int $gameSessionId, string $nplId): JsonResponse
     {
+        $target = $request->validate(['registration_id' => ['sometimes', 'nullable', 'integer', 'min:1'], 'table_number' => ['sometimes', 'nullable', 'integer', 'min:1']]);
         $this->queue->enqueue('post', sprintf(
             '/api/v1/internal/sessions/%d/registrations/%s/promote',
             $gameSessionId,
             rawurlencode($nplId),
-        ), [], [
+        ), $target, [
             'group' => 'session:'.$gameSessionId,
             'label' => sprintf('Seat %s from wait list — session #%d', $nplId, $gameSessionId),
-            'idempotency_key' => substr('promote:'.$gameSessionId.':'.mb_strtoupper(trim($nplId)), 0, 64),
+            'idempotency_key' => substr('promote:'.$gameSessionId.':'.($target['registration_id'] ?? '').':'.mb_strtoupper(trim($nplId)), 0, 64),
             // A retry after a half-applied attempt answers "already
             // registered" — that is done, not dead.
             'tolerate_missing' => true,
@@ -731,6 +739,11 @@ final class DeskController
     public function seating(int $id): JsonResponse
     {
         return $this->ok($this->desk->seating($id));
+    }
+
+    public function cashMovesSync(int $id, \App\Services\Tournament\CashTableMovePuller $moves): JsonResponse
+    {
+        return $this->ok($moves->sync($id));
     }
 
     /**

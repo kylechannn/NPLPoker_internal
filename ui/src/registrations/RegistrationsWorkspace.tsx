@@ -257,9 +257,9 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
     setError(null)
     try {
       if (action === "promote") {
-        await deskApi.promoteCloudRegistration(session.session_id, row.npl_id)
+        await deskApi.promoteCloudRegistration(session.session_id, row.npl_id, row.registration_id, row.table_number)
       } else {
-        await deskApi.removeCloudRegistration(session.session_id, row.npl_id)
+        await deskApi.removeCloudRegistration(session.session_id, row.npl_id, row.registration_id, row.table_number)
       }
       load()
     } catch (e) {
@@ -299,7 +299,7 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
               </thead>
               <tbody>
                 {rows.map((row, index) => (
-                  <tr key={row.npl_id}>
+                  <tr key={row.registration_id ?? `${row.npl_id}:${row.table_number}`}>
                     <td>{index + 1}</td>
                     <td>
                       {row.pre_registered ? (
@@ -315,6 +315,7 @@ function RegistrationsModal({ session, onClose }: { session: SessionSummary, onC
                     </td>
                     <td><code>{row.npl_id}</code></td>
                     <td>
+                      {row.cash_seat_state === "active" ? "Playing · " : row.cash_seat_state === "selected" ? "Current · " : ""}
                       {row.status === "waitlisted"
                         ? `Waitlist${row.waitlist_position !== null ? ` #${row.waitlist_position}` : ""}`
                         : row.table_number !== null && row.seat_number !== null

@@ -409,6 +409,52 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
     return () => window.clearInterval(handle)
   }, [refresh])
 
+  // Cash choices are durable cloud commands: apply and acknowledge them while
+  // the desk is open, including after reconnecting or returning to this window.
+  const cashMoveBusyRef = useRef(false)
+  useEffect(() => {
+    if (mode !== "cash") return
+    let cancelled = false
+    const pull = async () => {
+      if (cashMoveBusyRef.current) return
+      cashMoveBusyRef.current = true
+      try {
+        const result = await deskApi.cashMovesSync(sessionId)
+        if (cancelled) return
+        for (const row of result.applied) {
+          notify("registration", "Cash table changed", `${row.npl_id} moved to Table ${row.table_number}.`, "success")
+        }
+        for (const row of result.failed) {
+          notify("registration", "Cash table change could not finish", `${row.npl_id}: ${row.reason ?? "The previous seat has been kept."}`, "warning")
+        }
+        for (const row of result.reconciled ?? []) {
+          const position = row.table_number == null
+            ? "Their paid entry is kept. Check their current reservation before seating them."
+            : `Their current position is Table ${row.table_number}, Seat ${row.seat_number}.`
+          notify("registration", "Cash seat updated from cloud", `${row.npl_id}: ${position}`, "warning")
+        }
+        if (result.applied.length || result.failed.length || result.pending.length || result.reconciled?.length) void refresh()
+      } catch {
+        // The local journal retries acknowledgement; never charge or move twice.
+      } finally {
+        cashMoveBusyRef.current = false
+      }
+    }
+    void pull()
+    const handle = window.setInterval(() => void pull(), 5000)
+    const resume = () => { if (!document.hidden) void pull() }
+    window.addEventListener("online", resume)
+    window.addEventListener("focus", resume)
+    document.addEventListener("visibilitychange", resume)
+    return () => {
+      cancelled = true
+      window.clearInterval(handle)
+      window.removeEventListener("online", resume)
+      window.removeEventListener("focus", resume)
+      document.removeEventListener("visibilitychange", resume)
+    }
+  }, [mode, sessionId, refresh])
+
   // Phone requests the admin resolved at the table: pull them into the
   // local ledger every 15s and tell the operator what just landed.
   // Single-flight: on venue internet a pull can outlive the interval, and
@@ -1371,6 +1417,13 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                   : scan.booking.seat_number !== null
                     ? `Booked online — table ${scan.booking.table_number}, seat ${scan.booking.seat_number}. Buy-in confirms their entry.`
                     : `Booked online — table ${scan.booking.table_number}. Buy-in confirms their entry.`}
+              </p>
+            ) : null}
+            {mode === "cash" && (scan.bookings?.length ?? 0) > 1 ? (
+              <p className="host-booking-banner">
+                Cash reservations: {scan.bookings!.map((booking) =>
+                  `Table ${booking.table_number}${booking.seat_number ? ` / Seat ${booking.seat_number}` : " / Waitlist"}${["active", "selected"].includes(booking.cash_seat_state ?? "") ? " (current)" : ""}`
+                ).join(" · ")}. Other reservations remain when this player checks in.
               </p>
             ) : null}
 

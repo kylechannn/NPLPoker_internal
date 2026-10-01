@@ -205,7 +205,7 @@ final class CloudCallQueue
             try {
                 match ($entry->method) {
                     'post' => $this->cloud->postJson($entry->path, $payload, $entry->idempotency_key ?: null),
-                    'delete' => $this->cloud->deleteJson($entry->path),
+                    'delete' => $this->cloud->deleteJson($entry->path, $payload),
                     default => throw new \InvalidArgumentException("Unsupported queue method [{$entry->method}]."),
                 };
 

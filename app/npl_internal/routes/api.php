@@ -130,6 +130,7 @@ Route::prefix('v1/desk')->controller(\App\Http\Controllers\Api\DeskController::c
     Route::get('{id}/seating', 'seating')->whereNumber('id');
     // Apply admin-phone rebuys/buy-ins into the local ledger.
     Route::post('{id}/service-sync', 'serviceSync')->whereNumber('id');
+    Route::post('{id}/cash-moves-sync', 'cashMovesSync')->whereNumber('id');
     // The desk handles a phone request itself (main control).
     Route::post('{id}/service-handle', 'serviceHandle')->whereNumber('id');
     Route::post('{id}/eliminate', 'eliminate')->whereNumber('id');

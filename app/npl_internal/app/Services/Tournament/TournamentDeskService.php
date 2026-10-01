@@ -103,6 +103,7 @@ final class TournamentDeskService
             ],
             'entry' => $registered ? $this->presentEntry($entry, $sessionId, $session) : null,
             'booking' => $this->onlineBooking($session, $nplId),
+            'bookings' => $session->game_type === 'cash' ? $this->onlineBookings($session, $nplId) : [],
             'options' => $this->optionsFor($sessionId, $session, $state, $nplId, $registered, $entry),
             'gates' => $gates,
         ];
@@ -118,29 +119,35 @@ final class TournamentDeskService
      */
     private function onlineBooking(object $session, string $nplId): ?array
     {
+        return $this->onlineBookings($session, $nplId)[0] ?? null;
+    }
+
+    private function onlineBookings(object $session, string $nplId): array
+    {
         if ($session->game_session_id === null) {
-            return null;
+            return [];
         }
 
         // Mirror rows keep the cloud's mixed casing; callers pass the
         // normalised (uppercase) id — compare case-insensitively or a
         // player's booked online seat is silently ignored.
-        $booking = DB::table('mirror_session_tables')
+        $query = DB::table('mirror_session_tables')
             ->where('session_id', $session->game_session_id)
             ->whereRaw('UPPER(player_npl_id) = ?', [$this->normaliseId($nplId)])
-            ->whereIn('registration_status', ['registered', 'waitlisted'])
-            ->first();
-
-        if ($booking === null) {
-            return null;
+            ->whereIn('registration_status', ['registered', 'waitlisted']);
+        if ($session->game_type === 'cash') {
+            $query->orderByRaw("CASE WHEN cash_seat_state IN ('active', 'selected') THEN 0 ELSE 1 END")
+                ->orderByRaw("CASE WHEN table_phase = 'live' THEN 0 ELSE 1 END")->orderBy('table_number');
         }
-
-        return [
+        return $query->get()->map(fn (object $booking): array => [
+            'registration_id' => $booking->registration_id,
+            'cash_seat_state' => $booking->cash_seat_state,
+            'cash_version' => $booking->cash_version,
             'table_number' => (int) $booking->table_number,
             'seat_number' => $booking->seat_number !== null ? (int) $booking->seat_number : null,
             'status' => $booking->registration_status,
             'waitlist_position' => $booking->waitlist_position !== null ? (int) $booking->waitlist_position : null,
-        ];
+        ])->all();
     }
 
     /**
@@ -380,7 +387,7 @@ final class TournamentDeskService
                 'table_number' => $entry?->table_number !== null ? (int) $entry->table_number : null,
                 'seat_number' => $entry?->seat_number !== null ? (int) $entry->seat_number : null,
                 'entered_at' => now()->toIso8601String(),
-            ]);
+            ] + $this->cashSeatContext($session, $nplId, $entry?->table_number));
             $this->drainSoon();
         }
 
@@ -458,6 +465,7 @@ final class TournamentDeskService
             $this->assertCashTableAvailable($session, $tableNumber);
         }
 
+        $this->assertCashMoveAvailable($session, $nplId, $tableNumber, $seatNumber);
         $extras = [];
 
         if ($voucherCodes !== [] || $stackCovered !== null) {
@@ -503,6 +511,14 @@ final class TournamentDeskService
         $occupied = [];
         foreach ($seated as $row) {
             $occupied[(int) $row->table_number][(int) $row->seat_number] = (string) $row->player_npl_id;
+        }
+        if ($session->game_type === 'cash' && $session->game_session_id !== null) {
+            foreach (DB::table('mirror_session_tables')->where('session_id', $session->game_session_id)
+                ->where('registration_status', 'registered')->whereNotNull('seat_number')->whereNotNull('player_npl_id')->get() as $reserved) {
+                if ($this->normaliseId($reserved->player_npl_id) !== $nplId) {
+                    $occupied[(int) $reserved->table_number][(int) $reserved->seat_number] ??= $reserved->player_npl_id;
+                }
+            }
         }
 
         // The same table universe the seating map shows.
@@ -990,6 +1006,8 @@ final class TournamentDeskService
     {
         $nplId = $this->normaliseId($rawId);
         $session = $this->clock->session($sessionId);
+        $this->assertCashMoveAvailable($session, $nplId, null, null);
+        $cashContext = $this->cashSeatContext($session, $nplId);
 
         $entry = DB::table('tournament_entries')
             ->where('tournament_session_id', $sessionId)
@@ -1000,7 +1018,10 @@ final class TournamentDeskService
             throw ValidationException::withMessages(['player_npl_id' => ['That player is not in this tournament.']]);
         }
 
-        DB::table('tournament_entries')->where('id', $entry->id)->delete();
+        DB::transaction(function () use ($session, $entry): void {
+            $this->archiveCashEntry($session, $entry);
+            DB::table('tournament_entries')->where('id', $entry->id)->delete();
+        });
 
         $this->broadcaster->publish($sessionId);
 
@@ -1013,9 +1034,10 @@ final class TournamentDeskService
                 'game_session_id' => (int) $session->game_session_id,
                 'venue_id' => $session->venue_id !== null ? (int) $session->venue_id : null,
                 'player_npl_id' => (string) $entry->player_npl_id,
+                'table_number' => $entry->table_number,
                 'removed_at' => now()->toIso8601String(),
                 'nonce' => (string) Str::uuid(),
-            ]);
+            ] + $cashContext);
             $this->drainSoon();
         }
 
@@ -1321,6 +1343,7 @@ final class TournamentDeskService
     {
         $nplId = $this->normaliseId($rawId);
         $state = $this->clock->state($sessionId);
+        $this->assertCashMoveAvailable($this->clock->session($sessionId), $nplId, null, null);
 
         $entry = DB::table('tournament_entries')
             ->where('tournament_session_id', $sessionId)
@@ -1335,7 +1358,8 @@ final class TournamentDeskService
             throw ValidationException::withMessages(['player_npl_id' => ['That player is already out.']]);
         }
 
-        DB::transaction(function () use ($sessionId, $nplId, $state, $options): void {
+        DB::transaction(function () use ($sessionId, $nplId, $state, $options, $entry): void {
+            $this->archiveCashEntry($this->clock->session($sessionId), $entry);
             // Finishing position counts down from the field size: the first
             // player out finishes last.
             $stillIn = DB::table('tournament_entries')
@@ -1422,6 +1446,7 @@ final class TournamentDeskService
     {
         $nplId = $this->normaliseId($rawId);
         $session = $this->clock->session($sessionId);
+        $this->assertCashMoveAvailable($session, $nplId, $tableNumber, $seatNumber);
         if ($tableNumber !== null) {
             $this->assertCashTableAvailable($session, $tableNumber);
         }
@@ -1484,8 +1509,52 @@ final class TournamentDeskService
             // Repeating an identical move (A→B, A→C, back to A→B) must be a
             // fresh outbox entry, not a content-hash hit on the sent one.
             'nonce' => (string) Str::uuid(),
-        ]);
+        ] + $this->cashSeatContext($session, $nplId));
         $this->drainSoon();
+    }
+
+    private function cashSeatContext(object $session, string $nplId, ?int $targetTable = null): array
+    {
+        if ($session->game_type !== 'cash' || $session->game_session_id === null) {
+            return [];
+        }
+        $rows = DB::table('mirror_session_tables')->where('session_id', $session->game_session_id)
+            ->whereRaw('UPPER(player_npl_id) = ?', [$nplId])->get();
+        $entry = DB::table('tournament_entries')->where('tournament_session_id', $session->id)->where('player_npl_id', $nplId)->first();
+        $booking = $targetTable !== null ? $rows->firstWhere('table_number', $targetTable)
+            : $rows->first(fn (object $row): bool => in_array($row->cash_seat_state, ['active', 'selected'], true));
+        return [
+            'registration_id' => $targetTable !== null ? $booking?->registration_id : ($entry?->cash_registration_id ?? $booking?->registration_id),
+            'cash_version' => max((int) $entry?->cash_version, (int) $rows->max('cash_version')),
+            'tournament_uid' => $this->broadcaster->uid((int) $session->id),
+        ];
+    }
+
+    private function assertCashMoveAvailable(object $session, string $nplId, ?int $table, ?int $seat): void
+    {
+        if ($session->game_type !== 'cash') {
+            return;
+        }
+        foreach (DB::table('cash_table_moves')->where('tournament_session_id', $session->id)
+            ->whereIn('status', ['applied_pending', 'failed_pending'])->get() as $pending) {
+            $move = json_decode($pending->payload, true);
+            if ($pending->player_npl_id === $nplId || ($table !== null && $seat !== null
+                && (((int) $move['from_table_number'] === $table && (int) $move['from_seat_number'] === $seat)
+                    || ((int) $move['to_table_number'] === $table && (int) $move['to_seat_number'] === $seat)))) {
+                throw ValidationException::withMessages(['table_number' => ['A player table change is awaiting cloud confirmation. Keep both seats available until it finishes.']]);
+            }
+        }
+    }
+
+    /** A rejected offline removal must be able to restore the existing paid entry. */
+    private function archiveCashEntry(object $session, object $entry): void
+    {
+        if ($session->game_type !== 'cash' || $session->game_session_id === null) {
+            return;
+        }
+        DB::table('cash_entry_recoveries')->updateOrInsert([
+            'tournament_session_id' => $session->id, 'player_npl_id' => $entry->player_npl_id,
+        ], ['entry_snapshot' => json_encode($entry), 'created_at' => now(), 'updated_at' => now()]);
     }
 
     /**
@@ -1545,7 +1614,7 @@ final class TournamentDeskService
                     'activation_deadline_at', 'activated_at', 'table_status', 'table_phase',
                     'timer_running', 'timer_elapsed_ms', 'timer_synced_ms',
                     'player_npl_id', 'player_display_name', 'registration_status', 'pre_registered',
-                    'waitlist_position', 'hold_expires_at', 'checked_in',
+                    'waitlist_position', 'hold_expires_at', 'checked_in', 'registration_id', 'cash_seat_state', 'cash_version',
                 ]);
 
             $mirrorMeta = $mirrorRows
@@ -1558,14 +1627,14 @@ final class TournamentDeskService
             // cash alike. A local entry for the same player (any status)
             // outranks the booking and hides it.
             $locallySeen = $entries
-                ->map(fn (object $row): string => mb_strtoupper((string) $row->player_npl_id))
+                ->map(fn (object $row): string => mb_strtoupper((string) $row->player_npl_id).($session->game_type === 'cash' ? ':'.$row->table_number : ''))
                 ->flip();
 
             $cloudSeated = $mirrorRows
                 ->filter(fn (object $row): bool => $row->player_npl_id !== null
                     && $row->seat_number !== null
                     && $row->registration_status === 'registered'
-                    && ! isset($locallySeen[mb_strtoupper((string) $row->player_npl_id)]))
+                    && ! isset($locallySeen[mb_strtoupper((string) $row->player_npl_id).($session->game_type === 'cash' ? ':'.$row->table_number : '')]))
                 ->keyBy(fn (object $row): string => $row->table_number.':'.$row->seat_number);
 
             // Players who showed interest — each table's cloud wait list,
