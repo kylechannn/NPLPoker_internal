@@ -8,6 +8,7 @@ use GuzzleHttp\Utils as GuzzleUtils;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -34,6 +35,8 @@ final class CloudClient
      */
     private static mixed $sharedHandler = null;
 
+    private ?object $observation = null;
+
     public function __construct(
         private readonly LicenseKeyProvider $license,
         private readonly CloudLinkState $link,
@@ -48,6 +51,11 @@ final class CloudClient
      * @return array{status: int, data: array, etag: ?string, not_modified: bool}
      */
     public function getJson(string $path, array $query = [], ?string $etag = null, bool $conditional = false): array
+    {
+        return $this->observed($path, fn () => $this->getJsonRequest($path, $query, $etag, $conditional));
+    }
+
+    private function getJsonRequest(string $path, array $query, ?string $etag, bool $conditional): array
     {
         $this->guard($path);
 
@@ -100,6 +108,11 @@ final class CloudClient
     /** Writes carry an idempotency key and are never retried behind your back. */
     public function postJson(string $path, array $payload, ?string $idempotencyKey = null): array
     {
+        return $this->observed($path, fn () => $this->postJsonRequest($path, $payload, $idempotencyKey));
+    }
+
+    private function postJsonRequest(string $path, array $payload, ?string $idempotencyKey): array
+    {
         $this->guard($path);
 
         $request = $this->base()->withHeaders([
@@ -130,6 +143,11 @@ final class CloudClient
      */
     public function sendAs(string $method, string $path, array $payload, string $bearerToken): array
     {
+        return $this->observed($path, fn () => $this->sendAsRequest($method, $path, $payload, $bearerToken));
+    }
+
+    private function sendAsRequest(string $method, string $path, array $payload, string $bearerToken): array
+    {
         $this->guard($path);
 
         $request = $this->base()
@@ -152,7 +170,12 @@ final class CloudClient
     }
 
     /** A private hand photo, sent with both the desk licence and operator identity. */
-    public function postFileAs(string $path, array $payload, \Illuminate\Http\UploadedFile $photo, string $bearerToken): array
+    public function postFileAs(string $path, array $payload, UploadedFile $photo, string $bearerToken): array
+    {
+        return $this->observed($path, fn () => $this->postFileAsRequest($path, $payload, $photo, $bearerToken));
+    }
+
+    private function postFileAsRequest(string $path, array $payload, UploadedFile $photo, string $bearerToken): array
     {
         $this->guard($path);
         try {
@@ -165,10 +188,16 @@ final class CloudClient
         }
         $this->link->markOnline();
         $this->assertOk($response, $path);
+
         return $this->unwrap($response, $path);
     }
 
     public function deleteJson(string $path, array $payload = [], ?string $idempotencyKey = null): array
+    {
+        return $this->observed($path, fn () => $this->deleteJsonRequest($path, $payload, $idempotencyKey));
+    }
+
+    private function deleteJsonRequest(string $path, array $payload, ?string $idempotencyKey): array
     {
         $this->guard($path);
 
@@ -194,7 +223,7 @@ final class CloudClient
      * signing an operator in (or reporting a sale applied) off a garbage
      * body must never happen.
      */
-    private function unwrap(\Illuminate\Http\Client\Response $response, string $path): array
+    private function unwrap(Response $response, string $path): array
     {
         $body = $response->json();
 
@@ -301,11 +330,36 @@ final class CloudClient
         }
     }
 
+    /** Diagnostics must never replace the original result or exception. */
+    private function observed(string $path, callable $operation): array
+    {
+        $previous = $this->observation;
+        $sample = (object) ['status' => 0, 'attempts' => 0, 'bytes' => 0];
+        $this->observation = $sample;
+        $started = hrtime(true);
+        $failed = true;
+        try {
+            $result = $operation();
+            $failed = false;
+
+            return $result;
+        } finally {
+            $this->observation = $previous;
+            try {
+                app(TransportMetrics::class)->record(TransportMetrics::family($path), $sample->status,
+                    (int) ((hrtime(true) - $started) / 1000000), $sample->bytes, $sample->attempts, $failed);
+            } catch (\Throwable) {
+                // Even container/storage failures cannot turn a confirmed ACK into a failure.
+            }
+        }
+    }
+
     private function base(): PendingRequest
     {
         // The resident sweep and Cash puller can outlive a host activation.
         // Never send a new operation with a previous cached licence/device.
         $this->license->forget();
+        $sample = $this->observation;
 
         return Http::withHeaders(array_filter([
             'Accept' => 'application/json',
@@ -316,6 +370,21 @@ final class CloudClient
             'X-App-Version' => (string) config('app.version', ''),
         ]))
             ->setHandler(self::$sharedHandler ??= GuzzleUtils::chooseHandler())
+            ->beforeSending(function () use ($sample): void {
+                if ($sample) {
+                    $sample->attempts++;
+                }
+            })
+            ->afterResponse(function (Response $response) use ($sample): void {
+                try {
+                    if ($sample) {
+                        $sample->status = $response->status();
+                        $sample->bytes += strlen($response->body());
+                    }
+                } catch (\Throwable) {
+                    // An unreadable diagnostic body must not alter response handling.
+                }
+            })
             ->withOptions(['verify' => $this->verify()])
             ->timeout((int) config('nplcloud.timeouts.request', 30))
             ->connectTimeout((int) config('nplcloud.timeouts.connect', 10));

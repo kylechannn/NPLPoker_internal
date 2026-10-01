@@ -470,6 +470,7 @@ export type CloudQueueDeadItem = {
 }
 
 export type CloudQueueStatus = {
+  transport?: import("../realtime/transportDiagnostics").CloudTransportMetrics | null
   pending: number
   dead: number
   dead_items: CloudQueueDeadItem[]

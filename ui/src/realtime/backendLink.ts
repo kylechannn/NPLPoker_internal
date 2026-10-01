@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { notify } from "../notifications/store"
 import { createSessionPuller } from "./sessionPuller"
+import { transportDiagnostics } from "./transportDiagnostics"
 
 /**
  * The live link to the NPL cloud.
@@ -63,13 +64,23 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 const sessionPuller = createSessionPuller(async update => {
   // One command wake-up per coalesced batch, before the mirror's HTTP await.
   window.dispatchEvent(new CustomEvent("npl:session-touched", { detail: update }))
-  await fetchJson("/api/v1/sync/pull-sessions", {
+  transportDiagnostics.count(update.sessionIds === null ? "full_pulls" : "targeted_batches")
+  transportDiagnostics.count("targets", update.sessionIds?.length ?? 0)
+  const started = performance.now()
+  try {
+    await fetchJson("/api/v1/sync/pull-sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ venue_id: update.venueId, ...(update.sessionIds === null ? {} : { session_ids: update.sessionIds }) }),
-  })
+    })
+  } catch (error) {
+    transportDiagnostics.count("failed_pulls")
+    throw error
+  } finally {
+    transportDiagnostics.duration(performance.now() - started)
+  }
 }, update => window.dispatchEvent(new CustomEvent("npl:sessions-updated", { detail: { ...update, commandsNotified: true } })), retry => {
-  const timer = window.setTimeout(retry, 5_000)
+  const timer = window.setTimeout(() => { transportDiagnostics.count("retries"); retry() }, 5_000)
   return () => window.clearTimeout(timer)
 }, flush => {
   // Fixed window (not a sliding debounce): a busy venue cannot postpone a pull.
@@ -130,6 +141,7 @@ export function useBackendLink(venueId: number | null) {
       attemptRef.current += 1
       reconnectTimerRef.current = window.setTimeout(() => {
         reconnectTimerRef.current = null
+        transportDiagnostics.count("reconnects")
         void open()
       }, delay)
     }
@@ -161,6 +173,7 @@ export function useBackendLink(venueId: number | null) {
       if (disposed) return
 
       const protocol = details.scheme === "https" ? "wss" : "ws"
+      transportDiagnostics.count("socket_attempts")
       setPhase(`Opening socket to ${details.host}…`)
       const socket = new WebSocket(
         `${protocol}://${details.host}:${details.port}/app/${details.key}?protocol=7&client=npl-os&version=1.0&flash=false`,
@@ -219,6 +232,7 @@ export function useBackendLink(venueId: number | null) {
         if (message?.event === "pusher_internal:subscription_succeeded"
           && (message as { channel?: string }).channel === `${details.channel_prefix}${venueId}`) {
           venueSubscribed = true
+          transportDiagnostics.count("subscriptions")
           window.clearTimeout(connectDeadline)
           attemptRef.current = 0
           setLastError(null)
@@ -273,6 +287,7 @@ export function useBackendLink(venueId: number | null) {
         }
 
         if (message?.event === (details.event ?? "session.touched")) {
+          transportDiagnostics.count("session_signals")
           let data: { game_session_id?: number, kind?: string, event_id?: string } | undefined
           try {
             data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as typeof data
@@ -280,7 +295,10 @@ export function useBackendLink(venueId: number | null) {
           // Durable delivery is at least once. A failed HTTP pull has its own
           // retained-target retry, so replayed frames need not repeat the work.
           if (typeof data?.event_id === "string") {
-            if (deliveredSessionEvents.has(data.event_id)) return
+            if (deliveredSessionEvents.has(data.event_id)) {
+              transportDiagnostics.count("deduped_signals")
+              return
+            }
             deliveredSessionEvents.add(data.event_id)
             if (deliveredSessionEvents.size > 256) deliveredSessionEvents.delete(deliveredSessionEvents.values().next().value!)
           }

@@ -8,7 +8,7 @@ import ts from 'typescript'
 
 const directory = await mkdtemp(join(tmpdir(), 'npl-os-transport-'))
 after(() => rm(directory, { recursive: true, force: true }))
-for (const name of ['reconciler', 'sessionPuller', 'sessionUpdates']) {
+for (const name of ['reconciler', 'sessionPuller', 'sessionUpdates', 'transportDiagnostics']) {
   const source = await readFile(new URL(`../src/realtime/${name}.ts`, import.meta.url), 'utf8')
   const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
     .replaceAll('"./reconciler"', '"./reconciler.mjs"')
@@ -17,7 +17,48 @@ for (const name of ['reconciler', 'sessionPuller', 'sessionUpdates']) {
 const { createReconciler } = await import(pathToFileURL(join(directory, 'reconciler.mjs')))
 const { createSessionPuller } = await import(pathToFileURL(join(directory, 'sessionPuller.mjs')))
 const { sessionUpdateMatches, sessionCommandsNeedRefresh } = await import(pathToFileURL(join(directory, 'sessionUpdates.mjs')))
+const { createTransportDiagnostics } = await import(pathToFileURL(join(directory, 'transportDiagnostics.mjs')))
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
+
+test('transport diagnostics bound the rolling window and ignore arbitrary labels and values', () => {
+  let now = 0
+  const metrics = createTransportDiagnostics(() => now)
+  metrics.count('reconnects', 2)
+  for (let i = 0; i < 1000; i++) { metrics.count('private-player-' + i); metrics.count('targets') }
+  metrics.count('targets', Infinity); metrics.count('targets', -1)
+  metrics.count('targets', 'PRIVATE-TOKEN')
+  for (const ms of [100, 101, 300, 301, 1000, 1001, 3000, 3001, 10000, 10001]) metrics.duration(ms)
+  metrics.duration(NaN)
+  assert.deepEqual(metrics.snapshot().duration_buckets, [1, 2, 2, 2, 2, 1])
+  assert.equal(metrics.snapshot().counters.targets, 1000)
+  assert.equal(metrics.snapshot().counters.reconnects, 2)
+  assert.equal(JSON.stringify(metrics.snapshot()).includes('PRIVATE'), false)
+  now = 60 * 60000
+  assert.equal(metrics.snapshot().counters.targets, 0)
+  assert.deepEqual(metrics.snapshot().duration_buckets, [0, 0, 0, 0, 0, 0])
+  metrics.count('retries'); now = 0
+  assert.equal(metrics.snapshot().counters.retries, 0, 'clock rollback cannot retain future buckets')
+})
+
+test('one thousand coalesced targets stay in fifty bounded requests and fault retries remain intact', async () => {
+  const metrics = createTransportDiagnostics()
+  let flush; let retry; let calls = 0; let fail = true; const applied = []
+  const puller = createSessionPuller(async update => {
+    calls++; metrics.count('targeted_batches'); metrics.count('targets', update.sessionIds.length)
+    if (fail) { fail = false; metrics.count('failed_pulls'); throw Error('temporary') }
+  }, update => applied.push(...update.sessionIds), callback => { retry = callback; return () => { retry = undefined } },
+  callback => { flush = callback; return () => { flush = undefined } })
+  puller.setVenue(7)
+  const pending = Array.from({length:1000}, (_, i) => puller.request(i + 1))
+  const settled = Promise.allSettled(pending)
+  flush(); await settled
+  assert.equal(calls, 1); assert.equal(applied.length, 0)
+  metrics.count('retries'); retry(); await new Promise(done => setImmediate(done))
+  // The retained first batch plus all queued targets are delivered once.
+  assert.equal(calls, 51); assert.equal(applied.length, 1000); assert.equal(new Set(applied).size, 1000)
+  assert.equal(metrics.snapshot().counters.failed_pulls, 1)
+  assert.equal(metrics.snapshot().counters.targets, 1020)
+})
 
 test('burst during an HTTP call waits for one trailing reconciliation without overlap', async () => {
   const gate = deferred(); let calls = 0; let active = 0; let maximum = 0

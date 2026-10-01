@@ -145,3 +145,84 @@ stale session/venue fencing, malformed-event recovery and unchanged exact Wheel
 approval forwarding. These are test request counts, not measured production
 latency. Release the matching cloud endpoint/conditional middleware and rebuild
 the OS; confirm real venue request counts and lost-frame/ACK recovery on rollout.
+
+## Phase 3: local transport diagnostics
+
+`GET /api/v1/cloud-queue/status` adds optional `transport` with `schema_version: 1`.
+The existing visible-shell 15-second status read supplies it; diagnostics add no
+HTTP polling loop. The sync panel also exposes pending Cash transfer confirmations
+and the oldest pending journal age, without treating a local move as a cloud ACK.
+
+CloudClient JSON/person/photo calls record logical request counts, actual send
+attempts, 304s, errors, offline skips, decoded response-body bytes and local
+round-trip duration. Media downloads and the separate link health probe are not
+included. A GET retry adds attempts to the same logical request. A rejected or
+malformed response is an error; a known-offline call has zero attempts. Durations
+use a monotonic clock, include existing retries, and exclude diagnostic writes.
+These measurements are not cross-device delivery latency or compressed wire bytes.
+
+Minute aggregates retain the current and previous 59 minutes, with nine fixed
+families: session batch, session catalogue, seating, Cash moves, Cash ACK, desk
+pulse, clock write, outbox write and other. Labels cannot contain a request path
+or any identifier. The six disjoint duration buckets end at 100, 300, 1,000,
+3,000, 10,000 ms and infinity. Each snapshot includes sums and maxima; it does
+not claim a precise percentile from these coarse buckets. Counts are best effort:
+a busy/unavailable diagnostics database drops the sample without failing business
+work, blocking on its writer, retrying a write or changing ACK state.
+
+Deploy migration `2026_10_02_000200_create_transport_metric_buckets` with the usual
+local `php artisan migrate --force` boot/update step. Its table lives in the
+existing cache SQLite database; a separate zero-busy-timeout connection records
+statistics across PHP workers without writing to the financial database. At most
+540 family/minute rows are retained while recording. Snapshots omit expired rows
+even when idle; the next observation removes them. No migration or cache wipe is
+required on the cloud for these local counters. Missing local migration reports
+diagnostics as unavailable and does not disable desk work. To reset diagnostics,
+clear only the diagnostic table; never erase queues or Cash journals.
+
+The same migration adds a `(status, created_at)` index to `cash_table_moves` on
+the main database, so the existing 15-second status read need not scan historical
+completed transfers for its pending count/oldest age. Cache table and main index
+creation are guarded independently for recovery after partial migration. Rollback
+removes this index and the diagnostic table; it never deletes Cash journal rows.
+
+The browser keeps a separate bounded 60-minute in-memory aggregate of socket
+attempts, confirmed venue subscriptions, reconnect attempts, session signals,
+deduplicated signals, targeted/full mirror requests, target counts, failures,
+retry executions and mirror HTTP durations. Reloading the window resets these
+browser counters; persistent cloud counters survive. No payloads, event/session
+IDs, NPL IDs, URLs, credentials, tokens or error text enter either aggregate.
+
+Support's existing **Include this install's diagnostics** checkbox controls
+attachment to a deliberately submitted report (its existing checked default is
+preserved). Unchecking it sends no diagnostic context. Expand the preview to see
+the actual transport JSON or **Download transport diagnostics** locally. This
+download contains only the new aggregate, excluding the existing report's
+operator/venue/browser identity fields. There is no automatic telemetry upload.
+Old cloud/local APIs without this optional field continue to work.
+
+No OS polling lease is consumed: ordinary catalogue/mirror reconciliation is
+already 60 seconds while disconnected and 300 seconds while subscribed. There
+is no faster eligible periodic catalogue poll to reduce to the new policy's
+60-second healthy interval. Adding a policy-refresh loop would add traffic.
+Cash/seating five-second fallbacks, service/queue fifteen-second checks, Wheel
+approval recovery, immediate events and durable write/ACK behavior are unchanged.
+
+Phase 3 verification includes persisted counters across connection recreation,
+a locked SQLite writer that cannot delay/change a Cash ACK response, missing
+diagnostic storage, 304/503/offline outcomes, controller backlog redaction,
+retention bounds and a 1,000-target burst with an injected failed batch. The
+burst recovered all 1,000 unique targets in 51 calls (50 batches plus one retry).
+Headless Edge exercised real HostDesk/gateway/Support components against mocked
+HTTP/WebSocket: duplicate suppression, five-second failed-pull recovery,
+reconnect/catch-up, old identity fencing, unchanged Wheel forwarding, preview,
+safe local download and checkbox-controlled report attachment. These are local
+fault/load tests, not production capacity or latency measurements. A licensed
+venue still needs real phone registration, broadcaster loss/reconnect and lost
+Cash ACK checks; compare aggregate counts before/after without exporting players.
+
+Release checks: all 202 bundled PHP tests (1,039 assertions), all 16 transport
+JavaScript tests, TypeScript/Vite production build and the Edge integration
+harness passed. Temporary browser entry files were removed after verification.
+The subsequent Cash backlog index was verified with the focused diagnostics and
+migration regression suite, including repeated up/down and partial recovery.

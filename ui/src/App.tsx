@@ -1250,6 +1250,7 @@ export default function App() {
                     staff={activeStaff}
                     health={health.status === "ready" ? health.health : null}
                     network={networkQuality.status === "ready" ? networkQuality.quality : null}
+                    transport={cloudQueue?.transport ?? null}
                   />
                 ) : visibleSection === "structure" ? (
                   <GameStructureWorkspace
@@ -1280,7 +1281,7 @@ export default function App() {
             <span>Local services {health.status === "ready" ? "operational" : health.status}</span>
           </div>
           <div>
-            {cloudQueue !== null && (cloudQueue.link?.state === "offline" || cloudQueue.pending > 0 || cloudQueue.dead > 0 || (cloudQueue.outbox_dead_count ?? 0) > 0) ? (
+            {cloudQueue !== null && (cloudQueue.link?.state === "offline" || cloudQueue.pending > 0 || cloudQueue.dead > 0 || (cloudQueue.outbox_dead_count ?? 0) > 0 || (cloudQueue.transport?.backlog?.cash_ack_pending ?? 0) > 0) ? (
               <>
                 <button
                   type="button"
@@ -1300,7 +1301,7 @@ export default function App() {
                     ? `Offline — ${cloudQueue.pending > 0 ? `${cloudQueue.pending} waiting` : "desk keeps working"}${(cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0 ? ` · ${cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)} failed` : ""}`
                     : (cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)) > 0
                       ? `Cloud sync: ${cloudQueue.dead + (cloudQueue.outbox_dead_count ?? 0)} failed${cloudQueue.pending > 0 ? ` · ${cloudQueue.pending} on the way` : ""}`
-                      : `Cloud sync: ${cloudQueue.pending} on the way`}
+                      : `Cloud sync: ${cloudQueue.pending} on the way${(cloudQueue.transport?.backlog?.cash_ack_pending ?? 0) > 0 ? ` · ${cloudQueue.transport!.backlog!.cash_ack_pending} Cash confirmations waiting` : ""}`}
                 </button>
                 <span className="statusbar-divider" />
               </>
@@ -1329,6 +1330,13 @@ export default function App() {
               <p className="cloudq-modal__meta cloudq-modal__meta--offline">
                 The cloud link is down — the desk keeps working, nothing is lost, and everything
                 waiting below sends automatically the moment the connection returns.
+              </p>
+            ) : null}
+
+            {(cloudQueue?.transport?.backlog?.cash_ack_pending ?? 0) > 0 ? (
+              <p className="cloudq-modal__meta">
+                {cloudQueue!.transport!.backlog!.cash_ack_pending} Cash transfer confirmations waiting; oldest {cloudQueue!.transport!.backlog!.cash_ack_oldest_age_seconds ?? 0} seconds.
+                The desk retains each transfer until the cloud confirms it. Support includes transport diagnostics for investigation.
               </p>
             ) : null}
 

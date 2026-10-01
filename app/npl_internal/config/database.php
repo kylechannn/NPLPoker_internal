@@ -62,6 +62,19 @@ return [
             'transaction_mode' => 'DEFERRED',
         ],
 
+        // Best-effort counters share the cache file, through a separate
+        // non-waiting connection. Diagnostics must never queue behind a writer.
+        'transport' => [
+            'driver' => 'sqlite',
+            'database' => env('CACHE_DB_DATABASE', database_path('cache.sqlite')),
+            'prefix' => '',
+            'foreign_key_constraints' => false,
+            'busy_timeout' => 0,
+            'journal_mode' => 'wal',
+            'synchronous' => 'normal',
+            'transaction_mode' => 'DEFERRED',
+        ],
+
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),

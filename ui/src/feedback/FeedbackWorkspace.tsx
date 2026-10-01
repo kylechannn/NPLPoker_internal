@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import type { Venue } from "../desk/deskApi"
+import { transportDiagnostics, type CloudTransportMetrics } from "../realtime/transportDiagnostics"
 import {
   categoryLabels,
   feedbackApi,
@@ -57,6 +58,7 @@ type Props = {
   staff: StaffIdentity | null
   health: Health | null
   network: NetworkQuality | null
+  transport?: CloudTransportMetrics | null
 }
 
 type Notice = { tone: "success" | "error", text: string }
@@ -79,7 +81,7 @@ const severities: FeedbackSeverity[] = ["low", "normal", "high", "critical"]
  * mid-outage and still lands; the right-hand list reads back what this
  * licence has sent, its status, and the admin's reply.
  */
-export default function FeedbackWorkspace({ venue, staff, health, network }: Props) {
+export default function FeedbackWorkspace({ venue, staff, health, network, transport }: Props) {
   const [category, setCategory] = useState<FeedbackCategory>("bug")
   const [severity, setSeverity] = useState<FeedbackSeverity>("normal")
   const [subject, setSubject] = useState("")
@@ -151,8 +153,9 @@ export default function FeedbackWorkspace({ venue, staff, health, network }: Pro
       operator: staff ? { name: staff.name, role: staff.role } : null,
       screen: `${window.innerWidth}×${window.innerHeight} (display ${window.screen.width}×${window.screen.height} @${window.devicePixelRatio}x)`,
       user_agent: navigator.userAgent,
+      transport: { schema_version: 1, cloud: transport ?? null, browser: transportDiagnostics.snapshot() },
     }),
-    [health, network, venue, staff],
+    [health, network, venue, staff, transport, diagnosticsOpen],
   )
 
   const diagnosticRows = useMemo<Array<[string, string]>>(() => {
@@ -169,6 +172,12 @@ export default function FeedbackWorkspace({ venue, staff, health, network }: Pro
       ["Operator", diagnostics.operator ? `${diagnostics.operator.name} (${diagnostics.operator.role})` : "not signed in"],
       ["Screen", diagnostics.screen],
       ["Browser", diagnostics.user_agent],
+      ["Transport window", "Last 60 minutes; counts and timing totals only"],
+      ["Cloud requests / errors / 304", diagnostics.transport.cloud?.available
+        ? ["requests", "errors", "not_modified"].map(key => diagnostics.transport.cloud!.families.reduce((sum, family) => sum + family[key as "requests" | "errors" | "not_modified"], 0)).join(" / ")
+        : "Unavailable (local migration may be required)"],
+      ["Cash confirmations waiting", String(diagnostics.transport.cloud?.backlog?.cash_ack_pending ?? "unavailable")],
+      ["Socket reconnects / duplicate signals", `${diagnostics.transport.browser.counters.reconnects} / ${diagnostics.transport.browser.counters.deduped_signals}`],
       ["Timestamp", "added when you press Send"],
     ]
     return rows
@@ -176,6 +185,17 @@ export default function FeedbackWorkspace({ venue, staff, health, network }: Pro
 
   const cloudDown = (network ? !network.online : false) || (feed ? !feed.available : false)
   const canSend = !busy && subject.trim() !== "" && message.trim() !== ""
+
+  function downloadTransport() {
+    // Only the fixed-schema aggregate, never the report's identity/context fields.
+    const blob = new Blob([JSON.stringify(diagnostics.transport, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = "npl-os-transport-diagnostics.json"
+    anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -352,6 +372,7 @@ export default function FeedbackWorkspace({ venue, staff, health, network }: Pro
               {diagnosticsOpen ? "Hide what gets attached" : "See what gets attached"}
             </button>
             {diagnosticsOpen ? (
+              <>
               <dl className={includeDiagnostics ? "feedback__diaglist" : "feedback__diaglist is-off"}>
                 {diagnosticRows.map(([label, value]) => (
                   <div key={label}>
@@ -360,6 +381,9 @@ export default function FeedbackWorkspace({ venue, staff, health, network }: Pro
                   </div>
                 ))}
               </dl>
+              <button type="button" className="feedback__disclose" onClick={downloadTransport}>Download transport diagnostics</button>
+              <details><summary>Transport aggregate attached to this report</summary><pre style={{ whiteSpace: "pre-wrap", maxHeight: 260, overflow: "auto" }}>{JSON.stringify(diagnostics.transport, null, 2)}</pre></details>
+              </>
             ) : null}
           </div>
 

@@ -7,7 +7,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\Cloud\CloudCallQueue;
 use App\Services\Cloud\CloudLinkState;
+use App\Services\Cloud\TransportMetrics;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The operator's window into the desk→cloud call queue: how much is on
@@ -31,10 +33,11 @@ final class CloudQueueController extends Controller
 
         $status = $this->queue->status();
         $status['link'] = $this->link->snapshot();
+        $status['transport'] = rescue(fn () => app(TransportMetrics::class)->snapshot(), null, report: false);
 
         // The money outbox (jackpot entries, finish reports) shares the
         // panel: its dead letters are the ones that MUST get eyes.
-        $status['outbox_dead'] = \Illuminate\Support\Facades\DB::table('sync_outbox')
+        $status['outbox_dead'] = DB::table('sync_outbox')
             ->where('status', 'dead')
             ->orderByDesc('id')
             ->limit(10)
@@ -47,14 +50,14 @@ final class CloudQueueController extends Controller
                 'updated_at' => (string) $row->updated_at,
             ])
             ->all();
-        $status['outbox_dead_count'] = (int) \Illuminate\Support\Facades\DB::table('sync_outbox')->where('status', 'dead')->count();
+        $status['outbox_dead_count'] = (int) DB::table('sync_outbox')->where('status', 'dead')->count();
 
         return $this->ok($status);
     }
 
     public function retryOutbox(int $id): JsonResponse
     {
-        $updated = \Illuminate\Support\Facades\DB::table('sync_outbox')
+        $updated = DB::table('sync_outbox')
             ->where('id', $id)
             ->where('status', 'dead')
             ->update(['status' => 'pending', 'attempts' => 0, 'available_at' => now(), 'last_error' => null, 'updated_at' => now()]);
@@ -64,7 +67,7 @@ final class CloudQueueController extends Controller
 
     public function discardOutbox(int $id): JsonResponse
     {
-        $deleted = \Illuminate\Support\Facades\DB::table('sync_outbox')
+        $deleted = DB::table('sync_outbox')
             ->where('id', $id)
             ->where('status', 'dead')
             ->delete();
