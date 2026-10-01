@@ -14,7 +14,7 @@ with a generated `APP_KEY`, and a pre-migrated `database.sqlite`.
 ## Build
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 1.0.0
+powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 2.0.0
 ```
 
 Output: `installer\output\NPLPokerOS-Setup-<version>.exe` plus a `.sha256`

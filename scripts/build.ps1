@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.1.0-dev",
+    [string]$Version = "2.0.0",
     [string]$ReferenceBundle = "C:\Users\kylec\dist\EdgeHost_bundle"
 )
 
@@ -101,6 +101,23 @@ foreach ($stale in @("config.php", "routes-v7.php", "routes.php", "events.php"))
     if (Test-Path -LiteralPath $stalePath) { Remove-Item -LiteralPath $stalePath -Force }
 }
 
+# Storage may contain compiled development views, sessions, cached media or
+# logs. Only the empty directory structure belongs in a new install. This
+# operates exclusively on the generated bundle, never on source or venue data.
+$BundledBackendRoot = [System.IO.Path]::GetFullPath($BackendTarget).TrimEnd('\')
+$BundledStorageRoot = [System.IO.Path]::GetFullPath((Join-Path $BackendTarget "storage"))
+if (-not $BundledStorageRoot.StartsWith($BundledBackendRoot + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Bundled storage path escaped the generated backend directory."
+}
+if (Test-Path -LiteralPath $BundledStorageRoot) {
+    Get-ChildItem -LiteralPath $BundledStorageRoot -Recurse -Force -File | ForEach-Object {
+        if (-not $_.FullName.StartsWith($BundledStorageRoot + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Bundled storage file escaped the generated storage directory."
+        }
+        if ($_.Name -ne '.gitignore') { Remove-Item -LiteralPath $_.FullName -Force }
+    }
+}
+
 # robocopy /MIR never purges files its /XF list excludes, so a database or
 # WAL left behind by a previous run of the bundle survives the mirror. A
 # stale -wal beside the fresh empty database.sqlite below would be
@@ -112,7 +129,14 @@ Remove-Item -Path (Join-Path $BackendTarget "database\*.sqlite*") -Force -ErrorA
 $BundledPhp = Join-Path $PhpTarget "php.exe"
 Push-Location $BackendTarget
 try {
-    Copy-Item -LiteralPath ".env.example" -Destination ".env" -Force
+    # Keep the developer template convenient locally, but ship a production
+    # environment: exception responses must not expose debug internals.
+    $BundledEnvPath = Join-Path $BackendTarget ".env"
+    $BundledEnv = Get-Content -LiteralPath ".env.example" -Raw
+    $BundledEnv = $BundledEnv -replace '(?m)^APP_ENV=.*$', 'APP_ENV=production'
+    $BundledEnv = $BundledEnv -replace '(?m)^APP_DEBUG=.*$', 'APP_DEBUG=false'
+    $BundledEnv = $BundledEnv -replace '(?m)^LOG_LEVEL=.*$', 'LOG_LEVEL=warning'
+    [System.IO.File]::WriteAllText($BundledEnvPath, $BundledEnv, (New-Object System.Text.UTF8Encoding($false)))
     & $BundledPhp artisan key:generate --force | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "key:generate failed in the bundle." }
 

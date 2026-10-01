@@ -14,7 +14,7 @@ Requires Windows, Node 20+, Inno Setup 6, and an assembled
 `-SkipBuild` with a fresh `dist\`).
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1 -Version 1.1.0
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1 -Version 2.0.0
 ```
 
 Output: `release\NPLPokerOS-InstallOrUpdate-<version>-Modern.exe`
@@ -38,6 +38,13 @@ $env:INSTALLER_PREVIEW = "1"; npm start
 
 ## Version bumps
 
-Change together: `package.json` `version`, `-Version` passed to the
-build script, and the version text in `electron/renderer/index.html`
-and `renderer.js`.
+Change together: `package.json` and `package-lock.json` root versions,
+the build scripts' default versions, `NPLPokerOS.iss`, and the version
+text in `electron/renderer/index.html` and `renderer.js`. Update all
+versions in `winres/winres.json` and regenerate the committed Windows
+resource with `go-winres make --in winres/winres.json --arch amd64`.
+
+Run the complete `installer/build-installer.ps1 -Version 2.0.0` product
+build before this Electron build so the embedded OS runtime and installer
+share the release version. Verify the host executable's Windows file
+version as well as the runtime version passed through Go's linker flags.

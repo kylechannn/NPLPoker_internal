@@ -19,7 +19,7 @@
 ; installer that runs once, so maximum compression is the right trade.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "2.0.0"
 #endif
 
 #define MyAppName "NPL Poker OS"
@@ -82,6 +82,11 @@ Source: "payload\*"; DestDir: "{app}"; \
 Source: "payload\app\npl_internal\.env"; DestDir: "{app}\app\npl_internal"; \
   Flags: onlyifdoesntexist uninsneveruninstall
 Source: "payload\app\npl_internal\database\database.sqlite"; DestDir: "{app}\app\npl_internal\database"; \
+  Flags: onlyifdoesntexist uninsneveruninstall
+; The main database already records the cache migrations as applied. Fresh
+; installs therefore need their migrated cache database too; upgrades retain
+; the venue's existing cache, cloud-link state and scheduler locks.
+Source: "payload\app\npl_internal\database\cache.sqlite"; DestDir: "{app}\app\npl_internal\database"; \
   Flags: onlyifdoesntexist uninsneveruninstall
 Source: "payload\app\npl_internal\storage\*"; DestDir: "{app}\app\npl_internal\storage"; \
   Flags: recursesubdirs createallsubdirs onlyifdoesntexist uninsneveruninstall
@@ -209,6 +214,7 @@ begin
   CheckInstalledFile('app\npl_internal\vendor\autoload.php', Missing);
   CheckInstalledFile('app\npl_internal\.env', Missing);
   CheckInstalledFile('app\npl_internal\database\database.sqlite', Missing);
+  CheckInstalledFile('app\npl_internal\database\cache.sqlite', Missing);
 
   if Missing <> '' then
   begin

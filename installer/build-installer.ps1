@@ -10,13 +10,13 @@
 #      transfer verification on the target laptop.
 #
 # Usage (from the repo, in Windows PowerShell):
-#   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 1.0.0
+#   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 2.0.0
 #
 # -SkipBuild reuses an existing dist\ when iterating on the installer alone.
 
 [CmdletBinding()]
 param(
-    [string]$Version = "1.0.0",
+    [string]$Version = "2.0.0",
     [string]$ReferenceBundle = "C:\Users\kylec\dist\EdgeHost_bundle",
     [switch]$SkipBuild
 )
@@ -61,7 +61,8 @@ $CriticalFiles = @(
     "app\npl_internal\artisan",
     "app\npl_internal\vendor\autoload.php",
     "app\npl_internal\.env",
-    "app\npl_internal\database\database.sqlite"
+    "app\npl_internal\database\database.sqlite",
+    "app\npl_internal\database\cache.sqlite"
 )
 Assert-Files -Root $DistDir -RelativePaths $CriticalFiles -Context "dist\ (scripts\build.ps1 output)"
 
