@@ -131,6 +131,38 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
   // A spin's reference survives a failed attempt so the retry can never
   // double-award — the cloud treats the same reference as the same spin.
   const referenceRef = useRef<string | null>(null)
+  const identityRef = useRef({ staff, onIdentityRefresh, spinInProgress })
+  useEffect(() => { identityRef.current = { staff, onIdentityRefresh, spinInProgress } }, [staff, onIdentityRefresh, spinInProgress])
+
+  // A 60-minute approval may outlive the operator's current JWT. Renew only
+  // the existing authenticated session; this never extends an approval.
+  useEffect(() => {
+    if (!token) return
+    let alive = true
+    let refreshing = false
+    const renew = async () => {
+      const current = identityRef.current
+      if (!alive || refreshing || current.spinInProgress || current.staff?.admin_token !== token) return
+      const expires = Date.parse(current.staff.admin_token_expires_at ?? "")
+      if (!Number.isFinite(expires) || expires - Date.now() > 5 * 60_000) return
+      refreshing = true
+      try {
+        const { identity } = await wheelApi.refreshOperator(token)
+        if (alive && identityRef.current.staff?.admin_token === token && identity.id === current.staff.id) {
+          setReauth(false)
+          identityRef.current.onIdentityRefresh(identity)
+        }
+      } catch (error) {
+        if (alive && error instanceof WheelApiError && [401, 403].includes(error.status)) setReauth(true)
+      } finally { refreshing = false }
+    }
+    void renew()
+    const timer = window.setInterval(() => void renew(), 30_000)
+    const resume = () => void renew()
+    window.addEventListener("online", resume)
+    window.addEventListener("focus", resume)
+    return () => { alive = false; window.clearInterval(timer); window.removeEventListener("online", resume); window.removeEventListener("focus", resume) }
+  }, [token])
 
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
 
@@ -203,7 +235,7 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
       setSpinError(null)
       referenceRef.current = null
     } catch (error) {
-      if (error instanceof WheelApiError && error.status === 401) setReauth(true)
+      if (error instanceof WheelApiError && error.status === 401 && identityRef.current.staff?.admin_token === token) setReauth(true)
       setScanError(error instanceof Error ? error.message : "The player could not be found.")
     } finally {
       setScanBusy(false)
@@ -267,7 +299,7 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
       }
     } catch (error) {
       setSpinInProgress(false)
-      if (error instanceof WheelApiError && error.status === 401) setReauth(true)
+      if (error instanceof WheelApiError && error.status === 401 && identityRef.current.staff?.admin_token === token) setReauth(true)
       // Keep the reference: pressing SPIN again retries the SAME spin.
       setSpinError(error instanceof Error ? error.message : "The spin could not be completed. Nothing was drawn.")
       return null
@@ -300,7 +332,7 @@ export default function JackpotWheelWorkspace({ staff, onIdentityRefresh }: { st
     return <WheelOperatorSignIn staff={staff} onSignedIn={(identity) => { onIdentityRefresh(identity); setReauth(false) }} />
   }
 
-  if (!spinInProgress && player && outcome === null && eligibility?.approval_required !== false && (!approval || (approval.status !== "consumed" && new Date(approval.expires_at).getTime() <= now))) {
+  if (!spinInProgress && player && activeWheel !== "golden" && outcome === null && eligibility?.approval_required !== false && (!approval || (approval.status !== "consumed" && new Date(approval.expires_at).getTime() <= now))) {
     return <WheelApprovalGate key={wheelApprovalStorageKey(staff?.id ?? "", player.npl_id, venueId, activeWheel, goldenParentRef, wheelSession?.tournament_uid ?? null)} player={player} wheel={activeWheel} parentReference={goldenParentRef} venueId={venueId} session={wheelSession} token={token} operatorId={staff?.id ?? ""}
       onApproved={(approved) => { setApproval(approved); referenceRef.current = approved.reference }} onBack={resetToScan} onAuthExpired={() => setReauth(true)} />
   }

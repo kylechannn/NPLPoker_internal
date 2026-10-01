@@ -75,7 +75,15 @@ export default function WheelApprovalGate({ player, wheel, parentReference, venu
     void check()
     const timer = window.setInterval(() => void check(), 5000)
     window.addEventListener("npl:wheel-approval-updated", touched)
-    return () => { alive = false; window.clearInterval(timer); window.removeEventListener("npl:wheel-approval-updated", touched) }
+    const resume = () => { if (document.visibilityState === "visible") void check() }
+    window.addEventListener("online", resume)
+    window.addEventListener("focus", resume)
+    document.addEventListener("visibilitychange", resume)
+    return () => {
+      alive = false; window.clearInterval(timer); window.removeEventListener("npl:wheel-approval-updated", touched)
+      window.removeEventListener("online", resume); window.removeEventListener("focus", resume)
+      document.removeEventListener("visibilitychange", resume)
+    }
   }, [approval?.id, token, storageKey])
 
   async function submit() {
@@ -101,7 +109,7 @@ export default function WheelApprovalGate({ player, wheel, parentReference, venu
     <p><Smartphone size={18} /> {approval?.session_name ?? session?.name ?? "No active session"}</p>
     {!approval ? <>
       <p>Bind the staff phone using this session’s Admin QR. Then open Wheel photo requests in the iOS or Android app, take a clear hand photo and submit it for Super Admin approval.</p>
-      <p>The photo, approval and start of the spin must all happen within 15 minutes of creating this request.</p>
+      <p>The photo, approval and start of the spin must all happen within 60 minutes of creating this request. This page checks automatically and unlocks after approval; you do not need to refresh it.</p>
       {!session && <p role="alert">Open a session on the OS first, then scan the player again.</p>}
       <button onClick={() => void submit()} disabled={!session || busy}>{busy ? "Sending…" : "Send photo request to phone"}</button>
     </> : <>
@@ -109,7 +117,7 @@ export default function WheelApprovalGate({ player, wheel, parentReference, venu
         <p>{waitingPhoto ? "A notification has been requested for staff phones bound to this session. You can also open Wheel photo requests directly in the app." : "The hand photo has been submitted. This page unlocks the wheel when a Super Admin approves."}</p>
         <p role="status"><Clock3 size={16} /> {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} remaining · Keep this page open.</p>
       </>}
-      {ended && <><p>{approval.status === "rejected" ? `Declined${approval.review_note ? `: ${approval.review_note}` : "."}` : "The 15-minute window expired. Start a new request and submit a new photo from the phone."}</p><button onClick={() => { sessionStorage.removeItem(storageKey); sessionStorage.removeItem(`${storageKey}:reference`); setApproval(null); setReference(`WS-${crypto.randomUUID()}`); setError(null) }}>Start a new request</button></>}
+      {ended && <><p>{approval.status === "rejected" ? `Declined${approval.review_note ? `: ${approval.review_note}` : "."}` : "The 60-minute window expired. Start a new request and submit a new photo from the phone."}</p><button onClick={() => { sessionStorage.removeItem(storageKey); sessionStorage.removeItem(`${storageKey}:reference`); setApproval(null); setReference(`WS-${crypto.randomUUID()}`); setError(null) }}>Start a new request</button></>}
     </>}
     {error && <p className="wheel-scan-card__error" role="alert">{error}</p>}
     <button className="wheel-approval__back" onClick={onBack} disabled={busy}>Back to player scan</button>

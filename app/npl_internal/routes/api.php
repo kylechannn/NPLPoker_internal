@@ -33,6 +33,7 @@ Route::post('v1/staff/resolve', [\App\Http\Controllers\Api\StaffController::clas
 // The operator gate: the SAME admin account + password as the NPL website.
 // Credentials are verified against the cloud; only the identity returns.
 Route::post('v1/console/login', [\App\Http\Controllers\Api\ConsoleAuthController::class, 'login']);
+Route::post('v1/console/refresh', [\App\Http\Controllers\Api\ConsoleAuthController::class, 'refresh']);
 
 // The game structure defaults every game opens from: read the mirror,
 // refresh it from the cloud, and (super admin only — the cloud checks the

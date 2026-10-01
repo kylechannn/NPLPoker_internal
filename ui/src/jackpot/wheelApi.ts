@@ -1,4 +1,5 @@
 import type { WheelHue, WheelPrize } from "./wheelPrizes"
+import type { WheelOperator } from "./WheelApprovalGate"
 
 /**
  * The wheel's slice of the local API. The composition comes from the local
@@ -88,28 +89,38 @@ export class WheelApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  })
+  // A dead HTTP connection must not leave the automatic approval poll stuck.
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 30_000)
+  try {
+    const response = await fetch(path, {
+      ...init,
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    })
 
-  const body = (await response.json().catch(() => null)) as
-    | { ok?: boolean, data?: T, message?: string, error?: { message?: string }, errors?: Record<string, string[]> }
-    | null
+    const body = (await response.json().catch(() => null)) as
+      | { ok?: boolean, data?: T, message?: string, error?: { message?: string }, errors?: Record<string, string[]> }
+      | null
 
-  if (!response.ok || body?.ok === false) {
-    const validation = body?.errors ? Object.values(body.errors).flat()[0] : null
-    throw new WheelApiError(body?.error?.message || validation || body?.message || "The local wheel service failed.", response.status)
+    if (!response.ok || body?.ok === false) {
+      const validation = body?.errors ? Object.values(body.errors).flat()[0] : null
+      throw new WheelApiError(body?.error?.message || validation || body?.message || "The local wheel service failed.", response.status)
+    }
+
+    return (body?.data ?? body) as T
+  } finally {
+    window.clearTimeout(timeout)
   }
-
-  return (body?.data ?? body) as T
 }
 
 export const wheelApi = {
+  refreshOperator: (token: string) => request<{ identity: WheelOperator }>("/api/v1/console/refresh", { method: "POST", headers: { Authorization: `Bearer ${token}` } }),
   segments: (wheel: WheelTier = "normal") =>
     request<{ wheel?: WheelTier, segments: WheelSegment[] }>(`/api/v1/wheel?wheel=${wheel}`),
 

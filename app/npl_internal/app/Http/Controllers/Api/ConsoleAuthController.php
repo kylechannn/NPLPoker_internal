@@ -41,6 +41,26 @@ final class ConsoleAuthController extends Controller
             ], 422);
         }
 
+        return $this->identityResponse($data);
+    }
+
+    /** Keep an active wheel wait authenticated without changing its approval deadline. */
+    public function refresh(Request $request): JsonResponse
+    {
+        abort_unless($request->bearerToken(), 401, 'Sign in again to continue.');
+        try {
+            $data = $this->cloud->sendAs('POST', '/api/v1/admin/auth/refresh', [], $request->bearerToken());
+        } catch (CloudException $e) {
+            return response()->json(['ok' => false, 'error' => ['message' => $this->friendlyMessage($e)]],
+                in_array($e->status, [401, 403], true) ? $e->status : 502);
+        }
+        abort_unless(! empty($data['access_token']) && ! empty($data['admin']['login']), 502, 'The cloud did not return a renewed staff session.');
+
+        return $this->identityResponse($data);
+    }
+
+    private function identityResponse(array $data): JsonResponse
+    {
         $admin = (array) ($data['admin'] ?? []);
         $name = trim((string) ($admin['display_name'] ?? '')) ?: (string) ($admin['login'] ?? 'Admin');
         $roleKey = Str::lower(trim((string) ($admin['role'] ?? '')));

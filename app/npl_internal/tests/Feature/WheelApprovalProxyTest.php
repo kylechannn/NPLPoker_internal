@@ -93,4 +93,23 @@ class WheelApprovalProxyTest extends TestCase
                 ->assertStatus($status)->assertJsonPath('ok', false);
         }
     }
+
+    public function test_active_operator_refresh_preserves_cloud_identity_and_auth_failures(): void
+    {
+        Http::fakeSequence()->push(['ok' => true, 'data' => [
+            'access_token' => 'renewed-jwt', 'expires_in' => 3600,
+            'admin' => ['login' => 'floor.td', 'display_name' => 'Floor TD', 'role' => 'td'],
+        ]])->push(['message' => 'Expired staff login.'], 401);
+        $this->postJson('/api/v1/console/refresh')->assertUnauthorized();
+        Http::assertNothingSent();
+        $result = $this->withToken('old-jwt')->postJson('/api/v1/console/refresh')->assertOk()
+            ->assertJsonPath('data.identity.id', 'floor.td')
+            ->assertJsonPath('data.identity.admin_token', 'renewed-jwt')
+            ->assertJsonPath('data.identity.super_admin', false)->json('data.identity');
+        $this->assertEqualsWithDelta(3600, now()->diffInSeconds(\Illuminate\Support\Carbon::parse($result['admin_token_expires_at'])), 2);
+        Http::assertSent(fn ($r) => str_ends_with($r->url(), '/admin/auth/refresh')
+            && $r->method() === 'POST' && $r->hasHeader('Authorization', 'Bearer old-jwt')
+            && $r->hasHeader('X-CD-Key', 'TEST-KEY') && $r->hasHeader('X-Device-Id', 'DESK-1'));
+        $this->postJson('/api/v1/console/refresh')->assertUnauthorized();
+    }
 }
