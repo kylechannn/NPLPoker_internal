@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Tournament;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -550,6 +551,7 @@ final class TournamentService
                     : (int) $session->buy_in_price_cents,
                 'level_index' => $state['level_index'],
                 'meta' => $extras['meta'] ?? null,
+                'idempotency_key' => $extras['idempotency_key'] ?? null,
             ]);
 
             $entry = DB::table('tournament_entries')
@@ -845,7 +847,7 @@ final class TournamentService
             DB::table('tournament_actions')->insert($row);
 
             return true;
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             // ONLY the duplicate-key error on a keyed action is a replay.
             // Anything else (database locked, disk full) must surface —
             // swallowing it would report a sale that never hit the ledger.
@@ -855,6 +857,12 @@ final class TournamentService
 
             if ($row['idempotency_key'] === null || ! $isDuplicate) {
                 throw $e;
+            }
+
+            $existing = DB::table('tournament_actions')->where('idempotency_key', $row['idempotency_key'])->first();
+            if ($existing === null || (int) $existing->tournament_session_id !== $sessionId
+                || $existing->player_npl_id !== $nplId || $existing->action !== $action) {
+                throw ValidationException::withMessages(['idempotency_key' => ['That payment reference belongs to a different player, session or action.']]);
             }
 
             return false;

@@ -262,6 +262,7 @@ final class WheelController extends Controller
             // Championship sessions: the player's stackable special tickets
             // and the entry price their values sum against.
             'special_tickets' => $data['special_tickets'] ?? null,
+            'ticket_redemption_enabled' => (bool) ($data['ticket_redemption_enabled'] ?? false),
             'entry_fee_cents' => $data['entry_fee_cents'] ?? null,
             // The status-tier window: the player HOLDS a voucher but their
             // tier can't use it this early (Blue 12h / Silver 24h / Gold
@@ -282,8 +283,8 @@ final class WheelController extends Controller
             'npl_id' => ['required', 'string', 'min:3', 'max:32'],
             'voucher_id' => ['sometimes', 'nullable', 'integer'],
             // A championship ticket stack — several ids, one reference.
-            'voucher_ids' => ['sometimes', 'array', 'max:10'],
-            'voucher_ids.*' => ['integer', 'min:1'],
+            'voucher_ids' => ['sometimes', 'array', 'min:1'],
+            'voucher_ids.*' => ['integer', 'min:1', 'distinct'],
             'venue_id' => ['sometimes', 'nullable', 'integer'],
             'game_session_id' => ['sometimes', 'nullable', 'integer'],
         ]);
@@ -304,7 +305,7 @@ final class WheelController extends Controller
                 'error' => [
                     'code' => $e->errorCode,
                     'message' => $e->errorCode === CloudException::UNREACHABLE
-                        ? 'The NPL cloud could not be reached — the voucher was NOT used. Charge the normal fee or retry.'
+                        ? 'The NPL cloud could not confirm the payment. Retry this request or rescan the player before taking payment; a timed-out request may already have used the voucher.'
                         : $e->getMessage(),
                 ],
             ], $e->errorCode === 'EMAIL_VERIFICATION_REQUIRED' ? 403 : 502);
@@ -314,6 +315,8 @@ final class WheelController extends Controller
             'voucher' => $result['voucher'] ?? null,
             'vouchers' => $result['vouchers'] ?? null,
             'covered_cents' => $result['covered_cents'] ?? null,
+            'deficit_cents' => $result['deficit_cents'] ?? null,
+            'entry_fee_cents' => $result['entry_fee_cents'] ?? null,
         ]);
     }
 

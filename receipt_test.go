@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -150,6 +151,70 @@ func TestReceiptBridgeRejectsAnEmptyReceipt(t *testing.T) {
 
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected an empty receipt to be refused, got %d", response.Code)
+	}
+}
+
+func TestReceiptBridgePreservesEveryTicketAndTheFinalFooter(t *testing.T) {
+	lines := []receiptLine{{Text: "MAIN EVENT", Bold: true}}
+	for ticket := 1; ticket <= 250; ticket++ {
+		lines = append(lines, receiptLine{Text: fmt.Sprintf("Ticket ST-%04d: $1.00", ticket)})
+	}
+	lines = append(lines, receiptLine{Text: "Total tickets: $250.00"}, receiptLine{Text: "Balance paid: $0.00"}, receiptLine{PrintedAt: true, Center: true})
+	body, err := json.Marshal(receiptPrintRequest{Printer: "POS-80", Lines: lines})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var captured []receiptLine
+	handler := receiptPrintHandler(func(printer string, received []receiptLine) (string, string, error) {
+		if printer != "POS-80" {
+			t.Fatalf("unexpected printer %q", printer)
+		}
+		captured = received
+		return "escpos", "", nil
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/print/receipt", bytes.NewReader(body)))
+	if response.Code != http.StatusOK || !slices.Equal(captured, lines) {
+		t.Fatalf("bridge truncated or changed receipt: status=%d received=%d expected=%d", response.Code, len(captured), len(lines))
+	}
+	for _, printer := range []string{"POS-80", "POS-58"} {
+		data := escposReceiptForPrinter(captured, printer)
+		for ticket := 1; ticket <= 250; ticket++ {
+			if !bytes.Contains(data, []byte(fmt.Sprintf("Ticket ST-%04d: $1.00", ticket))) {
+				t.Fatalf("%s receipt lost ticket %d", printer, ticket)
+			}
+		}
+		if !bytes.Contains(data, []byte("Balance paid: $0.00")) || !bytes.Contains(data, []byte("Printed ")) {
+			t.Fatalf("%s receipt lost its final totals or laptop print time", printer)
+		}
+	}
+}
+
+func TestReceiptBridgeRejectsOversizedPayloadInsteadOfPrintingAPartialPayment(t *testing.T) {
+	printed := false
+	handler := receiptPrintHandler(func(string, []receiptLine) (string, string, error) {
+		printed = true
+		return "escpos", "", nil
+	})
+	response := httptest.NewRecorder()
+	body := `{"printer":"POS-80","lines":[{"text":"` + strings.Repeat("X", receiptMaxRequestBytes) + `"}]}`
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/print/receipt", strings.NewReader(body)))
+	if response.Code != http.StatusRequestEntityTooLarge || printed {
+		t.Fatalf("oversized receipt must fail before spooling: status=%d printed=%v", response.Code, printed)
+	}
+}
+
+func TestReceiptBridgeRejectsTrailingPayloadInsteadOfPrintingTheFirstDocument(t *testing.T) {
+	printed := false
+	handler := receiptPrintHandler(func(string, []receiptLine) (string, string, error) {
+		printed = true
+		return "escpos", "", nil
+	})
+	response := httptest.NewRecorder()
+	body := `{"printer":"POS-80","lines":[{"text":"first"}]} {"lines":[{"text":"second"}]}`
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/print/receipt", strings.NewReader(body)))
+	if response.Code != http.StatusBadRequest || printed {
+		t.Fatalf("invalid receipt must not partially print: status=%d printed=%v", response.Code, printed)
 	}
 }
 

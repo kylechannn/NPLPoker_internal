@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Tournament;
 
+use App\Services\Cloud\CloudClient;
+use App\Services\Cloud\CloudException;
 use App\Services\Players\PlayerResolver;
 use App\Services\Printing\ReceiptService;
 use App\Services\Sync\OutboxService;
@@ -39,6 +41,7 @@ final class TournamentDeskService
         private readonly TournamentBroadcaster $broadcaster,
         private readonly OutboxService $outbox,
         private readonly ReceiptService $receipts,
+        private readonly CloudClient $cloud,
     ) {}
 
     /**
@@ -139,6 +142,7 @@ final class TournamentDeskService
             $query->orderByRaw("CASE WHEN cash_seat_state IN ('active', 'selected') THEN 0 ELSE 1 END")
                 ->orderByRaw("CASE WHEN table_phase = 'live' THEN 0 ELSE 1 END")->orderBy('table_number');
         }
+
         return $query->get()->map(fn (object $booking): array => [
             'registration_id' => $booking->registration_id,
             'cash_seat_state' => $booking->cash_seat_state,
@@ -317,13 +321,18 @@ final class TournamentDeskService
             $alreadyApplied = DB::table('tournament_actions')
                 ->where('tournament_session_id', $sessionId)
                 ->where('idempotency_key', $idempotencyKey)
-                ->exists();
+                ->first();
 
             if ($alreadyApplied) {
+                if ($alreadyApplied->player_npl_id !== $nplId || $alreadyApplied->action !== $action) {
+                    throw ValidationException::withMessages(['idempotency_key' => ['That payment reference belongs to a different player or action.']]);
+                }
+
                 return [
                     'ok' => true,
                     'replayed' => true,
                     'receipt' => 'skipped',
+                    'charged_cents' => (int) $alreadyApplied->price_cents,
                 ];
             }
         }
@@ -396,6 +405,10 @@ final class TournamentDeskService
         // phone-resolved alike. A printer problem is a status, never a
         // failed sale.
         if (is_array($result)) {
+            $result['charged_cents'] = (int) DB::table('tournament_actions')
+                ->where('tournament_session_id', $sessionId)->where('player_npl_id', $nplId)->where('action', $action)
+                ->when($idempotencyKey !== null, fn ($query) => $query->where('idempotency_key', $idempotencyKey))
+                ->orderByDesc('id')->value('price_cents');
             $result['receipt'] = rescue(
                 fn (): string => $this->receipts->printAction($sessionId, $session, $nplId, $action, $options),
                 'failed',
@@ -413,6 +426,7 @@ final class TournamentDeskService
 
     private function buyIn(int $sessionId, object $session, string $nplId, array $options): array
     {
+        $options = $this->confirmedVoucherOptions($session, $nplId, $options);
         // $nplId arrives normalised (uppercase); the mirror keeps the
         // player's own casing — a case-sensitive match loses the name.
         $player = DB::table('mirror_players')->whereRaw('UPPER(npl_id) = ?', [$nplId])->first();
@@ -441,6 +455,17 @@ final class TournamentDeskService
             : null;
 
         $buyInPrice = (int) $session->buy_in_price_cents;
+        // The cloud payment belongs to this individual flight. Preserve its
+        // immutable fee and deficit even if the locally imported fee differs.
+        $cloudFee = isset($options['voucher_entry_fee_cents']) ? (int) $options['voucher_entry_fee_cents'] : null;
+        $cloudDeficit = isset($options['voucher_deficit_cents']) ? (int) $options['voucher_deficit_cents'] : null;
+        if ($cloudFee !== null || $cloudDeficit !== null) {
+            if ($stackCovered === null || $cloudFee === null || $cloudDeficit === null
+                || $stackCovered + $cloudDeficit !== $cloudFee || $voucherCodes === []) {
+                throw ValidationException::withMessages(['voucher_entry_fee_cents' => ['The confirmed ticket payment totals do not match. Rescan the player to recover the payment.']]);
+            }
+            $buyInPrice = $cloudFee;
+        }
 
         if ($stackCovered !== null) {
             $voucherPrice = max(0, $buyInPrice - $stackCovered);
@@ -466,16 +491,22 @@ final class TournamentDeskService
         }
 
         $this->assertCashMoveAvailable($session, $nplId, $tableNumber, $seatNumber);
-        $extras = [];
+        $extras = ['idempotency_key' => $options['idempotency_key'] ?? null];
+        if (isset($options['confirmed_cash_fee_cents'])) {
+            $extras['price_cents'] = (int) $options['confirmed_cash_fee_cents'];
+        }
 
         if ($voucherCodes !== [] || $stackCovered !== null) {
-            $extras = ['price_cents' => $voucherPrice, 'meta' => array_filter([
+            $extras += ['price_cents' => $voucherPrice, 'meta' => array_filter([
                 'voucher_code' => $voucherCode,
                 'voucher_codes' => $voucherCodes !== [] ? $voucherCodes : null,
                 'voucher_covered_cents' => $coveredCents,
+                'voucher_entry_fee_cents' => $cloudFee,
+                'voucher_deficit_cents' => $cloudDeficit,
+                'voucher_tickets' => $options['voucher_tickets'] ?? null,
             ], fn ($value): bool => $value !== null)];
         } elseif ($voucherCode !== null) {
-            $extras = ['price_cents' => $voucherPrice, 'meta' => ['voucher_code' => $voucherCode, 'voucher_covered_cents' => $coveredCents]];
+            $extras += ['price_cents' => $voucherPrice, 'meta' => ['voucher_code' => $voucherCode, 'voucher_covered_cents' => $coveredCents]];
         }
 
         return $this->tournaments->register(
@@ -486,6 +517,96 @@ final class TournamentDeskService
             $seatNumber,
             $extras,
         );
+    }
+
+    /**
+     * All buy-in callers (desk scans and phone service requests) share the
+     * cloud's session-bound payment. Never recompute a paid flight from a
+     * mutable local fee, or redeem tickets here a second time.
+     */
+    private function confirmedVoucherOptions(object $session, string $nplId, array $options): array
+    {
+        if ($session->game_session_id === null || $session->game_type === 'cash') {
+            return $options;
+        }
+
+        $payload = json_decode((string) DB::table('mirror_game_sessions')->where('session_id', $session->game_session_id)->value('payload'), true);
+        $mustConfirm = (bool) ($payload['ticket_redemption_enabled'] ?? false)
+            || (bool) ($options['require_voucher_check'] ?? false)
+            || isset($options['voucher_entry_fee_cents']);
+        try {
+            $response = $this->cloud->getJson('/api/v1/internal/vouchers/entitlement', array_filter([
+                'npl_id' => $nplId,
+                'game_session_id' => (int) $session->game_session_id,
+                'venue_id' => $session->venue_id,
+            ], fn ($value): bool => $value !== null));
+        } catch (CloudException $e) {
+            if ($mustConfirm) {
+                throw $e; // Transient: phone requests stay pending and retry.
+            }
+
+            return $options; // Preserve ordinary offline desk operation.
+        }
+
+        $coverage = $response['data']['already_covered'] ?? null;
+        if (($response['data']['ticket_redemption_enabled'] ?? false) || ($payload['ticket_redemption_enabled'] ?? false)) {
+            $requiresCoverage = is_array($coverage) || isset($options['voucher_entry_fee_cents'])
+                || isset($options['voucher_code']) || ! empty($options['voucher_codes']);
+            try {
+                $confirmed = $this->cloud->postJson('/api/v1/internal/vouchers/confirm-entry', array_filter([
+                    'npl_id' => $nplId,
+                    'game_session_id' => (int) $session->game_session_id,
+                    'reference' => $options['idempotency_key'] ?? null,
+                    'require_coverage' => $requiresCoverage,
+                    'cash_fee_cents' => $requiresCoverage ? null : (int) $session->buy_in_price_cents,
+                ], fn ($value): bool => $value !== null), $options['idempotency_key'] ?? null);
+                $coverage = $confirmed['already_covered'] ?? null;
+            } catch (CloudException $e) {
+                if ($e->status === 422) {
+                    throw ValidationException::withMessages(['voucher_codes' => [$e->getMessage()]]);
+                }
+                throw $e;
+            }
+            if (($confirmed['entry_confirmed'] ?? false) !== true || ($requiresCoverage && ! is_array($coverage))) {
+                throw ValidationException::withMessages(['voucher_codes' => ['The Main Event payment could not be confirmed. Rescan the player before charging.']]);
+            }
+            if (! is_array($coverage)) {
+                if (! isset($confirmed['entry_fee_cents']) || ! is_numeric($confirmed['entry_fee_cents']) || $confirmed['entry_fee_cents'] < 0) {
+                    throw ValidationException::withMessages(['voucher_codes' => ['The confirmed entry fee is missing. Retry before charging.']]);
+                }
+                $options['confirmed_cash_fee_cents'] = (int) $confirmed['entry_fee_cents'];
+            }
+        }
+        if (! is_array($coverage)) {
+            if (isset($options['voucher_entry_fee_cents'])) {
+                throw ValidationException::withMessages(['voucher_codes' => ['This session has no confirmed ticket payment. Rescan the player before charging.']]);
+            }
+
+            return $options;
+        }
+
+        unset($options['voucher_code'], $options['voucher_limit_cents'], $options['voucher_codes'],
+            $options['voucher_covered_cents'], $options['voucher_entry_fee_cents'], $options['voucher_deficit_cents'], $options['voucher_tickets']);
+        if (isset($coverage['covered_cents'], $coverage['deficit_cents'], $coverage['entry_fee_cents'])) {
+            $tickets = $coverage['vouchers'] ?? [$coverage];
+
+            return $options + [
+                'voucher_codes' => array_column($tickets, 'code'),
+                'voucher_covered_cents' => (int) $coverage['covered_cents'],
+                'voucher_entry_fee_cents' => (int) $coverage['entry_fee_cents'],
+                'voucher_deficit_cents' => (int) $coverage['deficit_cents'],
+                'voucher_tickets' => array_map(fn ($ticket): array => [
+                    'code' => (string) $ticket['code'],
+                    'value_cents' => (int) ($ticket['value_cents'] ?? 0),
+                    'type' => (string) ($ticket['type'] ?? 'special_ticket'),
+                ], $tickets),
+            ];
+        }
+
+        return $options + [
+            'voucher_code' => (string) $coverage['code'],
+            'voucher_limit_cents' => $coverage['entry_fee_limit_cents'] ?? null,
+        ];
     }
 
     /**
@@ -1526,6 +1647,7 @@ final class TournamentDeskService
         $entry = DB::table('tournament_entries')->where('tournament_session_id', $session->id)->where('player_npl_id', $nplId)->first();
         $booking = $targetTable !== null ? $rows->firstWhere('table_number', $targetTable)
             : $rows->first(fn (object $row): bool => in_array($row->cash_seat_state, ['active', 'selected'], true));
+
         return [
             'registration_id' => $targetTable !== null ? $booking?->registration_id : ($entry?->cash_registration_id ?? $booking?->registration_id),
             'cash_version' => max((int) $entry?->cash_version, (int) $rows->max('cash_version')),
@@ -1720,9 +1842,14 @@ final class TournamentDeskService
             ];
         }
 
+        $cloudSessionPayload = $session->game_session_id !== null
+            ? json_decode((string) DB::table('mirror_game_sessions')->where('session_id', $session->game_session_id)->value('payload'), true)
+            : null;
+
         return [
             'seats_per_table' => $perTable,
             'game_session_id' => $session->game_session_id !== null ? (int) $session->game_session_id : null,
+            'ticket_redemption_enabled' => (bool) ($cloudSessionPayload['ticket_redemption_enabled'] ?? false),
             'rebuy_tiers' => TournamentService::rebuyTiers($session),
             'addon_tiers' => TournamentService::addonTiers($session),
             'buy_in' => [

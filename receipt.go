@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -40,8 +42,10 @@ type receiptPrintRequest struct {
 }
 
 const (
-	receiptMaxLines   = 80
 	receiptMaxColumns = 64
+	// Bound local request memory without a business limit on ticket/line count.
+	// Oversized documents fail explicitly; never print only part of a payment.
+	receiptMaxRequestBytes = 8 << 20
 )
 
 // Resolve only the print-time marker, at the desktop printer. Scheduled event
@@ -325,9 +329,21 @@ func registerReceiptPrinting(mux *http.ServeMux) {
 		})
 	})))
 
-	mux.Handle("POST /api/print/receipt", requireDesktopOrLocal(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/print/receipt", requireDesktopOrLocal(receiptPrintHandler(printReceipt)))
+}
+
+// The injected spool function also lets bridge tests verify the complete
+// payment reaches the printer without sending paper to an installed queue.
+func receiptPrintHandler(print func(string, []receiptLine) (string, string, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		var request receiptPrintRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, receiptMaxRequestBytes))
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "The receipt payload is too large to print. No part of the receipt was printed."})
+			return
+		}
+		if err != nil || json.Unmarshal(body, &request) != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "The receipt payload could not be read."})
 			return
 		}
@@ -337,12 +353,8 @@ func registerReceiptPrinting(mux *http.ServeMux) {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "The receipt has no lines."})
 			return
 		}
-		if len(lines) > receiptMaxLines {
-			lines = lines[:receiptMaxLines]
-		}
-
 		printer := resolveReceiptPrinter(strings.TrimSpace(request.Printer))
-		mode, output, err := printReceipt(printer, lines)
+		mode, output, err := print(printer, lines)
 		if err != nil {
 			log.Printf("[npl-internal] receipt print failed (printer %q): %v", printer, err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
@@ -355,5 +367,5 @@ func registerReceiptPrinting(mux *http.ServeMux) {
 			log.Printf("[npl-internal] receipt printed (%d lines, printer %q, mode %s)", len(lines), printer, mode)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "printer": printer, "mode": mode, "output": output})
-	})))
+	}
 }

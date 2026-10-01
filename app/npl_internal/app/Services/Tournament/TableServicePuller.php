@@ -6,6 +6,7 @@ namespace App\Services\Tournament;
 
 use App\Services\Cloud\CloudCallQueue;
 use App\Services\Cloud\CloudClient;
+use App\Services\Cloud\CloudException;
 use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Players\PlayerResolver;
 use Illuminate\Support\Facades\DB;
@@ -97,19 +98,22 @@ final class TableServicePuller
                 $applyResult = $this->desk->apply($sessionId, $nplId, $kind, [
                     'idempotency_key' => 'tsr:'.$id,
                     'first_buy_in' => $kind === 'buy_in',
+                    'require_voucher_check' => $kind === 'buy_in',
                 ]);
+                $amountCents = $this->recordedAmountCents($sessionId, $nplId, $kind, $id);
 
                 $entry = [
                     'id' => $id,
                     'npl_id' => $nplId,
                     'kind' => $kind,
                     'table_number' => $row['table_number'] ?? null,
+                    'amount_cents' => $amountCents,
                     // What the OS tells the operator: the phone sale's
                     // receipt printed (or why it did not).
                     'receipt' => is_array($applyResult) ? ($applyResult['receipt'] ?? null) : null,
                 ];
                 $applied[] = $entry;
-                $this->ack($id, true, null);
+                $this->ack($id, true, null, $amountCents);
             } catch (ValidationException $e) {
                 // Permanent: caps used up, registration closed, unknown
                 // player — the admin sees the reason on the request.
@@ -144,7 +148,7 @@ final class TableServicePuller
             $response = $this->cloud->getJson('/api/v1/internal/table-service/requests', [
                 'uid' => $this->broadcaster->uid($sessionId),
             ]);
-        } catch (\App\Services\Cloud\CloudException $e) {
+        } catch (CloudException $e) {
             throw ValidationException::withMessages([
                 'request' => ['The NPL cloud could not be reached — try again in a moment. ('.$e->errorCode.')'],
             ]);
@@ -178,9 +182,10 @@ final class TableServicePuller
             $this->desk->apply($sessionId, $nplId, $kind, [
                 'idempotency_key' => 'tsr:'.$requestId,
                 'first_buy_in' => $kind === 'buy_in',
+                'require_voucher_check' => $kind === 'buy_in',
             ]);
 
-            $amountCents = $this->configuredPrice($sessionId, $kind);
+            $amountCents = $this->recordedAmountCents($sessionId, $nplId, $kind, $requestId);
         }
 
         // The MONEY already landed locally (idempotent by tsr:{id}); the
@@ -200,24 +205,24 @@ final class TableServicePuller
         return ['id' => $requestId, 'kind' => $kind, 'npl_id' => $nplId];
     }
 
-    /** The desk's own configured price for a kind — what goes on the record. */
-    private function configuredPrice(int $sessionId, string $kind): ?int
+    /** Report the committed sale, including ticket/voucher discounts and keyed retries. */
+    private function recordedAmountCents(int $sessionId, string $nplId, string $kind, int $requestId): int
     {
-        $session = DB::table('tournament_sessions')->where('id', $sessionId)->first();
+        $action = DB::table('tournament_actions')
+            ->where('tournament_session_id', $sessionId)
+            ->where('player_npl_id', strtoupper($nplId))
+            ->where('action', $kind)
+            ->where('idempotency_key', 'tsr:'.$requestId)
+            ->first();
 
-        if ($session === null) {
-            return null;
+        if ($action === null) {
+            throw new \RuntimeException('The recorded table-service payment could not be found.');
         }
 
-        return match ($kind) {
-            'buy_in' => (int) ($session->buy_in_price_cents ?? 0),
-            'rebuy' => (int) (TournamentService::rebuyTiers($session)[0]['price_cents'] ?? 0),
-            'addon' => (int) (TournamentService::addonTiers($session)[0]['price_cents'] ?? 0),
-            default => null,
-        };
+        return (int) $action->price_cents;
     }
 
-    private function ack(int $requestId, bool $ok, ?string $error): void
+    private function ack(int $requestId, bool $ok, ?string $error, ?int $amountCents = null): void
     {
         // Queued, not fired-and-forgotten: the ledger write is idempotent
         // so a re-apply after a slow ack is a no-op, and the queue makes
@@ -225,6 +230,7 @@ final class TableServicePuller
         $this->queue->enqueue('post', '/api/v1/internal/table-service/requests/'.$requestId.'/applied', [
             'ok' => $ok,
             'error' => $error,
+            'amount_cents' => $amountCents,
         ], [
             'group' => 'tsr:'.$requestId,
             'label' => 'Ack table-service request #'.$requestId,

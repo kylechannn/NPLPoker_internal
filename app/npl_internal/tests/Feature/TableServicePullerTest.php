@@ -25,6 +25,7 @@ class TableServicePullerTest extends TestCase
     {
         parent::setUp();
         Http::preventStrayRequests();
+        config(['nplcloud.host_bridge' => 'http://127.0.0.1:65500']);
 
         // A real licence lease so LicenseKeyProvider (and the broadcaster's
         // activation guard) run their genuine paths.
@@ -83,12 +84,17 @@ class TableServicePullerTest extends TestCase
         ]);
     }
 
-    private function fakeCloud(array $applyRows, array $pendingRows = []): void
+    private function fakeCloud(array $applyRows, array $pendingRows = [], array $entitlement = [], int $entitlementStatus = 200, int $confirmationStatus = 200, ?array $confirmedCoverage = null): void
     {
         // service-sync reads the combined desk-pulse; the standalone
         // requests feed stays faked for the desk-handle path, which still
         // reads it directly.
         Http::fake([
+            '*/internal/vouchers/entitlement*' => Http::response(['ok' => true, 'data' => $entitlement], $entitlementStatus),
+            '*/internal/vouchers/confirm-entry' => Http::response($confirmationStatus === 200
+                ? ['ok' => true, 'data' => ['entry_confirmed' => true, 'already_covered' => $confirmedCoverage ?? $entitlement['already_covered'] ?? null,
+                    'entry_fee_cents' => $confirmedCoverage['entry_fee_cents'] ?? $entitlement['already_covered']['entry_fee_cents'] ?? $entitlement['entry_fee_cents'] ?? 10000]]
+                : ['ok' => false, 'error' => ['code' => 'PAYMENT_CANCELLED', 'message' => 'The covered entry was cancelled before confirmation.']], $confirmationStatus),
             '*/internal/desk-pulse*' => Http::response([
                 'ok' => true,
                 'data' => [
@@ -222,5 +228,174 @@ class TableServicePullerTest extends TestCase
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/table-service/requests/92/resolve')
             && $request['applied'] === false);
+    }
+
+    private function linkCloudSession(int $localId, bool $mainEvent = true): void
+    {
+        DB::table('mirror_game_sessions')->insert([
+            'session_id' => 9001,
+            'source_type' => $mainEvent ? 'championship' : 'daily_game',
+            'venue_id' => 91,
+            'venue_name' => 'St George Club',
+            'title' => $mainEvent ? 'SPO Flight 1' : 'Daily Game',
+            'session_date' => '2026-10-10',
+            'start_time' => '18:30:00',
+            'payload' => json_encode(['ticket_redemption_enabled' => $mainEvent]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('tournament_sessions')->where('id', $localId)->update(['game_session_id' => 9001, 'venue_id' => 91]);
+    }
+
+    private function ticketCoverage(int $count): array
+    {
+        $tickets = array_map(fn (int $id): array => [
+            'voucher_id' => $id, 'code' => 'SPO'.$id, 'type' => 'special_ticket', 'title' => 'SPO ticket',
+            'value_cents' => 25000, 'entry_fee_limit_cents' => null,
+        ], range(1, $count));
+
+        return [
+            'entitled' => false,
+            'ticket_redemption_enabled' => true,
+            'already_covered' => $tickets[0] + [
+                'vouchers' => $tickets,
+                'entry_fee_cents' => 75000,
+                'covered_cents' => min(75000, $count * 25000),
+                'deficit_cents' => max(0, 75000 - $count * 25000),
+            ],
+        ];
+    }
+
+    public function test_phone_resolved_ticket_buy_in_books_only_confirmed_deficit_and_acks_recorded_amount(): void
+    {
+        $this->fakeCloud([
+            ['id' => 201, 'npl_id' => 'NPLSPO1', 'kind' => 'buy_in', 'table_number' => 1],
+        ], [], $this->ticketCoverage(2));
+        $id = $this->tournament(['buy_in_price_cents' => 100000]);
+        $this->mirrorPlayer('NPLSPO1', 'Ticket Player');
+        $this->linkCloudSession($id);
+
+        $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()
+            ->assertJsonPath('data.applied.0.amount_cents', 25000);
+        $action = DB::table('tournament_actions')->where('idempotency_key', 'tsr:201')->first();
+        $this->assertSame(25000, (int) $action->price_cents);
+        $meta = json_decode($action->meta, true);
+        $this->assertSame(['SPO1', 'SPO2'], $meta['voucher_codes']);
+        $this->assertSame(75000, $meta['voucher_entry_fee_cents']);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/vouchers/confirm-entry')
+            && $request['npl_id'] === 'NPLSPO1' && $request['game_session_id'] === 9001 && $request['reference'] === 'tsr:201');
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/table-service/requests/201/applied')
+            && $request['ok'] === true && $request['amount_cents'] === 25000);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/print/receipt')
+            && str_contains(implode('\n', array_column($request['lines'], 'text')), 'Paid at desk: $250.00'));
+
+        // A lost cloud acknowledgement must not re-price or duplicate the recorded buy-in.
+        DB::table('tournament_sessions')->where('id', $id)->update(['buy_in_price_cents' => 150000]);
+        $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()
+            ->assertJsonPath('data.applied.0.amount_cents', 25000);
+        $this->assertSame(1, DB::table('tournament_actions')->where('idempotency_key', 'tsr:201')->count());
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/vouchers/redeem'));
+    }
+
+    public function test_desk_handled_phone_request_reports_free_ticket_entry_and_prints_zero(): void
+    {
+        $this->fakeCloud([], [
+            ['id' => 202, 'npl_id' => 'NPLSPO2', 'kind' => 'buy_in', 'table_number' => 1],
+        ], $this->ticketCoverage(3));
+        $id = $this->tournament(['buy_in_price_cents' => 75000]);
+        $this->mirrorPlayer('NPLSPO2', 'Free Ticket Player');
+        $this->linkCloudSession($id);
+
+        $this->postJson("/api/v1/desk/{$id}/service-handle", ['request_id' => 202])->assertOk();
+        $this->assertDatabaseHas('tournament_actions', ['idempotency_key' => 'tsr:202', 'price_cents' => 0]);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/table-service/requests/202/resolve')
+            && $request['applied'] === true && $request['amount_cents'] === 0);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/print/receipt')
+            && str_contains(implode('\n', array_column($request['lines'], 'text')), 'Tickets cover: $750.00')
+            && str_contains(implode('\n', array_column($request['lines'], 'text')), 'Paid at desk: $0.00'));
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/vouchers/redeem'));
+    }
+
+    public function test_phone_buy_in_honours_an_online_free_voucher_on_an_ordinary_daily_game(): void
+    {
+        $this->fakeCloud([], [
+            ['id' => 203, 'npl_id' => 'NPLFREE1', 'kind' => 'buy_in', 'table_number' => 1],
+        ], ['entitled' => false, 'ticket_redemption_enabled' => false, 'already_covered' => [
+            'voucher_id' => 30, 'code' => 'FREE30', 'type' => 'game_entry', 'title' => 'Free entry',
+            'entry_fee_limit_cents' => null, 'covered_cents' => null, 'deficit_cents' => null,
+        ]]);
+        $id = $this->tournament(['buy_in_price_cents' => 10000]);
+        $this->mirrorPlayer('NPLFREE1', 'Free Daily Player');
+        $this->linkCloudSession($id, false);
+
+        $this->postJson("/api/v1/desk/{$id}/service-handle", ['request_id' => 203])->assertOk();
+        $this->assertDatabaseHas('tournament_actions', ['idempotency_key' => 'tsr:203', 'price_cents' => 0]);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/table-service/requests/203/resolve')
+            && $request['amount_cents'] === 0);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/print/receipt')
+            && str_contains(implode('\n', array_column($request['lines'], 'text')), 'Voucher: FREE30 ($100.00 covered)'));
+    }
+
+    public function test_plain_main_event_buy_in_claims_and_uses_the_confirmed_cash_fee(): void
+    {
+        $this->fakeCloud([
+            ['id' => 206, 'npl_id' => 'NPLCASH1', 'kind' => 'buy_in', 'table_number' => 1],
+        ], [], ['ticket_redemption_enabled' => true, 'entry_fee_cents' => 50000, 'already_covered' => null]);
+        $id = $this->tournament(['buy_in_price_cents' => 75000]);
+        $this->mirrorPlayer('NPLCASH1', 'Cash Main Player');
+        $this->linkCloudSession($id);
+        $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->assertJsonPath('data.applied.0.amount_cents', 50000);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/vouchers/confirm-entry')
+            && $request['require_coverage'] === false && $request['cash_fee_cents'] === 75000);
+        $this->assertDatabaseHas('tournament_actions', ['idempotency_key' => 'tsr:206', 'price_cents' => 50000]);
+    }
+
+    public function test_tickets_paid_after_scan_replace_a_plain_cash_fee_at_confirmation(): void
+    {
+        $this->fakeCloud([
+            ['id' => 207, 'npl_id' => 'NPLRACE1', 'kind' => 'buy_in', 'table_number' => 1],
+        ], [], ['ticket_redemption_enabled' => true, 'already_covered' => null], 200, 200,
+            $this->ticketCoverage(2)['already_covered']);
+        $id = $this->tournament(['buy_in_price_cents' => 75000]);
+        $this->mirrorPlayer('NPLRACE1', 'Concurrent Ticket Player');
+        $this->linkCloudSession($id);
+        $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->assertJsonPath('data.applied.0.amount_cents', 25000);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/vouchers/confirm-entry') && $request['require_coverage'] === false);
+        $this->assertDatabaseHas('tournament_actions', ['idempotency_key' => 'tsr:207', 'price_cents' => 25000]);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/print/receipt')
+            && str_contains(implode('\n', array_column($request['lines'], 'text')), 'Tickets cover: $500.00'));
+    }
+
+    public function test_cancelled_coverage_cannot_be_booked_between_entitlement_and_confirmation(): void
+    {
+        $this->fakeCloud([
+            ['id' => 205, 'npl_id' => 'NPLCANCEL1', 'kind' => 'buy_in', 'table_number' => 1],
+        ], [], $this->ticketCoverage(3), 200, 422);
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPLCANCEL1', 'Cancelled Player');
+        $this->linkCloudSession($id);
+        $response = $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->json('data');
+        $this->assertSame([], $response['applied']);
+        $this->assertSame(205, $response['failed'][0]['id']);
+        $this->assertDatabaseCount('tournament_actions', 0);
+        $this->assertDatabaseCount('tournament_entries', 0);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/api/print/receipt'));
+    }
+
+    public function test_a_phone_buy_in_waits_for_coverage_after_a_temporary_cloud_failure(): void
+    {
+        $this->fakeCloud([
+            ['id' => 204, 'npl_id' => 'NPLWAIT1', 'kind' => 'buy_in', 'table_number' => 1],
+        ], [], [], 503);
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPLWAIT1', 'Retry Player');
+        $this->linkCloudSession($id, false);
+
+        $response = $this->postJson("/api/v1/desk/{$id}/service-sync")->assertOk()->json('data');
+        $this->assertSame([], $response['applied']);
+        $this->assertSame([], $response['failed']);
+        $this->assertSame(0, DB::table('tournament_actions')->count());
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/table-service/requests/204/applied'));
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/api/print/receipt'));
     }
 }

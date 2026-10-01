@@ -164,11 +164,21 @@ final class ReceiptService
 
         $paymentLines = [];
         if ($ticketCodes !== []) {
-            $paymentLines[] = ['text' => sprintf(
-                'Tickets: %s ($%s covered)',
-                implode(', ', $ticketCodes),
-                number_format($coveredCents / 100, 2),
-            )];
+            $ticketValues = [];
+            $ticketTypes = [];
+            foreach ((array) ($meta['voucher_tickets'] ?? []) as $ticket) {
+                $ticketValues[(string) ($ticket['code'] ?? '')] = (int) ($ticket['value_cents'] ?? 0);
+                $ticketTypes[(string) ($ticket['code'] ?? '')] = (string) ($ticket['type'] ?? 'special_ticket');
+            }
+            $paymentLines[] = ['text' => sprintf('Entry fee: $%s', number_format(($priceCents + $coveredCents) / 100, 2))];
+            foreach ($ticketCodes as $code) {
+                $isTicket = ($ticketTypes[$code] ?? 'special_ticket') === 'special_ticket';
+                $paymentLines[] = ['text' => ($isTicket ? 'Ticket: ' : 'Voucher: ').$code.($isTicket && array_key_exists($code, $ticketValues)
+                    ? ' $'.number_format($ticketValues[$code] / 100, 2) : '')];
+            }
+            $hasTickets = $ticketTypes === [] || in_array('special_ticket', $ticketTypes, true);
+            $paymentLines[] = ['text' => sprintf(($hasTickets ? 'Tickets' : 'Vouchers').' cover: $%s', number_format($coveredCents / 100, 2))];
+            $paymentLines[] = ['text' => sprintf('Paid at desk: $%s', number_format($priceCents / 100, 2))];
         } elseif ($coveredCents > 0 && isset($meta['voucher_code'])) {
             $paymentLines[] = ['text' => sprintf('Voucher: %s ($%s covered)', (string) $meta['voucher_code'], number_format($coveredCents / 100, 2))];
         }

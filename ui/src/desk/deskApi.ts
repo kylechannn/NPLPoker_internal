@@ -173,6 +173,7 @@ export type DeskTable = TableMirrorMeta & {
 export type Seating = {
   seats_per_table: number
   game_session_id: number | null
+  ticket_redemption_enabled?: boolean
   rebuy_tiers: AddonTier[]
   addon_tiers: AddonTier[]
   buy_in: AddonTier
@@ -264,6 +265,7 @@ export type OnlineCoverage = {
   vouchers?: { voucher_id: number, code: string, type: string, title: string | null, value_cents: number | null, entry_fee_limit_cents: number | null }[]
   covered_cents?: number | null
   deficit_cents?: number | null
+  entry_fee_cents?: number | null
 }
 
 export type OnlineRegistration = {
@@ -618,6 +620,7 @@ export const deskApi = {
       voucher: DeskVoucher | null
       already_covered?: OnlineCoverage | null
       special_tickets?: DeskVoucher[] | null
+      ticket_redemption_enabled?: boolean
       entry_fee_cents?: number | null
       // The status-tier window: player holds a voucher their tier can't
       // use this early — show the operator when it opens.
@@ -634,7 +637,7 @@ export const deskApi = {
   /** One-tap apply — idempotent by reference, safe to retry. Pass
    *  voucherIds to consume a championship ticket stack in one batch. */
   voucherRedeem: (reference: string, nplId: string, voucherId: number | null, venueId: number | null, gameSessionId: number | null = null, voucherIds: number[] | null = null) =>
-    request<{ voucher: DeskVoucher | null, vouchers?: DeskVoucher[] | null, covered_cents?: number | null }>('/api/v1/vouchers/redeem', {
+    request<{ voucher: DeskVoucher | null, vouchers?: DeskVoucher[] | null, covered_cents?: number | null, deficit_cents?: number | null, entry_fee_cents?: number | null }>('/api/v1/vouchers/redeem', {
       method: 'POST',
       body: JSON.stringify({
         reference,
@@ -812,7 +815,7 @@ export const deskApi = {
     }),
 
   act: (sessionId: number, nplId: string, action: string, extra: Record<string, unknown> = {}) =>
-    request<{ seating: Seating }>(`/api/v1/desk/${sessionId}/act`, {
+    request<{ seating: Seating, result?: { charged_cents?: number, replayed?: boolean, receipt?: string } }>(`/api/v1/desk/${sessionId}/act`, {
       method: 'POST',
       body: JSON.stringify({ player_npl_id: nplId, action, ...extra }),
     }),

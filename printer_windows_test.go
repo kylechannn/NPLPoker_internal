@@ -4,8 +4,10 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"testing"
 	"time"
@@ -127,4 +129,52 @@ func TestPrintDocumentRendersARealPDFOnThisMachine(t *testing.T) {
 		t.Logf("saved review preview: %s", preview)
 	}
 	t.Logf("rendered receipt PDF: %s (%d bytes)", output, len(rendered))
+}
+
+func TestPrintDocumentPaginatesAllTicketsPastTheOldEightyLineLimit(t *testing.T) {
+	names, err := listPrinterNames()
+	if err != nil {
+		t.Fatalf("EnumPrintersW failed on this machine: %v", err)
+	}
+	if !slices.Contains(names, "Microsoft Print to PDF") {
+		t.Skip("Microsoft Print to PDF is not installed on this machine")
+	}
+	lines := []receiptLine{{Text: "MAIN EVENT TICKET RECEIPT", Bold: true}}
+	for ticket := 1; ticket <= 250; ticket++ {
+		lines = append(lines, receiptLine{Text: fmt.Sprintf("Ticket ST-%04d: $1.00", ticket)})
+	}
+	lines = append(lines, receiptLine{Text: "FINAL TOTAL $250.00", Bold: true}, receiptLine{Text: "BALANCE PAID $0.00", Bold: true}, receiptLine{PrintedAt: true})
+	output, err := printDocument("Microsoft Print to PDF", lines)
+	if err != nil {
+		t.Fatalf("printDocument failed: %v", err)
+	}
+	if output == "" {
+		t.Fatal("expected a PDF output file")
+	}
+	t.Cleanup(func() { _ = os.Remove(output) })
+	deadline := time.Now().Add(20 * time.Second)
+	var rendered []byte
+	for time.Now().Before(deadline) {
+		rendered, err = os.ReadFile(output)
+		if err == nil && bytes.Contains(rendered, []byte("%%EOF")) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !bytes.HasPrefix(rendered, []byte("%PDF")) || !bytes.Contains(rendered, []byte("%%EOF")) {
+		t.Fatal("no complete multipage receipt PDF was written")
+	}
+	pages := len(regexp.MustCompile(`/Type\s*/Page\b`).FindAll(rendered, -1))
+	if pages < 4 {
+		t.Fatalf("250 ticket lines should continue across at least four PDF pages, got %d", pages)
+	}
+	if preview := os.Getenv("NPL_RECEIPT_MANY_TICKETS_PREVIEW_PATH"); preview != "" {
+		if !filepath.IsAbs(preview) {
+			t.Fatal("NPL_RECEIPT_MANY_TICKETS_PREVIEW_PATH must be absolute")
+		}
+		if err := os.WriteFile(preview, rendered, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("all 250 tickets rendered across %d PDF pages", pages)
 }

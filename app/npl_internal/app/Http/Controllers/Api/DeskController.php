@@ -7,9 +7,11 @@ namespace App\Http\Controllers\Api;
 use App\Services\Cloud\CloudCallQueue;
 use App\Services\Cloud\CloudClient;
 use App\Services\Cloud\CloudException;
+use App\Services\Cloud\ConditionalCloudRead;
 use App\Services\Cloud\LicenseKeyProvider;
 use App\Services\Sync\SyncService;
 use App\Services\Tournament\BlindStructureGenerator;
+use App\Services\Tournament\CashTableMovePuller;
 use App\Services\Tournament\ChipCountPuller;
 use App\Services\Tournament\TableServicePuller;
 use App\Services\Tournament\TournamentBroadcaster;
@@ -720,9 +722,15 @@ final class DeskController
             'voucher_limit_cents' => ['sometimes', 'nullable', 'integer', 'min:0'],
             // A championship ticket stack: the codes plus the summed value
             // they cover — the buy-in books at the deficit.
-            'voucher_codes' => ['sometimes', 'array', 'max:10'],
+            'voucher_codes' => ['sometimes', 'array'],
             'voucher_codes.*' => ['string', 'max:20'],
             'voucher_covered_cents' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'voucher_entry_fee_cents' => ['sometimes', 'integer', 'min:0', 'required_with:voucher_deficit_cents'],
+            'voucher_deficit_cents' => ['sometimes', 'integer', 'min:0', 'required_with:voucher_entry_fee_cents'],
+            'voucher_tickets' => ['sometimes', 'array'],
+            'voucher_tickets.*.code' => ['required', 'string', 'max:20'],
+            'voucher_tickets.*.value_cents' => ['required', 'integer', 'min:0'],
+            'voucher_tickets.*.type' => ['sometimes', 'string', 'max:40'],
             // The jackpot tick rode the same submit as the buy-in — the
             // only moment any player may join it.
             'first_buy_in' => ['sometimes', 'boolean'],
@@ -741,7 +749,7 @@ final class DeskController
         return $this->ok($this->desk->seating($id));
     }
 
-    public function cashMovesSync(int $id, \App\Services\Tournament\CashTableMovePuller $moves): JsonResponse
+    public function cashMovesSync(int $id, CashTableMovePuller $moves): JsonResponse
     {
         return $this->ok($moves->sync($id));
     }
@@ -772,7 +780,7 @@ final class DeskController
         }
 
         try {
-            $pulse = app(\App\Services\Cloud\ConditionalCloudRead::class)->get('/api/v1/internal/desk-pulse', [
+            $pulse = app(ConditionalCloudRead::class)->get('/api/v1/internal/desk-pulse', [
                 'uid' => $broadcaster->uid($id),
             ])['data'] ?? [];
         } catch (CloudException $e) {

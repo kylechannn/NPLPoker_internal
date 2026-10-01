@@ -202,8 +202,115 @@ class ReceiptPrintingTest extends TestCase
         ])->assertOk();
 
         $receipt = $this->lastReceiptText();
-        $this->assertStringContainsString('Tickets: STAAAA1111, STBBBB2222 ($40.00 covered)', $receipt);
+        $this->assertStringContainsString("Entry fee: $100.00\nTicket: STAAAA1111\nTicket: STBBBB2222\nTickets cover: $40.00\nPaid at desk: $60.00", $receipt);
         $this->assertStringContainsString("BUY-IN\n$60.00", $receipt);
+    }
+
+    public function test_main_event_payment_uses_cloud_fee_and_prints_each_ticket_snapshot(): void
+    {
+        $id = $this->tournament(['buy_in_price_cents' => 10000]);
+        $this->mirrorPlayer('NPL7020', 'Main Event Player');
+        $this->fakeBridge();
+        $payload = [
+            'player_npl_id' => 'NPL7020', 'action' => 'buy_in', 'idempotency_key' => 'main:flight1',
+            'voucher_codes' => ['TICKET1', 'TICKET2'],
+            'voucher_covered_cents' => 50000, 'voucher_entry_fee_cents' => 75000, 'voucher_deficit_cents' => 25000,
+            'voucher_tickets' => [['code' => 'TICKET1', 'value_cents' => 25000], ['code' => 'TICKET2', 'value_cents' => 25000]],
+        ];
+        $this->postJson("/api/v1/desk/{$id}/act", $payload)->assertOk()->assertJsonPath('data.result.charged_cents', 25000);
+        $receipt = $this->lastReceiptText();
+        $this->assertStringContainsString("BUY-IN\n$250.00", $receipt);
+        $this->assertStringContainsString("Entry fee: $750.00\nTicket: TICKET1 $250.00\nTicket: TICKET2 $250.00\nTickets cover: $500.00\nPaid at desk: $250.00", $receipt);
+        $this->postJson("/api/v1/desk/{$id}/act", $payload)->assertOk()->assertJsonPath('data.result.replayed', true)->assertJsonPath('data.result.charged_cents', 25000);
+        $this->assertCount(1, Http::recorded(fn (ClientRequest $request): bool => str_contains($request->url(), '/api/print/receipt')));
+        $this->assertDatabaseCount('tournament_actions', 1);
+    }
+
+    public function test_main_event_three_tickets_cover_entry_and_another_flight_is_separate(): void
+    {
+        $this->mirrorPlayer('NPL7021', 'Multi Flight Player');
+        $this->fakeBridge();
+        foreach ([1, 2] as $flight) {
+            $id = $this->tournament(['buy_in_price_cents' => 10000]);
+            $codes = ["F{$flight}T1", "F{$flight}T2", "F{$flight}T3"];
+            $this->postJson("/api/v1/desk/{$id}/act", [
+                'player_npl_id' => 'NPL7021', 'action' => 'buy_in', 'idempotency_key' => "flight:{$flight}",
+                'voucher_codes' => $codes, 'voucher_covered_cents' => 75000,
+                'voucher_entry_fee_cents' => 75000, 'voucher_deficit_cents' => 0,
+                'voucher_tickets' => array_map(fn ($code): array => ['code' => $code, 'value_cents' => 25000], $codes),
+            ])->assertOk();
+            $this->assertStringContainsString("BUY-IN\n$0.00", $this->lastReceiptText());
+            $this->assertStringContainsString("Ticket: F{$flight}T3 $250.00", $this->lastReceiptText());
+            DB::table('tournament_sessions')->where('id', $id)->update(['status' => 'finished', 'finished_at' => now()]);
+        }
+        $this->assertDatabaseCount('tournament_entries', 2);
+        $this->assertDatabaseCount('tournament_actions', 2);
+    }
+
+    public function test_more_than_ten_tickets_reach_the_ledger_and_receipt_without_truncating_codes(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL7022', 'Many Tickets');
+        $this->fakeBridge();
+        $codes = array_map(fn ($i): string => sprintf('ST%08d', $i), range(1, 12));
+        $this->postJson("/api/v1/desk/{$id}/act", [
+            'player_npl_id' => 'NPL7022', 'action' => 'buy_in',
+            'voucher_codes' => $codes, 'voucher_covered_cents' => 12000,
+            'voucher_entry_fee_cents' => 12000, 'voucher_deficit_cents' => 0,
+            'voucher_tickets' => array_map(fn ($code): array => ['code' => $code, 'value_cents' => 1000], $codes),
+        ])->assertOk();
+        foreach ($codes as $code) {
+            $this->assertContains("Ticket: {$code} $10.00", array_column($this->lastReceiptLines(), 'text'));
+        }
+    }
+
+    public function test_a_buy_in_reference_cannot_be_reused_in_another_flight(): void
+    {
+        $this->mirrorPlayer('NPL7024', 'Reference Owner');
+        $this->fakeBridge();
+        $first = $this->tournament();
+        $this->postJson("/api/v1/desk/{$first}/act", [
+            'player_npl_id' => 'NPL7024', 'action' => 'buy_in', 'idempotency_key' => 'SAME-REFERENCE',
+        ])->assertOk();
+        DB::table('tournament_sessions')->where('id', $first)->update(['status' => 'finished', 'finished_at' => now()]);
+        $second = $this->tournament();
+        $this->postJson("/api/v1/desk/{$second}/act", [
+            'player_npl_id' => 'NPL7024', 'action' => 'buy_in', 'idempotency_key' => 'SAME-REFERENCE',
+        ])->assertUnprocessable();
+        $this->assertDatabaseMissing('tournament_entries', ['tournament_session_id' => $second]);
+        $this->assertDatabaseCount('tournament_actions', 1);
+    }
+
+    public function test_an_ordinary_main_event_free_voucher_does_not_print_a_zero_value_ticket(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL7025', 'Free Entry Player');
+        $this->fakeBridge();
+        $this->postJson("/api/v1/desk/{$id}/act", [
+            'player_npl_id' => 'NPL7025', 'action' => 'buy_in',
+            'voucher_codes' => ['FREE-ENTRY'], 'voucher_covered_cents' => 75000,
+            'voucher_entry_fee_cents' => 75000, 'voucher_deficit_cents' => 0,
+            'voucher_tickets' => [['code' => 'FREE-ENTRY', 'value_cents' => 0, 'type' => 'game_entry']],
+        ])->assertOk();
+        $receipt = $this->lastReceiptText();
+        $this->assertStringContainsString("Voucher: FREE-ENTRY\nVouchers cover: $750.00", $receipt);
+        $this->assertStringNotContainsString('FREE-ENTRY $0.00', $receipt);
+        $this->assertStringContainsString("BUY-IN\n$0.00", $receipt);
+    }
+
+    public function test_inconsistent_confirmed_ticket_totals_do_not_record_or_print_a_sale(): void
+    {
+        $id = $this->tournament();
+        $this->mirrorPlayer('NPL7023', 'Invalid Payment');
+        $this->fakeBridge();
+        $this->postJson("/api/v1/desk/{$id}/act", [
+            'player_npl_id' => 'NPL7023', 'action' => 'buy_in',
+            'voucher_codes' => ['TICKET1'], 'voucher_covered_cents' => 25000,
+            'voucher_entry_fee_cents' => 75000, 'voucher_deficit_cents' => 0,
+        ])->assertUnprocessable();
+        $this->assertDatabaseCount('tournament_entries', 0);
+        $this->assertDatabaseCount('tournament_actions', 0);
+        Http::assertNotSent(fn (ClientRequest $request): bool => str_contains($request->url(), '/api/print/receipt'));
     }
 
     public function test_a_fully_covered_phone_buy_in_keeps_the_zero_amount_and_voucher_details(): void

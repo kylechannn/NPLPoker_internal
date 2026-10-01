@@ -104,6 +104,25 @@ class MemberEmailVerificationTest extends TestCase
             ->assertJsonPath('data.already_covered.value_cents', 2500);
     }
 
+    public function test_main_event_ticket_entitlement_and_uncapped_redemption_preserve_cloud_totals(): void
+    {
+        $tickets = array_map(fn ($i): array => ['id' => $i, 'code' => "TICKET{$i}", 'value_cents' => 1000], range(1, 12));
+        Http::fake(['*' => Http::response(['ok' => true, 'data' => [
+            'entitled' => false, 'voucher' => null, 'ticket_redemption_enabled' => true,
+            'special_tickets' => $tickets, 'vouchers' => $tickets,
+            'entry_fee_cents' => 15000, 'covered_cents' => 12000, 'deficit_cents' => 3000,
+        ]])]);
+        $this->postJson('/api/v1/vouchers/entitlement', ['npl_id' => 'MAIN1', 'game_session_id' => 42])
+            ->assertOk()->assertJsonPath('data.ticket_redemption_enabled', true)->assertJsonCount(12, 'data.special_tickets')
+            ->assertJsonPath('data.entry_fee_cents', 15000);
+        $this->postJson('/api/v1/vouchers/redeem', [
+            'npl_id' => 'MAIN1', 'game_session_id' => 42, 'reference' => 'MAIN-TICKETS-12', 'voucher_ids' => range(1, 12),
+        ])->assertOk()->assertJsonCount(12, 'data.vouchers')->assertJsonPath('data.covered_cents', 12000)
+            ->assertJsonPath('data.entry_fee_cents', 15000)->assertJsonPath('data.deficit_cents', 3000);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/vouchers/redeem')
+            && $request['game_session_id'] === 42 && $request['voucher_ids'] === range(1, 12));
+    }
+
     public function test_desk_redemption_preserves_verification_refusal(): void
     {
         Http::fake(['*' => Http::response(['ok' => false, 'error' => [
