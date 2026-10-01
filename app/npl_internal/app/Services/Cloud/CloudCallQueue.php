@@ -76,9 +76,10 @@ final class CloudCallQueue
                 ->first();
 
             if ($existing !== null) {
-                DB::table('cloud_call_queue')->where('id', $existing->id)->update([
+                $updated = DB::table('cloud_call_queue')->where('id', $existing->id)
+                    ->whereIn('status', ['pending', 'sent'])->update([
                     'payload' => $payload !== null ? json_encode($payload) : null,
-                    'idempotency_key' => $options['idempotency_key'] ?? null,
+                    'idempotency_key' => $options['idempotency_key'] ?? (string) Str::uuid(),
                     'status' => 'pending',
                     'attempts' => 0,
                     'available_at' => now(),
@@ -87,17 +88,21 @@ final class CloudCallQueue
                     'updated_at' => now(),
                 ]);
 
-                // Older sent leftovers for the same job add nothing.
-                DB::table('cloud_call_queue')
-                    ->where('group_key', $options['group'] ?? null)
-                    ->where('path', $path)
-                    ->where('id', '!=', $existing->id)
-                    ->where('status', 'sent')
-                    ->delete();
+                // A drainer may have claimed it since the read. Never replace
+                // an in-flight operation; insert the newer payload behind it.
+                if ($updated > 0) {
+                    // Older sent leftovers for the same job add nothing.
+                    DB::table('cloud_call_queue')
+                        ->where('group_key', $options['group'] ?? null)
+                        ->where('path', $path)
+                        ->where('id', '!=', $existing->id)
+                        ->where('status', 'sent')
+                        ->delete();
 
-                $this->drainSoon();
+                    $this->drainSoon();
 
-                return (int) $existing->id;
+                    return (int) $existing->id;
+                }
             }
         }
 
@@ -107,7 +112,7 @@ final class CloudCallQueue
             'method' => strtolower($method),
             'path' => $path,
             'payload' => $payload !== null ? json_encode($payload) : null,
-            'idempotency_key' => $options['idempotency_key'] ?? null,
+            'idempotency_key' => $options['idempotency_key'] ?? (string) Str::uuid(),
             'tolerate_missing' => (bool) ($options['tolerate_missing'] ?? false),
             'status' => 'pending',
             'available_at' => now(),
@@ -199,13 +204,22 @@ final class CloudCallQueue
                 continue;
             }
 
+            // A latest-wins writer may have replaced the payload after the
+            // heads query but before our claim. Read the claimed revision.
+            $entry = DB::table('cloud_call_queue')->where('id', $entry->id)->first();
             $attempts = (int) $entry->attempts + 1;
             $payload = $entry->payload !== null ? (array) json_decode((string) $entry->payload, true) : [];
+            // Older queue rows had no key: persist it BEFORE sending, so a
+            // lost response or process restart reuses the same operation ID.
+            $idempotencyKey = $entry->idempotency_key ?: (string) Str::uuid();
+            if (! $entry->idempotency_key) {
+                DB::table('cloud_call_queue')->where('id', $entry->id)->update(['idempotency_key' => $idempotencyKey]);
+            }
 
             try {
                 match ($entry->method) {
-                    'post' => $this->cloud->postJson($entry->path, $payload, $entry->idempotency_key ?: null),
-                    'delete' => $this->cloud->deleteJson($entry->path, $payload),
+                    'post' => $this->cloud->postJson($entry->path, $payload, $idempotencyKey),
+                    'delete' => $this->cloud->deleteJson($entry->path, $payload, $idempotencyKey),
                     default => throw new \InvalidArgumentException("Unsupported queue method [{$entry->method}]."),
                 };
 

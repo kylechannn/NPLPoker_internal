@@ -71,7 +71,7 @@ class CashTableMoveTest extends TestCase
             if (str_contains($request->url(), '/cash-table-moves/51/ack')) {
                 $calls++;
                 return $calls === 1 ? Http::response(['ok' => false], 503)
-                    : Http::response(['ok' => true, 'data' => ['move' => ['status' => 'applied', 'version' => 1]]]);
+                    : Http::response(['ok' => true, 'data' => ['move' => ['id' => 51, 'status' => 'applied', 'version' => 1]]]);
             }
             return Http::response(['ok' => true, 'data' => ['data' => $calls ? [] : [$this->move()]]]);
         };
@@ -96,13 +96,89 @@ class CashTableMoveTest extends TestCase
         $this->cloudResponse = function ($request) {
             if (str_contains($request->url(), '/ack')) {
                 $this->assertSame('failed', $request['status']);
-                return Http::response(['ok' => true, 'data' => ['move' => ['status' => 'failed', 'version' => 1]]]);
+                return Http::response(['ok' => true, 'data' => ['move' => ['id' => 51, 'status' => 'failed', 'version' => 1]]]);
             }
             return Http::response(['ok' => true, 'data' => ['data' => [$this->move()]]]);
         };
         $result = app(CashTableMovePuller::class)->sync($this->sessionId);
         $this->assertCount(1, $result['failed']);
         $this->assertDatabaseHas('tournament_entries', ['player_npl_id' => 'CASH1', 'table_number' => 1, 'seat_number' => 2]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidAcknowledgements')]
+    public function test_unconfirmed_ack_stays_pending_and_retries_without_another_move(array $answer): void
+    {
+        $calls = 0;
+        $keys = [];
+        $this->cloudResponse = function ($request) use (&$calls, &$keys, $answer) {
+            if (str_contains($request->url(), '/cash-table-moves/51/ack')) {
+                $keys[] = $request->header('Idempotency-Key')[0];
+                return Http::response(['ok' => true, 'data' => ++$calls === 1 ? $answer
+                    : ['move' => ['id' => 51, 'status' => 'applied', 'version' => 1, 'local_reference' => 'cash-move:51']]]);
+            }
+            return Http::response(['ok' => true, 'data' => ['data' => $calls ? [] : [$this->move()]]]);
+        };
+        $this->assertSame([51], app(CashTableMovePuller::class)->sync($this->sessionId)['pending']);
+        $this->assertDatabaseHas('cash_table_moves', ['id' => 51, 'status' => 'applied_pending']);
+        $this->assertCount(1, app(CashTableMovePuller::class)->sync($this->sessionId)['applied']);
+        $this->assertSame($keys[0], $keys[1]);
+        $this->assertDatabaseHas('cash_table_moves', ['id' => 51, 'status' => 'completed']);
+        $this->assertDatabaseCount('tournament_actions', 1);
+    }
+
+    public static function invalidAcknowledgements(): array
+    {
+        return [
+            'missing move' => [[]],
+            'wrong move' => [['move' => ['id' => 52, 'status' => 'applied', 'version' => 1]]],
+            'not confirmed' => [['move' => ['id' => 51, 'status' => 'pending', 'version' => 1]]],
+            'missing version' => [['move' => ['id' => 51, 'status' => 'applied']]],
+            'wrong operation' => [['move' => ['id' => 51, 'status' => 'applied', 'version' => 1, 'local_reference' => 'different']]],
+        ];
+    }
+
+    public function test_a_license_change_during_feed_fetch_cannot_apply_or_ack_the_old_feed(): void
+    {
+        $this->cloudResponse = function ($request) {
+            $this->assertFalse(str_contains($request->url(), '/ack'));
+            file_put_contents($this->dataDir.'/license.json', json_encode([
+                'key' => 'DIFFERENT-LICENSE', 'device_id' => 'OTHER-DESK',
+                'lease' => ['lease_until' => now()->addDays(7)->toIso8601String()],
+            ]));
+            return Http::response(['ok' => true, 'data' => ['data' => [$this->move()]]]);
+        };
+        app(CashTableMovePuller::class)->sync($this->sessionId);
+        $this->assertDatabaseCount('cash_table_moves', 0);
+        $this->assertDatabaseHas('tournament_entries', ['player_npl_id' => 'CASH1', 'table_number' => 1, 'seat_number' => 2]);
+    }
+
+    public function test_a_session_relink_during_feed_fetch_cannot_apply_the_old_feed(): void
+    {
+        $this->cloudResponse = function ($request) {
+            $this->assertFalse(str_contains($request->url(), '/ack'));
+            DB::table('tournament_sessions')->where('id', $this->sessionId)->update(['game_session_id' => 702]);
+            return Http::response(['ok' => true, 'data' => ['data' => [$this->move()]]]);
+        };
+        app(CashTableMovePuller::class)->sync($this->sessionId);
+        $this->assertDatabaseCount('cash_table_moves', 0);
+        $this->assertDatabaseCount('tournament_actions', 1);
+    }
+
+    public function test_a_resident_cloud_client_refreshes_its_license_headers_before_the_next_request(): void
+    {
+        $keys = [];
+        $this->cloudResponse = function ($request) use (&$keys) {
+            $keys[] = $request->header('X-CD-Key')[0];
+            return Http::response(['ok' => true, 'data' => []]);
+        };
+        $client = app(\App\Services\Cloud\CloudClient::class);
+        $client->getJson('/api/v1/internal/test-identity');
+        file_put_contents($this->dataDir.'/license.json', json_encode([
+            'key' => 'NEW-LICENSE', 'device_id' => 'NEW-DEVICE',
+            'lease' => ['lease_until' => now()->addDays(7)->toIso8601String()],
+        ]));
+        $client->getJson('/api/v1/internal/test-identity');
+        $this->assertSame(['NPL-TEST-TEST-TEST', 'NEW-LICENSE'], $keys);
     }
 
     public function test_daily_tournaments_do_not_pull_cash_moves(): void
@@ -116,7 +192,7 @@ class CashTableMoveTest extends TestCase
     public function test_a_cloud_rejection_restores_the_old_local_seat(): void
     {
         $this->cloudResponse = fn ($request) => Http::response(['ok' => true, 'data' => str_contains($request->url(), '/ack')
-            ? ['move' => ['status' => 'failed', 'version' => 1, 'reason' => 'The table closed.']]
+            ? ['move' => ['id' => 51, 'status' => 'failed', 'version' => 1, 'reason' => 'The table closed.']]
             : ['data' => [$this->move()]]]);
         $result = app(CashTableMovePuller::class)->sync($this->sessionId);
         $this->assertCount(1, $result['failed']);
@@ -167,7 +243,7 @@ class CashTableMoveTest extends TestCase
             if (str_contains($request->url(), '/cash-table-moves/51/ack')) {
                 $this->assertSame('failed', $request['status']);
                 $acked = true;
-                return Http::response(['ok' => true, 'data' => ['move' => ['status' => 'failed', 'version' => 1]]]);
+                return Http::response(['ok' => true, 'data' => ['move' => ['id' => 51, 'status' => 'failed', 'version' => 1]]]);
             }
             if (str_contains($request->url(), '/cash-table-moves')) {
                 return Http::response(['ok' => true, 'data' => ['data' => $acked ? [] : [$this->move()], 'positions' => [$position]]]);

@@ -105,6 +105,8 @@ read in the website admin console under OS feedback. See
 
 ## Public cash tables
 
+The OS send/receive, reconnect, offline queue and Cash acknowledgement contract is documented in [transport reliability](docs/TRANSPORT_RELIABILITY.md).
+
 Cash table slots come from the cloud's default table count and capacity limit. `unopened` displays **AWAITING SETUP**. The first player may choose game type and blinds using Open Table on web/iOS/Android; staff may also press **OPEN** on the OS and choose the same game/blinds menu with optional rules. OS setup opens the public table immediately with zero players and requires an online confirmation. `closed` displays **CLOSED BY ADMIN**; members cannot reopen it. Staff reopening preserves configured settings or asks for setup on an unused table. No seat registration or timer can bypass that setup.
 
 New cash slots use the existing OS Create Table action, then the same OPEN setup. Automatic cash seating selects an available public table, honours valid online bookings, and does not create an unconfigured overflow table. Public tables have no gathering quorum or deadline and never become private. Their game details and staff stopwatch continue to sync through the seating mirror. Player-created tables keep their four-player activation and existing rules; non-cash events retain their current flow. Apply the local live/staging mirror migration and deploy the matching backend first. See [cash table control](docs/cash-table-control.md).

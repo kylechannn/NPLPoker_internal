@@ -3,6 +3,8 @@ import { AlertTriangle, Ban, Clock3, Loader2, MessageSquareWarning, MonitorPlay,
 import { QRCodeSVG } from "qrcode.react"
 import { CASH_TABLE_BLINDS, CASH_TABLE_GAME_TYPES } from "./cashTableSetup"
 import { notify } from "../notifications/store"
+import { useReconciler } from "../realtime/useReconciler"
+import { sessionUpdateMatches } from "../realtime/sessionUpdates"
 import { playersApi, type PlayerComment, type RosterPlayer } from "../players/playersApi"
 // The scan-time staff-comments overlay styles live in players.css — the
 // desk chunk must carry them itself (the first scan of a flagged player
@@ -367,6 +369,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   // whole grid every 5 seconds. Any NON-poll seating write blanks the
   // ref, so a poll after a desk action always applies.
   const seatingRawRef = useRef("")
+  const seatingRevision = useRef(0)
+  const cloudSessionRef = useRef<number | null>(null)
+  cloudSessionRef.current = seating?.game_session_id ?? null
 
   // When the last seating answer landed on this machine — the base every
   // running table stopwatch counts on from between answers.
@@ -374,14 +379,17 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const applySeatingDirect = useCallback((next: Seating) => {
+    seatingRevision.current += 1
     seatingRawRef.current = ""
     setSeatingAt(Date.now())
     setSeating(next)
   }, [])
 
-  const refresh = useCallback(async () => {
+  const refresh = useReconciler(sessionId, async isCurrent => {
+    const revision = seatingRevision.current
     try {
       const next = await deskApi.seating(sessionId)
+      if (!isCurrent() || revision !== seatingRevision.current) return
       const raw = stableSnapshot(next)
       if (raw === seatingRawRef.current) return
       seatingRawRef.current = raw
@@ -393,9 +401,9 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         onClockStatus?.(status)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The seating map could not be loaded.")
+      if (isCurrent()) setError(e instanceof Error ? e.message : "The seating map could not be loaded.")
     }
-  }, [sessionId, onClockStatus])
+  })
 
   useEffect(() => {
     void refresh()
@@ -406,21 +414,23 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
   // clock itself is authoritative, this only re-reads it every few seconds.
   useEffect(() => {
     const handle = window.setInterval(() => void refresh(), 5000)
-    return () => window.clearInterval(handle)
+    const updated = (event: Event) => {
+      if (sessionUpdateMatches(event, cloudSessionRef.current)) void refresh()
+    }
+    window.addEventListener("npl:sessions-updated", updated)
+    return () => {
+      window.clearInterval(handle)
+      window.removeEventListener("npl:sessions-updated", updated)
+    }
   }, [refresh])
 
   // Cash choices are durable cloud commands: apply and acknowledge them while
   // the desk is open, including after reconnecting or returning to this window.
-  const cashMoveBusyRef = useRef(false)
-  useEffect(() => {
-    if (mode !== "cash") return
-    let cancelled = false
-    const pull = async () => {
-      if (cashMoveBusyRef.current) return
-      cashMoveBusyRef.current = true
+  const pullCashMoves = useReconciler(`${sessionId}:${mode}`, async isCurrent => {
+      if (mode !== "cash") return
       try {
         const result = await deskApi.cashMovesSync(sessionId)
-        if (cancelled) return
+        if (!isCurrent()) return
         for (const row of result.applied) {
           notify("registration", "Cash table changed", `${row.npl_id} moved to Table ${row.table_number}.`, "success")
         }
@@ -436,37 +446,40 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         if (result.applied.length || result.failed.length || result.pending.length || result.reconciled?.length) void refresh()
       } catch {
         // The local journal retries acknowledgement; never charge or move twice.
-      } finally {
-        cashMoveBusyRef.current = false
       }
+  })
+  useEffect(() => {
+    if (mode !== "cash") return
+    void pullCashMoves()
+    const handle = window.setInterval(() => void pullCashMoves(), 5000)
+    const resume = () => { if (!document.hidden) void pullCashMoves() }
+    const updated = (event: Event) => {
+      if (sessionUpdateMatches(event, cloudSessionRef.current)) void pullCashMoves()
     }
-    void pull()
-    const handle = window.setInterval(() => void pull(), 5000)
-    const resume = () => { if (!document.hidden) void pull() }
+    window.addEventListener("npl:sessions-updated", updated)
     window.addEventListener("online", resume)
+    window.addEventListener("npl:session-touched", updated)
     window.addEventListener("focus", resume)
     document.addEventListener("visibilitychange", resume)
     return () => {
-      cancelled = true
       window.clearInterval(handle)
+      window.removeEventListener("npl:sessions-updated", updated)
+      window.removeEventListener("npl:session-touched", updated)
       window.removeEventListener("online", resume)
       window.removeEventListener("focus", resume)
       document.removeEventListener("visibilitychange", resume)
     }
-  }, [mode, sessionId, refresh])
+  }, [mode, pullCashMoves])
 
   // Phone requests the admin resolved at the table: pull them into the
   // local ledger every 15s and tell the operator what just landed.
   // Single-flight: on venue internet a pull can outlive the interval, and
   // two overlapping pulls used to land the same unacked feed row twice —
   // double receipts, double cloud cashier events.
-  const servicePullBusyRef = useRef(false)
-  useEffect(() => {
-    const pull = async () => {
-      if (servicePullBusyRef.current) return
-      servicePullBusyRef.current = true
+  const pullService = useReconciler(sessionId, async isCurrent => {
       try {
         const result = await deskApi.serviceSync(sessionId)
+        if (!isCurrent()) return
         setServicePending(result.pending)
         setServiceRecent(result.recent)
         for (const row of result.applied) {
@@ -494,15 +507,22 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
         if (result.applied.length > 0) void refresh()
       } catch {
         // Offline is fine — the next pull retries.
-      } finally {
-        servicePullBusyRef.current = false
       }
+  })
+  useEffect(() => {
+    void pullService()
+    const handle = window.setInterval(() => void pullService(), 15000)
+    const updated = (event: Event) => {
+      if (sessionUpdateMatches(event, cloudSessionRef.current)) void pullService()
     }
-
-    void pull()
-    const handle = window.setInterval(() => void pull(), 15000)
-    return () => window.clearInterval(handle)
-  }, [sessionId, refresh])
+    window.addEventListener("npl:sessions-updated", updated)
+    window.addEventListener("npl:session-touched", updated)
+    return () => {
+      window.clearInterval(handle)
+      window.removeEventListener("npl:sessions-updated", updated)
+      window.removeEventListener("npl:session-touched", updated)
+    }
+  }, [pullService])
 
   useEffect(() => {
     if (!flash) return

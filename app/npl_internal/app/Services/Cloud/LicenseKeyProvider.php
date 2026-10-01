@@ -65,6 +65,14 @@ final class LicenseKeyProvider
         $this->cache = null;
     }
 
+    /** Fresh, opaque identity for an in-flight operation; lease renewal is not a new owner. */
+    public function identity(): string
+    {
+        $this->forget();
+
+        return hash('sha256', ($this->key() ?? '').'|'.($this->deviceId() ?? ''));
+    }
+
     private function read(): array
     {
         if ($this->cache !== null) {

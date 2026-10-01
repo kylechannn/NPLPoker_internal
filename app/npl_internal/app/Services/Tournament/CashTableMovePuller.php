@@ -22,6 +22,7 @@ final class CashTableMovePuller
     public function sync(int $sessionId): array
     {
         $empty = ['applied' => [], 'failed' => [], 'pending' => []];
+        $identity = $this->license->identity();
         $session = DB::table('tournament_sessions')->where('id', $sessionId)->first();
         if (! $session || $session->game_type !== 'cash' || ! $session->game_session_id || ! $this->license->isActivated()) {
             return $empty;
@@ -34,6 +35,7 @@ final class CashTableMovePuller
             $path = '/api/v1/internal/desk-sessions/'.$session->game_session_id.'/cash-table-moves';
             $uid = $this->broadcaster->uid($sessionId);
             $feed = $this->cloud->getJson($path, ['tournament_uid' => $uid])['data'] ?? [];
+            $this->assertOwner($sessionId, (int) $session->game_session_id, $identity);
             $rows = $feed['data'] ?? [];
             $result = $empty;
             // Retry locally applied work even if its ACK committed remotely but
@@ -51,17 +53,28 @@ final class CashTableMovePuller
                 if (! is_array($move) || (int) ($move['id'] ?? 0) < 1) {
                     continue;
                 }
+                $this->assertOwner($sessionId, (int) $session->game_session_id, $identity);
                 $journal = $this->apply($sessionId, $move);
                 if ($journal->status === 'completed') {
                     continue;
                 }
                 $status = $journal->status === 'applied_pending' ? 'applied' : 'failed';
                 try {
+                    $this->assertOwner($sessionId, (int) $session->game_session_id, $identity);
                     $answer = $this->cloud->postJson($path.'/'.$move['id'].'/ack', [
                         'tournament_uid' => $uid, 'status' => $status,
                         'reason' => $journal->reason, 'local_reference' => 'cash-move:'.$move['id'],
                     ], 'cash-move:'.$move['id'].':'.$status);
-                    $remoteStatus = $answer['move']['status'] ?? $status;
+                    $this->assertOwner($sessionId, (int) $session->game_session_id, $identity);
+                    $ack = $answer['move'] ?? null;
+                    if (! is_array($ack) || (int) ($ack['id'] ?? 0) !== (int) $move['id']
+                        || ! in_array($ack['status'] ?? null, ['applied', 'failed'], true)
+                        || ! isset($ack['version']) || ! is_numeric($ack['version'])
+                        || (int) $ack['version'] < 0
+                        || (isset($ack['local_reference']) && $ack['local_reference'] !== 'cash-move:'.$move['id'])) {
+                        throw new \RuntimeException('The cloud did not confirm this cash move. The acknowledgement will be retried.');
+                    }
+                    $remoteStatus = $ack['status'];
                     DB::transaction(function () use ($sessionId, $move, $status, $remoteStatus, $answer): void {
                         $entry = DB::table('tournament_entries')->where('tournament_session_id', $sessionId)
                             ->where('player_npl_id', strtoupper($move['player_npl_id']))->first();
@@ -85,6 +98,7 @@ final class CashTableMovePuller
                     Log::info('cash table move acknowledgement pending', ['move' => $move['id'], 'error' => $e->getMessage()]);
                 }
             }
+            $this->assertOwner($sessionId, (int) $session->game_session_id, $identity);
             $reconciled = $this->reconcilePositions($sessionId, (int) $session->game_session_id, $feed['positions'] ?? [], array_column($moves, 'player_npl_id'));
             if ($reconciled !== []) {
                 $result['reconciled'] = $reconciled;
@@ -98,6 +112,16 @@ final class CashTableMovePuller
             return $empty;
         } finally {
             $lock->release();
+        }
+    }
+
+    private function assertOwner(int $sessionId, int $gameSessionId, string $identity): void
+    {
+        $session = DB::table('tournament_sessions')->where('id', $sessionId)->first();
+        if ($this->license->identity() !== $identity || ! $session
+            || (int) $session->game_session_id !== $gameSessionId || $session->game_type !== 'cash'
+            || in_array($session->status, ['finished', 'cancelled'], true)) {
+            throw new \RuntimeException('The desk identity or cash session changed during synchronization. Retry from the current desk.');
         }
     }
 

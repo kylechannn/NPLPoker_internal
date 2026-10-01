@@ -452,11 +452,12 @@ final class SyncService
                 // privacy the players chose for the public surfaces.
                 $result = $this->cloud->getJson("/api/v1/internal/sessions/{$sessionId}/seating");
             } catch (CloudException $e) {
-                if ($e->isRetryable()) {
+                if ($e->isRetryable() || ! in_array($e->status, [404, 410], true)) {
                     throw $e;
                 }
 
-                // Vanished mid-refresh (completed/cancelled): clear its rows.
+                // Only an explicit gone/not-found response removes the mirror.
+                // A refused licence or malformed reply is not an empty table.
                 $rowsBySession[$sessionId] = [];
 
                 continue;

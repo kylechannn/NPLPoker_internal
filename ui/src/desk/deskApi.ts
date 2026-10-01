@@ -353,7 +353,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     | { ok?: boolean, data?: T, message?: string, error?: { code?: string, message?: string }, errors?: Record<string, string[]> }
     | null
 
-  if (!response.ok) {
+  if (!response.ok || body?.ok !== true || body.data === undefined) {
     // Laravel puts the useful sentence in the first field error; the generic
     // "The given data was invalid" is never the thing the operator needs.
     const fieldError = body?.errors ? Object.values(body.errors)[0]?.[0] : undefined

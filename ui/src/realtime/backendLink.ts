@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { notify } from "../notifications/store"
+import { createSessionPuller } from "./sessionPuller"
 
 /**
  * The live link to the NPL cloud.
@@ -59,55 +60,16 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
  * catch-up, the fallback and reconcile timers) makes the next run a full
  * venue pull.
  */
-let pullInFlight: Promise<void> | null = null
-let pullQueued = false
-let pullVenueId: number | null = null
-let pullWantsFull = false
-const pullTargets = new Set<number>()
-
-export function pullSessionsNow(venueId: number | null = pullVenueId, sessionId?: number): Promise<void> {
-  pullVenueId = venueId
-
-  if (sessionId === undefined) pullWantsFull = true
-  else pullTargets.add(sessionId)
-
-  if (pullInFlight) {
-    pullQueued = true
-    return pullInFlight
-  }
-
-  return startPull()
-}
-
-function startPull(): Promise<void> {
-  pullInFlight = (async () => {
-    try {
-      const full = pullWantsFull || pullTargets.size === 0 || pullTargets.size > 20
-      const ids = full ? [] : [...pullTargets]
-      pullWantsFull = false
-      pullTargets.clear()
-
-      await fetchJson("/api/v1/sync/pull-sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        // Venue-scoped: a full refresh covers the venue's whole scheduled
-        // window; a targeted one names exactly the sessions that moved.
-        body: JSON.stringify({ venue_id: pullVenueId, ...(full ? {} : { session_ids: ids }) }),
-      })
-      window.dispatchEvent(new CustomEvent("npl:sessions-updated"))
-    } finally {
-      pullInFlight = null
-      if (pullQueued) {
-        pullQueued = false
-        // The rerun consumes whatever accumulated while this one ran —
-        // it must not widen a targeted backlog into a full pull itself.
-        void startPull().catch(() => {})
-      }
-    }
-  })()
-
-  return pullInFlight
-}
+const sessionPuller = createSessionPuller(async update => {
+  await fetchJson("/api/v1/sync/pull-sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ venue_id: update.venueId, ...(update.sessionIds === null ? {} : { session_ids: update.sessionIds }) }),
+  })
+}, update => window.dispatchEvent(new CustomEvent("npl:sessions-updated", { detail: update })), retry => {
+  const timer = window.setTimeout(retry, 5_000)
+  return () => window.clearTimeout(timer)
+})
 
 export function useBackendLink(venueId: number | null) {
   const [status, setStatus] = useState<BackendLinkStatus>("off")
@@ -142,6 +104,11 @@ export function useBackendLink(venueId: number | null) {
   }, [])
 
   useEffect(() => {
+    sessionPuller.setVenue(venueId)
+    return () => sessionPuller.setVenue(null)
+  }, [venueId])
+
+  useEffect(() => {
     if (!enabled || venueId === null) {
       teardown()
       setStatus("off")
@@ -149,6 +116,7 @@ export function useBackendLink(venueId: number | null) {
     }
 
     let disposed = false
+    const current = (socket: WebSocket) => !disposed && socketRef.current === socket
 
     const scheduleReconnect = () => {
       if (disposed || reconnectTimerRef.current !== null) return
@@ -166,8 +134,11 @@ export function useBackendLink(venueId: number | null) {
       setPhase("Fetching connection details…")
 
       let details: RealtimeDetails
+      const detailsRequest = new AbortController()
+      const detailsDeadline = window.setTimeout(() => detailsRequest.abort(), 15_000)
       try {
-        details = await fetchJson<RealtimeDetails>("/api/v1/sync/realtime")
+        details = await fetchJson<RealtimeDetails>("/api/v1/sync/realtime", { signal: detailsRequest.signal })
+        if (disposed) return
         if (!details.key || !details.host) throw new Error("Realtime endpoint returned no connection details")
         setLastError(null)
       } catch (e) {
@@ -177,6 +148,8 @@ export function useBackendLink(venueId: number | null) {
           scheduleReconnect()
         }
         return
+      } finally {
+        window.clearTimeout(detailsDeadline)
       }
 
       if (disposed) return
@@ -191,20 +164,22 @@ export function useBackendLink(venueId: number | null) {
 
       // A socket that sits in CONNECTING must not hang the light forever —
       // force it closed so the close code surfaces and the retry runs.
+      let venueSubscribed = false
       const connectDeadline = window.setTimeout(() => {
-        if (socket.readyState === WebSocket.CONNECTING) {
-          setLastError("Socket open timed out after 15s — the connection is being silently dropped (proxy/AV/firewall on this machine).")
+        if (current(socket) && !venueSubscribed) {
+          setLastError("The venue subscription was not confirmed within 15s. Reconnecting to recover live updates.")
           socket.close()
         }
       }, 15_000)
 
       socket.onopen = () => {
-        window.clearTimeout(connectDeadline)
+        if (!current(socket)) return
         lastFrameRef.current = Date.now()
         setPhase("Socket open — waiting for the server handshake…")
       }
 
       socket.onmessage = (frame: MessageEvent<string>) => {
+        if (!current(socket)) return
         lastFrameRef.current = Date.now()
 
         let message: { event?: string, data?: unknown } | null = null
@@ -235,7 +210,9 @@ export function useBackendLink(venueId: number | null) {
         // it is needed. (The jackpot channel also raises this event; it
         // must not flip the light or double the catch-up pull.)
         if (message?.event === "pusher_internal:subscription_succeeded"
-          && (message as { channel?: string }).channel !== (details.jackpot?.channel ?? "jackpot.pool")) {
+          && (message as { channel?: string }).channel === `${details.channel_prefix}${venueId}`) {
+          venueSubscribed = true
+          window.clearTimeout(connectDeadline)
           attemptRef.current = 0
           setLastError(null)
           setPhase(null)
@@ -244,7 +221,7 @@ export function useBackendLink(venueId: number | null) {
           }
           setStatus("connected")
           // Catch up on anything that happened while the link was down.
-          void pullSessionsNow(venueId).catch(() => {})
+          void sessionPuller.request().catch(() => {})
           return
         }
 
@@ -288,10 +265,11 @@ export function useBackendLink(venueId: number | null) {
           return
         }
 
-        if (message?.event === "session.touched") {
-          const data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as
-            | { game_session_id?: number, kind?: string }
-            | undefined
+        if (message?.event === (details.event ?? "session.touched")) {
+          let data: { game_session_id?: number, kind?: string } | undefined
+          try {
+            data = (typeof message.data === "string" ? JSON.parse(message.data) : message.data) as typeof data
+          } catch { /* Unknown target: reconcile the venue instead of dropping the signal. */ }
           const kind = data?.kind ?? "update"
           const labels: Record<string, string> = {
             register: "Online registration received",
@@ -310,9 +288,12 @@ export function useBackendLink(venueId: number | null) {
           )
           // The signal names its session — pull just that one. A signal
           // without an id falls back to the full venue pull.
-          void pullSessionsNow(
-            venueId,
-            typeof data?.game_session_id === "number" ? data.game_session_id : undefined,
+          const sessionId = typeof data?.game_session_id === "number" && Number.isSafeInteger(data.game_session_id) && data.game_session_id > 0 ? data.game_session_id : undefined
+          window.dispatchEvent(new CustomEvent("npl:session-touched", {
+            detail: { venueId, sessionIds: sessionId === undefined ? null : [sessionId] },
+          }))
+          void sessionPuller.request(
+            sessionId,
           ).catch(() => {})
         }
 
@@ -341,7 +322,9 @@ export function useBackendLink(venueId: number | null) {
       }
 
       socket.onclose = (event: CloseEvent) => {
-        if (socketRef.current === socket) socketRef.current = null
+        window.clearTimeout(connectDeadline)
+        if (!current(socket)) return
+        socketRef.current = null
         if (!disposed) {
           // 1006 = the connection never completed or died abnormally —
           // the close code is the single most diagnostic number we have.
@@ -355,7 +338,7 @@ export function useBackendLink(venueId: number | null) {
       }
 
       socket.onerror = () => {
-        socket.close()
+        if (current(socket)) socket.close()
       }
     }
 
@@ -390,19 +373,30 @@ export function useBackendLink(venueId: number | null) {
       // gated by visibility, so session.touched events keep pulling data
       // live in the meantime; this is only the fallback for a dead socket.
       if (document.visibilityState === "visible" && statusRef.current !== "connected" && navigator.onLine !== false) {
-        void pullSessionsNow(venueId).catch(() => {})
+        void sessionPuller.request().catch(() => {})
       }
     }, FALLBACK_PULL_MS)
 
     const reconcile = window.setInterval(() => {
       if (document.visibilityState === "visible" && statusRef.current === "connected") {
-        void pullSessionsNow(venueId).catch(() => {})
+        void sessionPuller.request().catch(() => {})
       }
     }, RECONCILE_PULL_MS)
 
+    const catchUp = () => {
+      if (document.visibilityState === "visible" && navigator.onLine !== false) {
+        void sessionPuller.request().catch(() => {})
+      }
+    }
+    window.addEventListener("online", catchUp)
+    window.addEventListener("focus", catchUp)
+    document.addEventListener("visibilitychange", catchUp)
     return () => {
       window.clearInterval(timer)
       window.clearInterval(reconcile)
+      window.removeEventListener("online", catchUp)
+      window.removeEventListener("focus", catchUp)
+      document.removeEventListener("visibilitychange", catchUp)
     }
   }, [venueId])
 

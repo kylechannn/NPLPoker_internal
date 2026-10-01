@@ -88,6 +88,7 @@ class QueueEverywhereTest extends TestCase
             'group' => 'clock:42', 'label' => 'Clock', 'coalesce' => true,
         ]);
         $this->assertSame('sent', DB::table('cloud_call_queue')->where('id', $first)->value('status'));
+        $firstKey = DB::table('cloud_call_queue')->where('id', $first)->value('idempotency_key');
 
         $second = $queue->enqueue('post', '/api/v1/internal/tournament/state', ['level' => 2], [
             'group' => 'clock:42', 'label' => 'Clock', 'coalesce' => true,
@@ -95,6 +96,33 @@ class QueueEverywhereTest extends TestCase
 
         $this->assertSame($first, $second, 'a sent coalesced row is re-armed in place');
         $this->assertSame(1, DB::table('cloud_call_queue')->where('group_key', 'clock:42')->count());
+        $this->assertNotEmpty($firstKey);
+        $this->assertNotSame($firstKey, DB::table('cloud_call_queue')->where('id', $second)->value('idempotency_key'), 'A new latest-wins payload is a new operation.');
+    }
+
+    public function test_a_legacy_queued_write_retries_the_same_persisted_operation_id(): void
+    {
+        $queue = app(CloudCallQueue::class);
+        app(CloudLinkState::class)->markOffline();
+        $id = $queue->enqueue('post', '/api/v1/internal/test-retry', ['value' => 1]);
+        // Simulate a queue produced by a previous release.
+        DB::table('cloud_call_queue')->where('id', $id)->update(['idempotency_key' => null]);
+        app(CloudLinkState::class)->markOnline();
+        $keys = [];
+        Http::fake(function ($request) use (&$keys) {
+            $keys[] = $request->header('Idempotency-Key')[0] ?? null;
+            return count($keys) === 1 ? Http::response(['ok' => false], 503)
+                : Http::response(['ok' => true, 'data' => []]);
+        });
+        $queue->drain();
+        $this->assertDatabaseHas('cloud_call_queue', ['id' => $id, 'status' => 'pending']);
+        DB::table('cloud_call_queue')->where('id', $id)->update(['available_at' => now()->subSecond()]);
+        $queue->drain();
+        $this->assertCount(2, $keys);
+        $this->assertNotEmpty($keys[0]);
+        $this->assertSame($keys[0], $keys[1]);
+        $this->assertSame($keys[0], DB::table('cloud_call_queue')->where('id', $id)->value('idempotency_key'));
+        $this->assertDatabaseHas('cloud_call_queue', ['id' => $id, 'status' => 'sent']);
     }
 
     public function test_promote_queues_and_answers_instantly_offline(): void

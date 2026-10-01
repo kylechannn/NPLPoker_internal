@@ -165,12 +165,14 @@ final class CloudClient
         return $this->unwrap($response, $path);
     }
 
-    public function deleteJson(string $path, array $payload = []): array
+    public function deleteJson(string $path, array $payload = [], ?string $idempotencyKey = null): array
     {
         $this->guard($path);
 
         try {
-            $response = $this->base()->delete($this->url($path), $payload);
+            $response = $this->base()->withHeaders([
+                'Idempotency-Key' => $idempotencyKey ?: (string) Str::uuid(),
+            ])->delete($this->url($path), $payload);
         } catch (ConnectionException $e) {
             $this->link->markOffline();
 
@@ -298,6 +300,10 @@ final class CloudClient
 
     private function base(): PendingRequest
     {
+        // The resident sweep and Cash puller can outlive a host activation.
+        // Never send a new operation with a previous cached licence/device.
+        $this->license->forget();
+
         return Http::withHeaders(array_filter([
             'Accept' => 'application/json',
             'X-CD-Key' => $this->license->key(),
