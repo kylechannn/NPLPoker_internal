@@ -109,9 +109,9 @@ final class ReceiptService
     public function printTest(): string
     {
         $settings = $this->settings();
-        $printedAt = CarbonImmutable::now('Australia/Sydney');
+        $sampleDate = CarbonImmutable::now('Australia/Sydney');
         $lines = $this->layout([
-            'date' => $printedAt->format('d/m/Y g:i A'),
+            'date' => $sampleDate->format('d/m/Y g:i A'),
             'venue' => 'Sample Venue',
             'name' => 'TEST RECEIPT',
             'guarantee' => '$2,000',
@@ -122,7 +122,6 @@ final class ReceiptService
             'price_cents' => 0,
             'chips' => 20000,
             'payment_lines' => [],
-            'printed_at' => $printedAt,
         ], $settings);
 
         return $this->send($settings['printer_name'], $lines) ? 'printed' : 'failed';
@@ -182,7 +181,7 @@ final class ReceiptService
         $venue = $venueId !== null ? DB::table('mirror_venues')->where('cloud_id', $venueId)->first() : null;
         $venuePayload = $this->decodePayload($venue->payload ?? null);
         $timezone = $this->receiptTimezone($payload, $venuePayload);
-        $printedAt = CarbonImmutable::now($timezone);
+        $sessionNow = CarbonImmutable::now($timezone);
 
         $scheduledDate = trim((string) ($mirror->session_date ?? ''));
         $scheduledTime = trim((string) ($mirror->start_time ?? ''));
@@ -196,7 +195,7 @@ final class ReceiptService
             $date = 'Started '.CarbonImmutable::parse($session->started_at, config('app.timezone'))
                 ->setTimezone($timezone)->format('d/m/Y g:i A');
         } else {
-            $date = 'Date '.$printedAt->format('d/m/Y');
+            $date = 'Date '.$sessionNow->format('d/m/Y');
         }
 
         return $this->layout([
@@ -213,7 +212,6 @@ final class ReceiptService
             'price_cents' => $priceCents,
             'chips' => $chips,
             'payment_lines' => $paymentLines,
-            'printed_at' => $printedAt,
         ], $settings);
     }
 
@@ -241,7 +239,9 @@ final class ReceiptService
             ['text' => 'Chips: '.number_format($receipt['chips'])] + $strong,
             ...$receipt['payment_lines'],
             ['text' => ''],
-            ['text' => 'Printed '.$receipt['printed_at']->format('d M Y g:i A T')] + $center,
+            // Only the desktop host knows the laptop's current system clock
+            // and timezone. It replaces this marker immediately before print.
+            ['text' => 'Printed time unavailable', 'printed_at' => true] + $center,
             ['text' => 'npl.com.au'] + $center,
             ...$this->customLines($settings['footer_text']),
         ];

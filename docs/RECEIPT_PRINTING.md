@@ -33,6 +33,7 @@ when none is saved.
 | Name | Recorded entry name, otherwise player NPL ID |
 | Amount paid and chips | Recorded `tournament_actions.price_cents` and `chips` for this sale |
 | Voucher coverage | Recorded action `meta`, never recalculated from today's voucher template |
+| Printed timestamp | The laptop's Windows system local clock, read immediately before rendering |
 
 A missing guarantee prints `Not specified`; no prize is inferred from the buy-in
 or payout ladder. Missing table/seat values print `UNASSIGNED`. Missing start time
@@ -40,10 +41,13 @@ does not become midnight. For a local-only session the header uses the actual
 `started_at` instant labelled `Started`, or the current date labelled `Date` if
 the session has not started.
 
-The printed timestamp uses a valid session payload timezone, then the mirrored
-venue's `location_data.timezone`, then `Australia/Sydney` (the cloud scheduling
-default). The timezone abbreviation is included and daylight saving follows the
-configured timezone. No receipt fields require a new migration or a cloud call.
+The `Printed` footer uses the laptop's current system date and time for both
+thermal and document printing, including test receipts. Windows `GetLocalTime`
+is read for every print so a system clock or timezone change takes effect without
+restarting the OS app. PHP, venue and cloud timezones do not set this footer.
+Scheduled game dates still come from the linked game; local session start times
+are still displayed in their configured session/venue timezone. No migration or
+cloud call is needed.
 
 Rebuy/add-on/jackpot receipts match the supplied idempotency key when present,
 so overlapping sales cannot select a newer sale's amount. Buy-ins retain their
@@ -51,14 +55,14 @@ one-entry-per-player lookup because legacy buy-in rows do not store that key.
 
 ## Printer bridge and rollout
 
-The Go host consumes optional `logo` and `divider` flags in receipt lines alongside
+The Go host consumes optional `logo`, `divider` and `printed_at` flags alongside
 the existing `text`, `center`, `bold` and `big` fields. The logo is bundled with the
 OS; printing does not download a remote image. Thermal printers receive an
 ESC/POS bitmap and text; document queues receive the same content via the Windows
 driver. Long lines wrap to the available width, including double-size text.
 
 Deploy the Go executable and bundled Laravel/UI together. Updating only PHP on an
-older Go host leaves a plain `NPL` text fallback instead of the raster logo.
+older Go host cannot fill the laptop time marker and shows `Printed time unavailable`.
 
 Before using the new build at a venue, select its receipt printer in Overview,
 save settings and use **Print a test receipt**. Compare the physical slip to the

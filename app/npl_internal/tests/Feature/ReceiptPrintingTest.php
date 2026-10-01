@@ -10,7 +10,6 @@ use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -263,40 +262,14 @@ class ReceiptPrintingTest extends TestCase
         $this->assertStringContainsString("TABLE UNASSIGNED\nSEAT UNASSIGNED", $this->lastReceiptText());
     }
 
-    public static function receiptTimezoneCases(): array
+    public function test_print_time_is_delegated_to_the_laptop_even_when_server_and_venue_clocks_differ(): void
     {
-        return [
-            'session timezone wins and rolls to next date' => [
-                'Australia/Sydney', 'Australia/Perth', '2026-09-24 15:30:00 UTC', 'Printed 25 Sep 2026 1:30 AM AEST',
-            ],
-            'invalid session uses venue timezone' => [
-                'Not/A_Timezone', 'Australia/Brisbane', '2026-10-03 16:01:00 UTC', 'Printed 04 Oct 2026 2:01 AM AEST',
-            ],
-            'invalid mirrors use cloud default timezone' => [
-                'Not/A_Timezone', 'Still/Invalid', '2026-10-03 16:01:00 UTC', 'Printed 04 Oct 2026 3:01 AM AEDT',
-            ],
-            'Sydney immediately before daylight saving starts' => [
-                'Australia/Sydney', null, '2026-10-03 15:59:00 UTC', 'Printed 04 Oct 2026 1:59 AM AEST',
-            ],
-            'Sydney immediately after daylight saving starts' => [
-                'Australia/Sydney', null, '2026-10-03 16:01:00 UTC', 'Printed 04 Oct 2026 3:01 AM AEDT',
-            ],
-        ];
-    }
-
-    #[DataProvider('receiptTimezoneCases')]
-    public function test_printed_timestamp_uses_configured_timezone_and_daylight_saving(
-        ?string $sessionTimezone,
-        ?string $venueTimezone,
-        string $utcNow,
-        string $expected,
-    ): void {
-        $this->travelTo(Carbon::parse($utcNow));
+        $this->travelTo(Carbon::parse('2026-10-03 16:01:00 UTC'));
         $id = $this->tournament();
-        $this->linkScheduledGame($id, ['timezone' => $sessionTimezone]);
+        $this->linkScheduledGame($id, ['timezone' => 'Australia/Sydney']);
         DB::table('mirror_venues')->insert([
             'cloud_id' => 91,
-            'payload' => json_encode(['location_data' => ['timezone' => $venueTimezone]]),
+            'payload' => json_encode(['location_data' => ['timezone' => 'Australia/Perth']]),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -304,7 +277,10 @@ class ReceiptPrintingTest extends TestCase
         $this->fakeBridge();
 
         $this->assertSame('printed', $this->printRecordedAction($id, 'NPL7013'));
-        $this->assertStringContainsString($expected, $this->lastReceiptText());
+        $lines = $this->lastReceiptLines();
+        $printTime = array_values(array_filter($lines, fn (array $line): bool => $line['printed_at'] ?? false));
+        $this->assertSame([['text' => 'Printed time unavailable', 'printed_at' => true, 'center' => true]], $printTime);
+        $this->assertStringNotContainsString('AEDT', $this->lastReceiptText());
         // A wall-clock schedule is independent of when the receipt is printed.
         $this->assertSame('24/09/2026 6:30 PM', $this->lastReceiptLines()[1]['text']);
     }
@@ -470,5 +446,6 @@ class ReceiptPrintingTest extends TestCase
         $this->assertStringContainsString("BUY-IN\n$0.00\nChips: 20,000", $receipt);
         $this->assertStringContainsString("npl.com.au\nGood luck!", $receipt);
         $this->assertCount(2, array_filter($lines, fn (array $line): bool => $line['divider'] ?? false));
+        $this->assertCount(1, array_filter($lines, fn (array $line): bool => $line['printed_at'] ?? false));
     }
 }

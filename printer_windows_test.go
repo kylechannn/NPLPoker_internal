@@ -82,7 +82,7 @@ func TestPrintDocumentRendersARealPDFOnThisMachine(t *testing.T) {
 		{Text: "$0.00", Center: true, Bold: true, Big: true},
 		{Text: "Chips: 20,000", Center: true, Bold: true},
 		{Text: ""},
-		{Text: "Printed 24 Sep 2026 12:12 PM AEST", Center: true},
+		{Text: "Printed time unavailable", PrintedAt: true, Center: true},
 		{Text: "npl.com.au", Center: true},
 	})
 	if err != nil {

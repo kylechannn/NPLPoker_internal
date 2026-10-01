@@ -415,6 +415,7 @@ func printDocument(printerName string, lines []receiptLine) (string, error) {
 	if ret, _, callErr := procStartPage.Call(hdc); int32(ret) <= 0 {
 		return "", fmt.Errorf("start the receipt page on %q: %w", printerName, callErr)
 	}
+	lines = receiptLinesAtPrintTime(lines, receiptLaptopLocalTime())
 
 	y := marginY
 	ensureSpace := func(height int) error {

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -24,12 +25,13 @@ import (
 // a blank receipt.
 
 type receiptLine struct {
-	Text    string `json:"text"`
-	Center  bool   `json:"center"`
-	Bold    bool   `json:"bold"`
-	Big     bool   `json:"big"`
-	Logo    bool   `json:"logo,omitempty"`
-	Divider bool   `json:"divider,omitempty"`
+	Text      string `json:"text"`
+	Center    bool   `json:"center"`
+	Bold      bool   `json:"bold"`
+	Big       bool   `json:"big"`
+	Logo      bool   `json:"logo,omitempty"`
+	Divider   bool   `json:"divider,omitempty"`
+	PrintedAt bool   `json:"printed_at,omitempty"`
 }
 
 type receiptPrintRequest struct {
@@ -41,6 +43,19 @@ const (
 	receiptMaxLines   = 80
 	receiptMaxColumns = 64
 )
+
+// Resolve only the print-time marker, at the desktop printer. Scheduled event
+// dates and venue-customised text keep the values supplied by Laravel. Copy the
+// lines so printing the same receipt again reads the laptop clock again.
+func receiptLinesAtPrintTime(lines []receiptLine, localTime time.Time) []receiptLine {
+	resolved := append([]receiptLine(nil), lines...)
+	for index := range resolved {
+		if resolved[index].PrintedAt {
+			resolved[index].Text = "Printed " + localTime.Format("02 Jan 2006 3:04 PM")
+		}
+	}
+	return resolved
+}
 
 // escposReceipt renders lines into the byte stream thermal printers
 // speak: initialise, per-line alignment/emphasis/size, then feed and
@@ -61,6 +76,7 @@ func receiptPrinterColumns(printer string) int {
 }
 
 func escposReceiptForPrinter(lines []receiptLine, printer string) []byte {
+	lines = receiptLinesAtPrintTime(lines, receiptLaptopLocalTime())
 	buffer := []byte{0x1B, '@'} // ESC @ — initialise
 	columns := receiptPrinterColumns(printer)
 

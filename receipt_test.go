@@ -2,12 +2,65 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
+
+func TestReceiptPrintTimeUsesLaptopDateWithoutChangingEventOrInput(t *testing.T) {
+	var request receiptPrintRequest
+	err := json.Unmarshal([]byte(`{"lines":[
+		{"text":"24/09/2026 6:30 PM AEST","center":true},
+		{"text":"Printed by the NPL desk","bold":true},
+		{"text":"Printed time unavailable","printed_at":true,"center":true}
+	]}`), &request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := append([]receiptLine(nil), request.Lines...)
+	// Both laptops see a different calendar date to UTC at these times. The
+	// receipt must keep the laptop's wall time, including midnight and noon.
+	for _, test := range []struct {
+		local time.Time
+		want  string
+	}{
+		{time.Date(2026, 10, 3, 0, 4, 0, 0, time.FixedZone("Laptop", 10*60*60)), "Printed 03 Oct 2026 12:04 AM"},
+		{time.Date(2026, 10, 2, 23, 58, 0, 0, time.FixedZone("Laptop", -7*60*60)), "Printed 02 Oct 2026 11:58 PM"},
+		{time.Date(2026, 10, 3, 12, 4, 0, 0, time.FixedZone("Laptop", 8*60*60)), "Printed 03 Oct 2026 12:04 PM"},
+	} {
+		resolved := receiptLinesAtPrintTime(request.Lines, test.local)
+		if resolved[2].Text != test.want || !resolved[2].Center {
+			t.Fatalf("expected centred laptop print time %q, got %+v", test.want, resolved[2])
+		}
+		if !slices.Equal(resolved[:2], original[:2]) {
+			t.Fatal("scheduled date or custom text was changed")
+		}
+		if !slices.Equal(request.Lines, original) {
+			t.Fatal("printing mutated the source receipt; a reprint could retain an old time")
+		}
+	}
+}
+
+func TestEscposReceiptResolvesPrintMarkerFromCurrentLaptopClock(t *testing.T) {
+	before := receiptLaptopLocalTime()
+	data := escposReceipt([]receiptLine{
+		{Text: "24/09/2026 6:30 PM AEST", Center: true},
+		{Text: "Printed time unavailable", PrintedAt: true, Center: true},
+	})
+	after := receiptLaptopLocalTime()
+	if !bytes.Contains(data, []byte("Printed "+before.Format("02 Jan 2006 3:04 PM"))) &&
+		!bytes.Contains(data, []byte("Printed "+after.Format("02 Jan 2006 3:04 PM"))) {
+		t.Fatalf("receipt did not contain the current laptop print time: %q", data)
+	}
+	if bytes.Contains(data, []byte("Printed time unavailable")) || !bytes.Contains(data, []byte("24/09/2026 6:30 PM AEST")) {
+		t.Fatal("only the print-time marker should be replaced")
+	}
+}
 
 func TestEscposReceiptFramesLinesWithInitAndCut(t *testing.T) {
 	data := escposReceipt([]receiptLine{
