@@ -30,16 +30,17 @@ const (
 )
 
 type licenseLease struct {
-	UUID       string `json:"uuid"`
-	Label      string `json:"label"`
-	Product    string `json:"product"`
-	VenueID    *int   `json:"venue_id"`
-	VenueName  string `json:"venue_name"`
-	Status     string `json:"status"`
-	ExpiresAt  string `json:"expires_at"`
-	LeaseUntil string `json:"lease_until"`
-	DeviceID   string `json:"device_id"`
-	DeviceLbl  string `json:"device_label"`
+	UUID        string `json:"uuid"`
+	Label       string `json:"label"`
+	Product     string `json:"product"`
+	VenueID     *int   `json:"venue_id"`
+	VenueName   string `json:"venue_name"`
+	Status      string `json:"status"`
+	ExpiresAt   string `json:"expires_at"`
+	LeaseUntil  string `json:"lease_until"`
+	DeviceID    string `json:"device_id"`
+	DeviceLbl   string `json:"device_label"`
+	IsAppReview bool   `json:"is_app_review"`
 }
 
 // versionPolicy is the cloud's verdict on this build, carried back on every
@@ -143,13 +144,17 @@ func (m *licenseManager) deviceID() string {
 
 	host, _ := os.Hostname()
 	configDir, _ := os.UserConfigDir()
-	sum := sha1.Sum([]byte(host + "|" + configDir + "|" + runtime.GOOS))
+	identity := host + "|" + configDir + "|" + runtime.GOOS
+	if reviewProfileEnabled() {
+		identity += "|app-review|" + os.Getenv("NPL_INTERNAL_REVIEW_ID")
+	}
+	sum := sha1.Sum([]byte(identity))
 	m.state.DeviceID = "NPLI-" + strings.ToUpper(hex.EncodeToString(sum[:])[:12])
 	return m.state.DeviceID
 }
 
 func (m *licenseManager) leaseValid() bool {
-	if m.state.Lease == nil || m.state.Lease.LeaseUntil == "" {
+	if m.state.Lease == nil || m.state.Lease.LeaseUntil == "" || m.state.Lease.IsAppReview != reviewProfileEnabled() {
 		return false
 	}
 	until, err := time.Parse(time.RFC3339, m.state.Lease.LeaseUntil)
@@ -173,6 +178,8 @@ func (m *licenseManager) statusLocked() licenseStatus {
 	switch {
 	case !activated:
 		message = "Enter the CD-Key supplied by NPL to activate this install."
+	case m.state.Lease.IsAppReview != reviewProfileEnabled():
+		message = "This licence belongs to a different profile. Use the assigned App Review key only in the separate review copy."
 	case !valid:
 		message = "This licence lease has expired. Reconnect to refresh it."
 	}
@@ -243,12 +250,13 @@ func (m *licenseManager) check() (licenseStatus, error) {
 
 func (m *licenseManager) post(path, key string) (*licenseLease, *versionPolicy, error) {
 	hostname, _ := os.Hostname()
-	body, err := json.Marshal(map[string]string{
-		"key":          key,
-		"device_id":    m.deviceID(),
-		"device_label": hostname,
-		"app_version":  version,
-		"os":           runtime.GOOS + " " + runtime.GOARCH,
+	body, err := json.Marshal(map[string]any{
+		"key":            key,
+		"device_id":      m.deviceID(),
+		"device_label":   hostname,
+		"app_version":    version,
+		"os":             runtime.GOOS + " " + runtime.GOARCH,
+		"review_profile": reviewProfileEnabled(),
 	})
 	if err != nil {
 		return nil, nil, err
@@ -289,6 +297,9 @@ func (m *licenseManager) post(path, key string) (*licenseLease, *versionPolicy, 
 	}
 
 	lease := envelope.Data.License
+	if lease.IsAppReview != reviewProfileEnabled() {
+		return nil, nil, errors.New("licence profile mismatch: App Review keys require the separate review copy; venue keys require the normal OS")
+	}
 	return &lease, envelope.Data.Policy, nil
 }
 

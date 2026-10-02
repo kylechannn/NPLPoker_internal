@@ -47,6 +47,7 @@ type healthResponse struct {
 	// installs whose backend failed to start, where the console stays
 	// reachable for diagnostics.
 	StaffConsoleLogin bool   `json:"staff_console_login"`
+	ReviewProfile     bool   `json:"review_profile"`
 	Time              string `json:"time"`
 	// The cloud's minimum-version policy, recomputed against this running
 	// build: when UpdateRequired is true the UI must block the console with
@@ -73,6 +74,9 @@ func main() {
 }
 
 func run(cfg config) error {
+	if err := prepareReviewProfile(&cfg); err != nil {
+		return err
+	}
 	restoreRuntime := applyGoRuntimeLimits(cfg.resources)
 	defer restoreRuntime()
 
@@ -316,6 +320,7 @@ func newHandlerWithBackend(
 			StaffLoginEnabled: staffGatewayURL != "",
 			StaffGatewayURL:   staffGatewayURL,
 			StaffConsoleLogin: backend != nil,
+			ReviewProfile:     reviewProfileEnabled(),
 			Time:              time.Now().UTC().Format(time.RFC3339),
 		}
 

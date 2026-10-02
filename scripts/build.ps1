@@ -72,6 +72,9 @@ try {
 
 # 1. The host executable.
 Copy-Item -LiteralPath (Join-Path $RepoRoot "NPLPokerOS.exe") -Destination (Join-Path $OutputDirectory "NPLPokerOS.exe") -Force
+$ReviewSupport = @{ schema = 1; executable_sha256 = (Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'NPLPokerOS.exe') -Algorithm SHA256).Hash } | ConvertTo-Json
+[IO.File]::WriteAllText((Join-Path $OutputDirectory 'review-profile-support.json'), $ReviewSupport, (New-Object Text.UTF8Encoding($false)))
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'prepare-app-review.ps1') -Destination (Join-Path $OutputDirectory 'PrepareAppReview.ps1') -Force
 
 # 2. Portable PHP at .tools\php - where backendPHPBinary() looks first.
 $PhpSource = Join-Path $ReferenceBundle "redist\php"

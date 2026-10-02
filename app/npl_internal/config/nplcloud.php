@@ -12,6 +12,7 @@ declare(strict_types=1);
  * host and both UIs read the same list instead of hardcoding their own.
  */
 return [
+    'review_profile' => env('NPL_INTERNAL_REVIEW_PROFILE') === '1',
     'base' => rtrim((string) env('NPL_CLOUD_BASE', 'https://api.nplpokerclub.com.au'), '/'),
 
     'timeouts' => [

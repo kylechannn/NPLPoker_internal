@@ -359,6 +359,9 @@ final class CloudClient
         // The resident sweep and Cash puller can outlive a host activation.
         // Never send a new operation with a previous cached licence/device.
         $this->license->forget();
+        if ($this->license->lease() !== null && ! $this->license->profileMatches()) {
+            throw new CloudException(CloudException::UNAUTHORISED, 'This licence does not belong to the current OS profile.', 403);
+        }
         $sample = $this->observation;
 
         return Http::withHeaders(array_filter([

@@ -91,6 +91,7 @@ type Health = {
   staff_login_enabled: boolean
   staff_gateway_url?: string
   staff_console_login: boolean
+  review_profile?: boolean
   time: string
   // The cloud's minimum-version policy, recomputed by the host against its
   // own build — when update_required is true the console blocks outright.
@@ -1041,7 +1042,7 @@ export default function App() {
           </div>
           <div className="brand-copy">
             <strong>NPL</strong>
-            <span>OS</span>
+            <span>{health.status === "ready" && health.health.review_profile ? "APP REVIEW TEST" : "OS"}</span>
           </div>
           {health.status === "ready" ? (
             <span className="brand-version" title={`Build ${health.health.version}`}>

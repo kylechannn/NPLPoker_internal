@@ -32,7 +32,12 @@ final class LicenseKeyProvider
 
     public function isActivated(): bool
     {
-        return ($this->key() ?? '') !== '' && $this->lease() !== null;
+        return ($this->key() ?? '') !== '' && $this->lease() !== null && $this->profileMatches();
+    }
+
+    public function profileMatches(): bool
+    {
+        return (bool) ($this->lease()['is_app_review'] ?? false) === (bool) config('nplcloud.review_profile', false);
     }
 
     /** True while the lease the cloud granted is still in force. */
@@ -40,7 +45,7 @@ final class LicenseKeyProvider
     {
         $leaseUntil = $this->lease()['lease_until'] ?? null;
 
-        if (! is_string($leaseUntil) || $leaseUntil === '') {
+        if (! $this->profileMatches() || ! is_string($leaseUntil) || $leaseUntil === '') {
             return false;
         }
 

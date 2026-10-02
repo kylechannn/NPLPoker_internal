@@ -86,6 +86,11 @@ func startBackendApp(ctx context.Context, hostBridge string, workerCount int) (*
 
 	appDir := filepath.Dir(artisan)
 	php := backendPHPBinary(filepath.Dir(filepath.Dir(appDir)))
+	if reviewProfileEnabled() {
+		root := os.Getenv("NPL_INTERNAL_REVIEW_ROOT")
+		appDir = filepath.Join(root, filepath.FromSlash(backendAppDir))
+		php = filepath.Join(root, ".tools", "php", "php.exe")
+	}
 	workerCount = max(1, workerCount)
 
 	// NPL_APP_VERSION hands the ldflags-stamped host build down to PHP —
@@ -95,6 +100,7 @@ func startBackendApp(ctx context.Context, hostBridge string, workerCount int) (*
 	// into the cached config, so caching under a different environment
 	// than the workers run with would freeze the wrong values in.
 	env := append(os.Environ(), "NPL_HOST_BRIDGE="+hostBridge, "NPL_APP_VERSION="+version)
+	env = reviewBackendEnvironment(env, appDir)
 
 	runArtisan := func(label string, args ...string) error {
 		cmd := exec.CommandContext(ctx, php, args...)

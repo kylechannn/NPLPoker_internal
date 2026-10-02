@@ -5,7 +5,6 @@ package main
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -70,7 +69,7 @@ const (
 )
 
 func runDesktopWindow(target string) error {
-	dataPath := filepath.Join(os.Getenv("LOCALAPPDATA"), "NPLPoker", "OperationalSystem", "WebView2")
+	dataPath := desktopProfileDataPath()
 	if err := os.MkdirAll(dataPath, 0o755); err != nil {
 		return err
 	}
@@ -80,7 +79,7 @@ func runDesktopWindow(target string) error {
 		DataPath:  dataPath,
 		AutoFocus: true,
 		WindowOptions: wv.WindowOptions{
-			Title:  desktopWindowTitle,
+			Title:  desktopProfileTitle(desktopWindowTitle),
 			Width:  1440,
 			Height: 900,
 			Center: true,
@@ -91,7 +90,7 @@ func runDesktopWindow(target string) error {
 	}
 	defer window.Destroy()
 
-	window.SetTitle(desktopWindowTitle)
+	window.SetTitle(desktopProfileTitle(desktopWindowTitle))
 	window.SetSize(1024, 680, wv.HintMin)
 	hwnd := uintptr(window.Window())
 	applyDesktopWindowStyle(hwnd)
@@ -150,10 +149,10 @@ func openRoomClockWindow(target string) {
 
 		clock := wv.NewWithOptions(wv.WebViewOptions{
 			Debug:     false,
-			DataPath:  filepath.Join(os.Getenv("LOCALAPPDATA"), "NPLPoker", "OperationalSystem", "WebView2"),
+			DataPath:  desktopProfileDataPath(),
 			AutoFocus: true,
 			WindowOptions: wv.WindowOptions{
-				Title:  roomClockWindowTitle,
+				Title:  desktopProfileTitle(roomClockWindowTitle),
 				Width:  420,
 				Height: 560,
 				Center: true,
