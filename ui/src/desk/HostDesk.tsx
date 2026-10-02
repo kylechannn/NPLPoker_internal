@@ -14,8 +14,6 @@ import {
   countdown,
   deskApi,
   elapsedClock,
-  holdClock,
-  holdRemainingMs,
   money,
   PRIVATE_TABLE_ACTIVATION_MIN,
   privateGatherMinutes,
@@ -107,34 +105,6 @@ type CashClockState = {
   level_duration_ms?: number
   remaining_ms?: number
   server_time_ms?: number
-}
-
-/**
- * The arrival clock under a booked seat on a player-created table: the
- * player has 20 minutes from taking the seat (or from the creator's time
- * slot) to buy in at this desk, or the cloud sweep releases the seat.
- * Ticks on its own so the grid itself stays on its 5s refresh.
- */
-function SeatHoldClock({ player }: { player: SeatedPlayer }) {
-  const [, forceTick] = useState(0)
-
-  useEffect(() => {
-    const handle = window.setInterval(() => forceTick((n) => n + 1), 1000)
-    return () => window.clearInterval(handle)
-  }, [])
-
-  const remaining = holdRemainingMs(player)
-  if (remaining === null) return null
-
-  return remaining > 0 ? (
-    <span className="host-seat__hold" title="Arrival clock — buy in at the desk before it runs out or the seat is released">
-      ⏱ {holdClock(remaining)} to arrive
-    </span>
-  ) : (
-    <span className="host-seat__hold host-seat__hold--lapsed" title="Arrival clock lapsed — the cloud releases this seat within the minute">
-      ⏱ time up — releasing
-    </span>
-  )
 }
 
 /**
@@ -1885,7 +1855,6 @@ export default function HostDesk({ sessionId, onExit, onClockStatus, onFinishGam
                       ) : (
                         <span className="host-seat__open">Open</span>
                       )}
-                      {seat.player && isBooking ? <SeatHoldClock player={seat.player} /> : null}
                       {seat.player && seat.player.live_chips != null ? (
                         <span
                           className="host-seat__stack"
